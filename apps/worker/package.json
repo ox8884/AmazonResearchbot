@@ -9,6 +9,7 @@
   "dependencies": {
     "@forge-ops/db": "workspace:*",
     "@forge-ops/domain": "workspace:*",
+    "@forge-ops/integrations": "workspace:*",
     "@forge-ops/security": "workspace:*",
     "pg-boss": "12.30.0",
     "tsx": "4.20.5"

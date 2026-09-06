@@ -1,8 +1,8 @@
-import { createPool } from "@forge-ops/db";
-import { evaluateNiche, unknown, type NicheInput, type SettingsSnapshot, type Stage } from "@forge-ops/domain";
-import { authorizeUrl, M1_ALLOWED_HOSTS } from "@forge-ops/security";
+import { createPool, recoverDispatchingAttempts } from "@forge-ops/db";
+import { evaluateNiche, unknown, type Evidence, type NicheInput, type SettingsSnapshot, type Stage } from "@forge-ops/domain";
+import { executeJsQuery } from "@forge-ops/integrations/jungle-scout/execute";
+import { resolveTransport } from "@forge-ops/integrations/jungle-scout/transport";
 import { PgBoss, type Job } from "pg-boss";
-
 const JOB_ADVANCE = "candidate.advance";
 
 type AdvanceJob = { candidateId: string; stage: string; inputVersion: number };
@@ -29,6 +29,7 @@ const boss = new PgBoss({
   migrate: false,
 });
 await boss.start();
+await recoverDispatchingAttempts(pool);
 await boss.createQueue(JOB_ADVANCE);
 
 await boss.work<AdvanceJob>(JOB_ADVANCE, { localConcurrency: 4, batchSize: 1 }, async (jobs: Job<AdvanceJob>[]) => {
@@ -48,6 +49,8 @@ async function currentSettings(): Promise<SettingsSnapshot> {
 
 async function advance(data: AdvanceJob): Promise<void> {
   const client = await pool.connect();
+  let stageAfter: Stage | null = null;
+  let settings: SettingsSnapshot;
   try {
     await client.query("BEGIN");
     const found = await client.query<{
@@ -67,7 +70,7 @@ async function advance(data: AdvanceJob): Promise<void> {
       await client.query("COMMIT");
       return;
     }
-    const settings = await currentSettings();
+    settings = await currentSettings();
     if (candidate.stage === "imported" || data.stage === "imported") {
       await client.query(`UPDATE candidates SET stage = 'screening', last_progress_at = now() WHERE id = $1`, [
         candidate.id,
@@ -78,13 +81,23 @@ async function advance(data: AdvanceJob): Promise<void> {
          ON CONFLICT (candidate_id, stage, input_version) DO NOTHING`,
         [candidate.id, candidate.input_version],
       );
+      const ev = await client.query<{
+        field: string;
+        kind: string;
+        value_text: string | null;
+        reason: string | null;
+        source_id: string | null;
+        observed_at: Date | null;
+      }>(`SELECT field, kind, value_text, reason, source_id, observed_at FROM evidence WHERE candidate_id = $1`, [
+        candidate.id,
+      ]);
       const nicheInput: NicheInput = {
-        review700Count: unknown("not collected from this file"),
-        review2000Count: unknown("not collected from this file"),
-        topPriceUsd: unknown("not collected from this file"),
-        monthlyRevenueCompetitorCount: unknown("not collected from this file"),
-        standardSize: unknown("not collected from this file"),
-        differentiation: unknown("not collected from this file"),
+        review700Count: evidenceNumber(ev.rows, "review_700_count"),
+        review2000Count: evidenceNumber(ev.rows, "review_2000_count"),
+        topPriceUsd: evidenceText(ev.rows, "top_price"),
+        monthlyRevenueCompetitorCount: evidenceNumber(ev.rows, "monthly_revenue_competitors"),
+        standardSize: evidenceBool(ev.rows, "standard_size"),
+        differentiation: evidenceBool(ev.rows, "differentiation"),
       };
       const assessment = evaluateNiche(nicheInput, settings);
       await client.query(
@@ -109,32 +122,13 @@ async function advance(data: AdvanceJob): Promise<void> {
         );
       }
     }
-
     const after = await client.query<{ stage: Stage }>(`SELECT stage FROM candidates WHERE id = $1`, [candidate.id]);
-    if (after.rows[0]?.stage === "api_validation") {
-      const denied = authorizeUrl("https://developer.junglescout.com/api/product_database_query", M1_ALLOWED_HOSTS);
-      if (!denied.ok) {
-        // fall through to budget lock — do not send HTTP
-      }
-      const cap = settings.jsDailyWireCap;
-      const day = new Date().toISOString().slice(0, 10);
+    stageAfter = after.rows[0]?.stage ?? null;
+    if (stageAfter === "api_validation" && settings.jsDailyWireCap <= 0) {
       await client.query(
-        `INSERT INTO budget_days (day_utc, wire_limit) VALUES ($1::date, $2)
-         ON CONFLICT (day_utc) DO NOTHING`,
-        [day, cap],
+        `UPDATE candidates SET blocked_reason = 'budget', last_progress_at = now() WHERE id = $1`,
+        [candidate.id],
       );
-      const budget = await client.query<{ reserved: number; consumed: number; wire_limit: number }>(
-        `SELECT reserved, consumed, wire_limit FROM budget_days WHERE day_utc = $1::date FOR UPDATE`,
-        [day],
-      );
-      const b = budget.rows[0];
-      const remaining = (b?.wire_limit ?? 0) - (b?.reserved ?? 0) - (b?.consumed ?? 0);
-      if (remaining <= 0) {
-        await client.query(
-          `UPDATE candidates SET blocked_reason = 'budget', last_progress_at = now() WHERE id = $1`,
-          [candidate.id],
-        );
-      }
     }
     await client.query("COMMIT");
   } catch (err) {
@@ -143,6 +137,68 @@ async function advance(data: AdvanceJob): Promise<void> {
   } finally {
     client.release();
   }
+
+  if (stageAfter === "api_validation" && settings!.jsDailyWireCap > 0) {
+    const result = await executeJsQuery(pool, resolveTransport(process.env), {
+      endpoint: "product_database_query",
+      marketplace: "us",
+      query: { keyword: data.candidateId },
+      accountScope: "local",
+      wireLimit: settings!.jsDailyWireCap,
+    });
+    if (result.kind === "budget_blocked") {
+      await pool.query(`UPDATE candidates SET blocked_reason = 'budget', last_progress_at = now() WHERE id = $1`, [
+        data.candidateId,
+      ]);
+    }
+  }
+}
+
+type EvidenceRow = {
+  field: string;
+  kind: string;
+  value_text: string | null;
+  reason: string | null;
+  source_id: string | null;
+  observed_at: Date | null;
+};
+
+function evidenceNumber(rows: EvidenceRow[], field: string): Evidence<number> {
+  const row = rows.find((r) => r.field === field);
+  if (!row || row.kind === "unknown" || row.value_text == null) {
+    return unknown(row?.reason ?? "missing", row?.source_id ?? null);
+  }
+  if (row.kind !== "measured" && row.kind !== "estimate" && row.kind !== "quote") {
+    return unknown("bad kind", row.source_id);
+  }
+  return {
+    kind: row.kind,
+    value: Number(row.value_text),
+    sourceId: row.source_id ?? "",
+    observedAt: row.observed_at?.toISOString() ?? "",
+  };
+}
+
+function evidenceText(rows: EvidenceRow[], field: string): Evidence<string> {
+  const row = rows.find((r) => r.field === field);
+  if (!row || row.kind === "unknown" || row.value_text == null) {
+    return unknown(row?.reason ?? "missing", row?.source_id ?? null);
+  }
+  if (row.kind !== "measured" && row.kind !== "estimate" && row.kind !== "quote") {
+    return unknown("bad kind", row.source_id);
+  }
+  return {
+    kind: row.kind,
+    value: row.value_text,
+    sourceId: row.source_id ?? "",
+    observedAt: row.observed_at?.toISOString() ?? "",
+  };
+}
+
+function evidenceBool(rows: EvidenceRow[], field: string): Evidence<boolean> {
+  const text = evidenceText(rows, field);
+  if (text.kind === "unknown") return text;
+  return { ...text, value: text.value === "true" || text.value === "1" };
 }
 
 console.log("worker listening for candidate.advance");

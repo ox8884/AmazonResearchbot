@@ -11,6 +11,12 @@ importers:
       '@forge-ops/db':
         specifier: workspace:*
         version: link:packages/db
+      '@forge-ops/domain':
+        specifier: workspace:*
+        version: link:packages/domain
+      '@forge-ops/integrations':
+        specifier: workspace:*
+        version: link:packages/integrations
     devDependencies:
       pg:
         specifier: 8.23.0
@@ -125,6 +131,9 @@ importers:
       '@forge-ops/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@forge-ops/integrations':
+        specifier: workspace:*
+        version: link:../../packages/integrations
       '@forge-ops/security':
         specifier: workspace:*
         version: link:../../packages/security
@@ -176,6 +185,9 @@ importers:
 
   packages/integrations:
     dependencies:
+      '@forge-ops/db':
+        specifier: workspace:*
+        version: link:../db
       '@forge-ops/domain':
         specifier: workspace:*
         version: link:../domain

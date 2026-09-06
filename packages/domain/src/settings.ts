@@ -16,6 +16,9 @@ export type SettingsSnapshot = {
   passRulesRequired: number;
   jsDailyWireCap: number;
   productDatabaseMaxPages: number;
+  shareTop1MustBeBelowPct: string;
+  shareTop3MustBeBelowPct: string;
+  firstPageSalesMinUsd: string;
 };
 
 export const INITIAL_SETTINGS: SettingsSnapshot = {
@@ -36,4 +39,7 @@ export const INITIAL_SETTINGS: SettingsSnapshot = {
   passRulesRequired: 4,
   jsDailyWireCap: 0,
   productDatabaseMaxPages: 3,
+  shareTop1MustBeBelowPct: "35",
+  shareTop3MustBeBelowPct: "55",
+  firstPageSalesMinUsd: "350000",
 };

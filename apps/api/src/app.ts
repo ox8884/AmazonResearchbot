@@ -306,13 +306,16 @@ export async function buildApp(env: ApiEnv, pool: Pool) {
            VALUES ($1,'keyword','measured',$2,$3,$4)`,
           [candidateId, row.keywordRaw, sourceId, observedAt],
         );
-        const reviewCell = parseNumericCell(row.raw.reviews ?? row.raw.Reviews, sourceId, observedAt);
-        if (reviewCell.kind === "unknown") {
-          await client.query(
-            `INSERT INTO evidence (candidate_id, field, kind, reason, source_id)
-             VALUES ($1,'reviews','unknown',$2,$3)`,
-            [candidateId, reviewCell.reason, sourceId],
-          );
+        const extra = [
+          ["reviews", row.raw.reviews ?? row.raw.Reviews, "reviews" in row.raw || "Reviews" in row.raw],
+          ["review_700_count", row.raw.review_700_count, "review_700_count" in row.raw],
+          ["review_2000_count", row.raw.review_2000_count, "review_2000_count" in row.raw],
+          ["top_price", row.raw.top_price, "top_price" in row.raw],
+          ["monthly_revenue_competitors", row.raw.monthly_revenue_competitors, "monthly_revenue_competitors" in row.raw],
+        ] as const;
+        for (const [field, value, present] of extra) {
+          if (!present) continue;
+          await insertCellEvidence(client, candidateId, sourceId, observedAt, field, value);
         }
         await client.query(
           `INSERT INTO candidate_events (candidate_id, stage, input_version, detail)
@@ -354,6 +357,31 @@ export async function buildApp(env: ApiEnv, pool: Pool) {
     return { candidate: found, evidence: ev.rows };
   });
 
+  app.get("/api/saved-searches", async () => {
+    const rows = await pool.query(`SELECT id, name, marketplace, category, filters, revision FROM saved_searches ORDER BY created_at`);
+    return { searches: rows.rows };
+  });
+
+  app.post("/api/saved-searches", async (request, reply) => {
+    const body = request.body as { name?: string; category?: string; filters?: unknown };
+    if (!body.name) return reply.status(400).send({ code: "INVALID", message: "name required" });
+    const inserted = await pool.query<{ id: string }>(
+      `INSERT INTO saved_searches (name, marketplace, category, filters) VALUES ($1,'us',$2,$3::jsonb) RETURNING id`,
+      [body.name, body.category ?? "Kitchen & Dining", JSON.stringify(body.filters ?? {})],
+    );
+    return reply.status(201).send({ id: inserted.rows[0]?.id });
+  });
+
+  app.post("/api/saved-searches/:id/run", async (request, reply) => {
+    const id = (request.params as { id: string }).id;
+    const found = await pool.query(`SELECT id FROM saved_searches WHERE id = $1`, [id]);
+    if ((found.rowCount ?? 0) === 0) return reply.status(404).send({ code: "NOT_FOUND", message: "Search missing" });
+    return reply.status(202).send({
+      id,
+      nextAction: { kind: "waiting", label: "웹 연결을 기다리고 있어요", target: "web_session" },
+    });
+  });
+
   app.addHook("onClose", async () => {
     await boss.stop({ graceful: false, timeout: 5000 });
   });
@@ -392,4 +420,28 @@ async function loadCandidates(pool: Pool, locale: "ko" | "en") {
     });
   }
   return out;
+}
+
+async function insertCellEvidence(
+  client: { query: (text: string, values?: unknown[]) => Promise<unknown> },
+  candidateId: string,
+  sourceId: string,
+  observedAt: string,
+  field: string,
+  raw: string | undefined,
+): Promise<void> {
+  const cell = parseNumericCell(raw, sourceId, observedAt);
+  if (cell.kind === "unknown") {
+    await client.query(
+      `INSERT INTO evidence (candidate_id, field, kind, reason, source_id)
+       VALUES ($1,$2,'unknown',$3,$4)`,
+      [candidateId, field, cell.reason, sourceId],
+    );
+    return;
+  }
+  await client.query(
+    `INSERT INTO evidence (candidate_id, field, kind, value_text, source_id, observed_at)
+     VALUES ($1,$2,$3,$4,$5,$6)`,
+    [candidateId, field, cell.kind, cell.value, sourceId, observedAt],
+  );
 }

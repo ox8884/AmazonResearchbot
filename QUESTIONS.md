@@ -42,6 +42,6 @@
 
 ## 이번 기록에서 한 일 / 하지 않은 일
 
-한 일: M0 문서·시안 승인. M1 로컬 스택(`pnpm dev`). 합성 CSV 20행 → 후보 20, 각 nextAction 1개, 같은 파일 재업로드 20, 한 후보 web_session 대기가 나머지를 막지 않음, wire attempt 0. 로그인 화면 1280/375 확인. 소스만 GitHub `main`에 올림. 비밀값 없음.
+한 일: M0 문서·시안 승인. M1 로컬 스택. csv20 후보 20. M2 로컬 JS 시뮬레이터: 예산 cap3/cap0, 동일쿼리 wire1, 재시작 재전송 0, 근거 unknown 보존. 소스 GitHub `main`. 실제 정글스카웃 호출 0.
 
 하지 않은 일: 유료 API, 이메일/업체 연락, production 배포, 데이터 이관/삭제.

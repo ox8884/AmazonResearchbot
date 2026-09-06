@@ -1,0 +1,5 @@
+keyword,reviews
+missing-reviews,
+empty-reviews,
+lt-reviews,< 450
+ok-reviews,12

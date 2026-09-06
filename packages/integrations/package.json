@@ -3,12 +3,17 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./jungle-scout/csv": "./src/jungle-scout/csv.ts"
+    "./jungle-scout/csv": "./src/jungle-scout/csv.ts",
+    "./jungle-scout/execute": "./src/jungle-scout/execute.ts",
+    "./jungle-scout/transport": "./src/jungle-scout/transport.ts",
+    "./jungle-scout/fingerprint": "./src/jungle-scout/fingerprint.ts",
+    "./jungle-scout/endpoints": "./src/jungle-scout/endpoints.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
+    "@forge-ops/db": "workspace:*",
     "@forge-ops/domain": "workspace:*",
     "csv-parse": "7.0.2"
   },
