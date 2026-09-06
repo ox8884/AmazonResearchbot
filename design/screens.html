@@ -1,0 +1,740 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Forge Kitchen Ops — 화면 시안 (앱 아님)</title>
+  <style>
+    :root {
+      --canvas: #F4F6F8;
+      --ink: #172B3A;
+      --surface: #FFFFFF;
+      --muted: #3E5160;
+      --line: #D5DCE3;
+      --action: #164E63;
+      --action-pressed: #0F3A4A;
+      --warn: #854D0E;
+      --warn-bg: #FEF3C7;
+      --danger: #991B1B;
+      --danger-bg: #FEE2E2;
+      --ok: #166534;
+      --ok-bg: #DCFCE7;
+      --space-4: 4px;
+      --space-8: 8px;
+      --space-12: 12px;
+      --space-16: 16px;
+      --space-24: 24px;
+      --space-32: 32px;
+      --radius: 8px;
+      --font: "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans", ui-sans-serif, system-ui, sans-serif;
+      --review: #1B2430;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; min-height: 100%; }
+    body {
+      font-family: var(--font);
+      font-size: 16px;
+      line-height: 1.5;
+      color: var(--ink);
+      background: #E8ECF0;
+    }
+    button, input, select { font: inherit; }
+    h1, h2, h3 { text-wrap: balance; margin: 0; }
+    .tabular { font-variant-numeric: tabular-nums; }
+
+    .review {
+      background: var(--review);
+      color: #E8EEF2;
+      padding: 12px 16px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 24px;
+      align-items: center;
+    }
+    .review strong { font-weight: 650; letter-spacing: 0.02em; }
+    .review p { margin: 0; font-size: 14px; color: #B7C3CC; }
+    .review-controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-left: auto;
+      align-items: center;
+    }
+    .review label {
+      font-size: 14px;
+      color: #B7C3CC;
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .seg {
+      display: flex;
+      gap: 4px;
+      background: #121821;
+      padding: 4px;
+      border-radius: var(--radius);
+    }
+    .seg button {
+      min-height: 44px;
+      padding: 0 12px;
+      border: 0;
+      border-radius: 6px;
+      background: transparent;
+      color: #E8EEF2;
+      cursor: pointer;
+    }
+    .seg button[aria-pressed="true"] { background: var(--action); color: #fff; }
+    .seg button:focus-visible {
+      outline: 2px solid #fff;
+      outline-offset: 2px;
+    }
+
+    .board {
+      padding: 24px 16px 48px;
+      overflow-x: auto;
+    }
+    .stage {
+      margin: 0 auto;
+      background: var(--canvas);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      min-height: 720px;
+      box-shadow: 0 1px 0 rgba(23, 43, 58, 0.04);
+      overflow: hidden;
+    }
+    .stage[data-width="1280"] { width: 1280px; }
+    .stage[data-width="768"] { width: 768px; }
+    .stage[data-width="375"] { width: 375px; }
+
+    .app {
+      min-height: 720px;
+      display: grid;
+      background: var(--canvas);
+    }
+    .stage[data-width="1280"] .app {
+      grid-template-columns: 216px minmax(0, 1fr);
+    }
+    .stage[data-width="1280"] .app[data-has-panel="true"] {
+      grid-template-columns: 216px minmax(0, 1fr) 360px;
+    }
+    .stage[data-width="768"] .app {
+      grid-template-rows: 56px minmax(0, 1fr);
+    }
+    .stage[data-width="375"] .app {
+      grid-template-rows: 56px minmax(0, 1fr) 64px;
+    }
+
+    .side {
+      background: var(--surface);
+      border-right: 1px solid var(--line);
+      padding: 24px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 24px;
+    }
+    .wordmark {
+      font-size: 16px;
+      font-weight: 650;
+      line-height: 1.3;
+    }
+    .wordmark span { display: block; color: var(--muted); font-weight: 400; font-size: 14px; }
+    .nav { display: flex; flex-direction: column; gap: 4px; }
+    .nav a {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 44px;
+      padding: 0 12px;
+      border-radius: var(--radius);
+      color: var(--ink);
+      text-decoration: none;
+    }
+    .nav a[aria-current="page"] { background: #E8F1F4; color: var(--action); font-weight: 650; }
+    .nav a:focus-visible, .topnav a:focus-visible, .tabs a:focus-visible, .btn:focus-visible, .linkish:focus-visible {
+      outline: 2px solid var(--action);
+      outline-offset: 2px;
+    }
+
+    .topnav, .topbar {
+      display: none;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      align-items: center;
+      gap: 8px;
+      padding: 0 16px;
+      min-height: 56px;
+    }
+    .stage[data-width="768"] .topnav { display: flex; }
+    .stage[data-width="768"] .side,
+    .stage[data-width="375"] .side { display: none; }
+    .stage[data-width="375"] .topbar { display: flex; }
+    .topnav a {
+      min-height: 44px;
+      display: inline-flex;
+      align-items: center;
+      padding: 0 12px;
+      border-radius: var(--radius);
+      text-decoration: none;
+      color: var(--ink);
+    }
+    .topnav a[aria-current="page"] { color: var(--action); font-weight: 650; background: #E8F1F4; }
+    .topbar .title { font-weight: 650; font-size: 16px; }
+
+    .main {
+      padding: 24px 24px 32px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+      min-width: 0;
+    }
+    .stage[data-width="375"] .main { padding: 16px 16px 24px; }
+
+    .panel {
+      display: none;
+      background: var(--surface);
+      border-left: 1px solid var(--line);
+      padding: 24px 16px;
+      gap: 16px;
+      flex-direction: column;
+    }
+    .stage[data-width="1280"] .app[data-has-panel="true"] .panel { display: flex; }
+
+    .tabs {
+      display: none;
+      background: var(--surface);
+      border-top: 1px solid var(--line);
+      grid-template-columns: repeat(4, 1fr);
+    }
+    .stage[data-width="375"] .tabs { display: grid; }
+    .tabs a {
+      min-height: 64px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      text-decoration: none;
+      color: var(--muted);
+      font-size: 14px;
+    }
+    .tabs a[aria-current="page"] { color: var(--action); font-weight: 650; }
+    .tabs svg { width: 20px; height: 20px; }
+
+    .kicker { font-size: 14px; color: var(--muted); margin: 0; }
+    .page-title { font-size: 24px; line-height: 1.3; font-weight: 650; }
+    .stage[data-width="1280"] .page-title.hero { font-size: 32px; line-height: 1.25; }
+
+    .stack { display: flex; flex-direction: column; gap: 12px; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .card h3 { font-size: 16px; font-weight: 650; }
+    .meta { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 24px;
+      padding: 2px 8px;
+      border-radius: 8px;
+      font-weight: 500;
+      border: 1px solid transparent;
+    }
+    .chip svg { width: 14px; height: 14px; flex: 0 0 auto; }
+    .chip-ok { background: var(--ok-bg); color: var(--ok); }
+    .chip-warn { background: var(--warn-bg); color: var(--warn); }
+    .chip-danger { background: var(--danger-bg); color: var(--danger); }
+    .chip-quote { background: var(--surface); color: var(--action); border-color: var(--action); }
+    .chip-unknown {
+      background: var(--surface);
+      color: var(--muted);
+      border: 1px dashed var(--line);
+    }
+    .chip-stage { background: #E8F1F4; color: var(--action); }
+
+    .btn {
+      min-height: 44px;
+      padding: 0 16px;
+      border-radius: var(--radius);
+      border: 1px solid transparent;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      text-decoration: none;
+    }
+    .btn-primary { background: var(--action); color: #fff; }
+    .btn-primary:active { background: var(--action-pressed); transform: translateY(1px); }
+    .btn-secondary { background: var(--surface); color: var(--ink); border-color: var(--line); }
+    .btn-danger { background: transparent; color: var(--danger); border: 0; }
+    .btn-row { display: flex; flex-wrap: wrap; gap: 8px; }
+    .section > .btn,
+    .settings .btn { align-self: flex-start; }
+
+    .quiet {
+      background: transparent;
+      border: 0;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .quiet li { list-style: none; }
+    .quiet ul { margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+    .muted { color: var(--muted); font-size: 14px; margin: 0; }
+
+    .ph-image {
+      height: 120px;
+      border: 1px dashed var(--line);
+      border-radius: var(--radius);
+      background: var(--canvas);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .section { display: flex; flex-direction: column; gap: 12px; }
+    .section h2 { font-size: 16px; font-weight: 650; }
+
+    .quotes {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: start;
+    }
+    .stage[data-width="375"] .quotes { grid-template-columns: 1fr; }
+    .quote header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 8px;
+      align-items: flex-start;
+    }
+    .quote h2 { font-size: 16px; font-weight: 650; line-height: 1.3; }
+    .stage[data-width="375"] .quote header { flex-direction: column; }
+    .kv { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; margin: 0; }
+    .kv dt { color: var(--muted); font-size: 14px; }
+    .kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+    .verdict { padding: 8px 12px; border-radius: var(--radius); font-size: 14px; font-weight: 650; white-space: nowrap; }
+    .verdict-go { background: var(--ok-bg); color: var(--ok); }
+    .verdict-caution { background: var(--warn-bg); color: var(--warn); }
+
+    .settings { display: flex; flex-direction: column; gap: 24px; max-width: 720px; }
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field label { font-size: 14px; font-weight: 500; }
+    .field input, .field select {
+      min-height: 44px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 0 12px;
+      background: var(--surface);
+      color: var(--ink);
+    }
+    .field input:focus, .field select:focus {
+      outline: 2px solid var(--action);
+      outline-offset: 2px;
+    }
+    .hint { margin: 0; font-size: 14px; color: var(--muted); }
+    .conn {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--line);
+    }
+    .conn:last-child { border-bottom: 0; }
+
+    .screen { display: none; flex-direction: column; gap: 16px; }
+    .screen.active { display: flex; }
+
+    .banner {
+      display: none;
+      margin: 0 16px 0;
+      padding: 12px 16px;
+      background: var(--warn-bg);
+      color: var(--warn);
+      border-radius: var(--radius);
+      font-size: 14px;
+    }
+    .banner.show { display: block; }
+
+    .empty {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 32px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      align-items: flex-start;
+      max-width: 40rem;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      * { transition: none !important; transform: none !important; }
+    }
+  </style>
+</head>
+<body>
+  <header class="review">
+    <div>
+      <strong>시안 검토 — 애플리케이션이 아닙니다</strong>
+      <p>Forge Kitchen Ops · DESIGN.md 제안 · 전송·결제·유료 호출 없음</p>
+    </div>
+    <div class="review-controls">
+      <div class="seg" role="group" aria-label="너비">
+        <button type="button" data-width="375" aria-pressed="false">375</button>
+        <button type="button" data-width="768" aria-pressed="false">768</button>
+        <button type="button" data-width="1280" aria-pressed="true">1280</button>
+      </div>
+      <div class="seg" role="group" aria-label="화면">
+        <button type="button" data-screen="today" aria-pressed="true">오늘</button>
+        <button type="button" data-screen="empty" aria-pressed="false">오늘·빈</button>
+        <button type="button" data-screen="detail" aria-pressed="false">후보 상세</button>
+        <button type="button" data-screen="sourcing" aria-pressed="false">견적</button>
+        <button type="button" data-screen="settings" aria-pressed="false">설정</button>
+      </div>
+      <div class="seg" role="group" aria-label="언어">
+        <button type="button" data-lang="ko" aria-pressed="true">한국어</button>
+        <button type="button" data-lang="en" aria-pressed="false">English</button>
+      </div>
+    </div>
+  </header>
+
+  <div class="board">
+    <div class="stage" id="stage" data-width="1280">
+      <div class="app" id="app" data-has-panel="true">
+        <aside class="side" aria-label="주 메뉴">
+          <div class="wordmark">Forge Kitchen Ops<span class="i18n" data-ko="오늘 처리할 승인함" data-en="Today’s approval inbox"></span></div>
+          <nav class="nav" id="side-nav"></nav>
+        </aside>
+        <div class="topnav" id="top-nav"></div>
+        <div class="topbar"><span class="title" id="mobile-title"></span></div>
+
+        <main class="main">
+          <p class="banner" id="banner" role="status"></p>
+
+          <section class="screen active" id="screen-today" aria-labelledby="t-today">
+            <p class="kicker i18n" data-ko="2026년 9월 6일 토 · 오전 8:12" data-en="Sat, 6 Sep 2026 · 8:12 AM"></p>
+            <h1 id="t-today" class="page-title hero i18n" data-ko="오늘 처리할 일" data-en="Today’s approvals"></h1>
+            <p class="muted tabular i18n" data-ko="진행 17 · 승인 대기 2 · 웹 연결 대기 1" data-en="In progress 17 · Waiting on you 2 · Waiting for browser 1"></p>
+
+            <article class="card">
+              <div class="meta">
+                <span class="chip chip-stage"><svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 5v3l2 1.5" fill="none" stroke="currentColor" stroke-width="1.5"/></svg><span class="i18n" data-ko="연락 승인 대기" data-en="Waiting to send"></span></span>
+                <span class="chip chip-quote"><span class="i18n" data-ko="견적 초안" data-en="Quote drafts"></span></span>
+              </div>
+              <h3>silicone spatula set</h3>
+              <p class="i18n" data-ko="같은 사양으로 견적 요청 2건이 준비됐습니다. 보내기 전에 수신·수량·본문을 확인해 주세요." data-en="Two quote requests are ready for the same spec. Check recipients, quantity, and the message before sending."></p>
+              <p class="muted i18n" data-ko="모르는 것: 반품률, Amazon 자체 브랜드" data-en="Unknown: return rate, Amazon private brand"></p>
+              <div class="btn-row">
+                <button class="btn btn-primary js-bound i18n" type="button" data-ko="견적 요청 2건 보내기" data-en="Send 2 quote requests"></button>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="meta">
+                <span class="chip chip-stage"><span class="i18n" data-ko="발주 판단 대기" data-en="Waiting for order decision"></span></span>
+                <span class="chip chip-ok"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8.5 6.5 11.5 12.5 4.5" fill="none" stroke="currentColor" stroke-width="1.6"/></svg>GO · <span class="i18n" data-ko="견적 기반" data-en="quote-based"></span></span>
+              </div>
+              <h3>garlic press</h3>
+              <p class="i18n" data-ko="견적 A 기준 광고 후 마진 40.00%, ROI 200.00%, 출시 현금 $2,600. 한도 $3,000 안입니다. 수익성 확인이 아닙니다." data-en="Quote A: 40.00% margin after ads, 200.00% ROI, $2,600 launch cash — inside the $3,000 cap. This is not “profit confirmed”."></p>
+              <p class="muted i18n" data-ko="모르는 것: 지금 없는 항목 없음" data-en="Unknown: none right now"></p>
+              <div class="btn-row">
+                <button class="btn btn-primary js-bound i18n" type="button" data-ko="발주 판단 보기" data-en="Review order decision"></button>
+              </div>
+            </article>
+
+            <div class="quiet">
+              <p class="muted i18n" data-ko="기다리는 중 — 승인 버튼 없음" data-en="Waiting — no approval button"></p>
+              <ul>
+                <li>
+                  <strong>bamboo cutting board</strong>
+                  <p class="muted i18n" data-ko="웹 연결을 기다리고 있어요. 연결되면 이어서 확인합니다. 다른 후보는 계속 진행 중입니다." data-en="Waiting for the signed-in browser. It will resume when the session is back. Other candidates keep moving."></p>
+                </li>
+              </ul>
+              <p class="muted i18n" data-ko="나머지 후보는 자동 확인 중입니다." data-en="The other candidates are being checked automatically."></p>
+            </div>
+          </section>
+
+          <section class="screen" id="screen-empty" aria-labelledby="t-empty">
+            <h1 id="t-empty" class="page-title i18n" data-ko="오늘 처리할 일" data-en="Today’s approvals"></h1>
+            <div class="empty">
+              <h2 class="i18n" data-ko="아직 가져온 제품이 없어요" data-en="No products imported yet"></h2>
+              <p class="muted i18n" data-ko="저장 검색을 실행하거나 CSV를 올리면 후보가 만들어집니다. 한 파일의 서로 다른 키워드 20행은 후보 20개가 됩니다." data-en="Run a saved search or upload a CSV. Twenty different keywords in one file become twenty candidates."></p>
+              <button class="btn btn-primary i18n" type="button" data-goto="research" data-ko="제품 가져오기" data-en="Import products"></button>
+            </div>
+          </section>
+
+          <section class="screen" id="screen-research" aria-labelledby="t-res">
+            <h1 id="t-res" class="page-title i18n" data-ko="가져오기" data-en="Import"></h1>
+            <article class="card">
+              <h3 class="i18n" data-ko="저장 검색 · Kitchen & Dining" data-en="Saved search · Kitchen & Dining"></h3>
+              <p class="muted tabular i18n" data-ko="Amazon US · 가격 $17–80 · 필터 저장됨" data-en="Amazon US · price $17–80 · filters saved"></p>
+              <p class="i18n" data-ko="웹 연결을 기다리고 있어요. 연결되면 검색·내려받기·가져오기를 이어서 합니다. 지금은 CSV를 직접 고를 수 있습니다." data-en="Waiting for the signed-in browser. When it is back, search, download, and import continue. You can choose a CSV now."></p>
+              <div class="btn-row">
+                <button class="btn btn-primary js-bound i18n" type="button" data-ko="저장 검색 실행" data-en="Run saved search"></button>
+                <button class="btn btn-secondary js-bound i18n" type="button" data-ko="CSV 파일 선택" data-en="Choose CSV file"></button>
+              </div>
+            </article>
+          </section>
+
+          <section class="screen" id="screen-detail" aria-labelledby="t-detail">
+            <p class="kicker">silicone spatula set</p>
+            <h1 id="t-detail" class="page-title i18n" data-ko="후보 상세" data-en="Candidate"></h1>
+            <div class="ph-image i18n" data-ko="이미지 없음" data-en="No image"></div>
+
+            <div class="section">
+              <h2 class="i18n" data-ko="다음 행동" data-en="Next action"></h2>
+              <article class="card">
+                <div class="meta">
+                  <span class="chip chip-stage i18n" data-ko="연락 승인 대기" data-en="Waiting to send"></span>
+                </div>
+                <p class="i18n" data-ko="견적 요청 2건을 보냅니다. 이 버튼을 누르기 전에는 메일이 나가지 않습니다." data-en="Send two quote requests. Nothing is emailed until you approve."></p>
+                <div class="btn-row">
+                  <button class="btn btn-primary js-bound i18n" type="button" data-ko="견적 요청 2건 보내기" data-en="Send 2 quote requests"></button>
+                  <button class="btn btn-danger js-bound i18n" type="button" data-ko="거절" data-en="Reject"></button>
+                </div>
+              </article>
+            </div>
+
+            <div class="section">
+              <h2 class="i18n" data-ko="모르는 것" data-en="Unknown"></h2>
+              <div class="chips">
+                <span class="chip chip-unknown i18n" data-ko="미확인 · 반품률" data-en="Unknown · return rate"></span>
+                <span class="chip chip-unknown i18n" data-ko="미확인 · Amazon 자체 브랜드" data-en="Unknown · Amazon private brand"></span>
+              </div>
+            </div>
+
+            <div class="section">
+              <h2 class="i18n" data-ko="근거" data-en="Evidence"></h2>
+              <div class="chips">
+                <span class="chip chip-ok"><span class="i18n" data-ko="측정 · 1위 가격 $24.99" data-en="Measured · #1 price $24.99"></span></span>
+                <span class="chip chip-warn"><span class="i18n" data-ko="추정 · 월 매출 $12,400" data-en="Estimate · monthly revenue $12,400"></span></span>
+                <span class="chip chip-ok"><span class="i18n" data-ko="측정 · 리뷰 장벽 통과" data-en="Measured · review barrier passed"></span></span>
+                <span class="chip chip-quote"><span class="i18n" data-ko="견적 · 도착원가 초안 있음" data-en="Quote · landed-cost drafts ready"></span></span>
+              </div>
+              <p class="muted i18n" data-ko="추정·견적으로 계산해도 ‘수익성 확인’이라고 쓰지 않습니다. 점수는 정렬용이며 화면에 성공 확률을 만들지 않습니다." data-en="Estimate or quote math is not “profit confirmed”. Scores are for sorting only — no success-probability number."></p>
+            </div>
+          </section>
+
+          <section class="screen" id="screen-sourcing" aria-labelledby="t-src">
+            <p class="kicker">silicone spatula set · spec r3</p>
+            <h1 id="t-src" class="page-title i18n" data-ko="견적 비교" data-en="Quote comparison"></h1>
+            <p class="muted i18n" data-ko="같은 사양입니다. 견적 A의 단가와 견적 B의 최소 수량을 섞지 않습니다. 통화 USD." data-en="Same spec. Quote A’s unit price is never mixed with quote B’s MOQ. Currency USD."></p>
+            <div class="quotes">
+              <article class="card quote">
+                <header>
+                  <h2 class="i18n" data-ko="견적 A · 시안 공급처 A" data-en="Quote A · mock supplier A"></h2>
+                  <span class="verdict verdict-go">GO · <span class="i18n" data-ko="견적 기반" data-en="quote-based"></span></span>
+                </header>
+                <dl class="kv">
+                  <dt class="i18n" data-ko="수량 (이 단가 티어)" data-en="Quantity (this price tier)"></dt><dd class="tabular">300</dd>
+                  <dt class="i18n" data-ko="도착원가" data-en="Landed unit cost"></dt><dd class="tabular">$6.00</dd>
+                  <dt>Incoterm</dt><dd>FOB Ningbo</dd>
+                  <dt class="i18n" data-ko="판매가" data-en="Sale price"></dt><dd class="tabular">$30.00</dd>
+                  <dt class="i18n" data-ko="광고 전 이익 / 마진" data-en="Profit / margin before ads"></dt><dd class="tabular">$14.00 / 46.67%</dd>
+                  <dt class="i18n" data-ko="광고 후 이익 / 마진" data-en="Profit / margin after ads"></dt><dd class="tabular">$12.00 / 40.00%</dd>
+                  <dt>ROI</dt><dd class="tabular">200.00%</dd>
+                  <dt class="i18n" data-ko="출시 현금" data-en="Launch cash"></dt><dd class="tabular">$2,600</dd>
+                </dl>
+              </article>
+              <article class="card quote">
+                <header>
+                  <h2 class="i18n" data-ko="견적 B · 시안 공급처 B" data-en="Quote B · mock supplier B"></h2>
+                  <span class="verdict verdict-caution">CAUTION · <span class="i18n" data-ko="출시 현금 한도 초과" data-en="over launch-cash cap"></span></span>
+                </header>
+                <dl class="kv">
+                  <dt class="i18n" data-ko="수량 (이 단가 티어)" data-en="Quantity (this price tier)"></dt><dd class="tabular">600</dd>
+                  <dt class="i18n" data-ko="도착원가" data-en="Landed unit cost"></dt><dd class="tabular">$5.00</dd>
+                  <dt>Incoterm</dt><dd>FOB Ningbo</dd>
+                  <dt class="i18n" data-ko="판매가" data-en="Sale price"></dt><dd class="tabular">$30.00</dd>
+                  <dt class="i18n" data-ko="광고 전 이익 / 마진" data-en="Profit / margin before ads"></dt><dd class="tabular">$15.00 / 50.00%</dd>
+                  <dt class="i18n" data-ko="광고 후 이익 / 마진" data-en="Profit / margin after ads"></dt><dd class="tabular">$13.00 / 43.33%</dd>
+                  <dt>ROI</dt><dd class="tabular">260.00%</dd>
+                  <dt class="i18n" data-ko="출시 현금" data-en="Launch cash"></dt><dd class="tabular">$3,800</dd>
+                </dl>
+              </article>
+            </div>
+            <p class="muted i18n" data-ko="견적이 아직 없으면 탈락이 아니라 견적 대기입니다. 운임이 미확인이면 그 견적은 계산하지 않습니다." data-en="Zero quotes is waiting, not a rejection. If freight is unknown, that quote cannot be calculated."></p>
+          </section>
+
+          <section class="screen" id="screen-settings" aria-labelledby="t-set">
+            <h1 id="t-set" class="page-title i18n" data-ko="설정" data-en="Settings"></h1>
+            <p class="muted i18n" data-ko="지금 적용 중 · 버전 1. 저장이 아니라 변경 승인입니다." data-en="Active · version 1. This requests approval; it does not save live."></p>
+            <div class="settings">
+              <div class="section">
+                <h2 class="i18n" data-ko="판매 기준" data-en="Selling criteria"></h2>
+                <div class="field">
+                  <label for="mkt" class="i18n" data-ko="시장" data-en="Marketplace"></label>
+                  <select id="mkt" disabled><option>Amazon US · USD</option></select>
+                </div>
+                <div class="field">
+                  <label for="roi">ROI</label>
+                  <input id="roi" class="tabular" value="150" inputmode="decimal" />
+                  <p class="hint i18n" data-ko="광고 후 단위 기여이익 ÷ 단위 도착원가 × 100" data-en="Contribution after ads ÷ landed unit cost × 100"></p>
+                </div>
+                <div class="field">
+                  <label for="cap" class="i18n" data-ko="출시 현금 한도 (USD)" data-en="Launch cash cap (USD)"></label>
+                  <input id="cap" class="tabular" value="3000.00" />
+                </div>
+                <button class="btn btn-primary js-bound i18n" type="button" data-ko="변경 승인 요청" data-en="Request approval to change"></button>
+              </div>
+              <div class="section">
+                <h2 class="i18n" data-ko="연결" data-en="Connections"></h2>
+                <div class="conn"><span class="i18n" data-ko="정글스카웃 웹" data-en="Jungle Scout web"></span><span class="chip chip-unknown i18n" data-ko="대기" data-en="Waiting"></span></div>
+                <div class="conn"><span class="i18n" data-ko="정글스카웃 확인" data-en="Jungle Scout checks"></span><span class="chip chip-unknown i18n" data-ko="한도 없음 · 호출 안 함" data-en="No cap · no calls"></span></div>
+                <div class="conn"><span class="i18n" data-ko="업무 메일" data-en="Work email"></span><span class="chip chip-unknown i18n" data-ko="대기" data-en="Waiting"></span></div>
+                <div class="conn"><span class="i18n" data-ko="ChatGPT 구독" data-en="ChatGPT subscription"></span><span class="chip chip-danger i18n" data-ko="사용 불가" data-en="Not available"></span></div>
+                <p class="hint i18n" data-ko="주소·키·서버 이름은 화면에 쓰지 않습니다. 키는 설정됨 · 마지막 4자리만." data-en="No raw addresses, keys, or hosts. Secrets show as configured · last 4 only."></p>
+              </div>
+              <div class="section">
+                <h2 class="i18n" data-ko="언어 · 알림" data-en="Language · notices"></h2>
+                <div class="field">
+                  <label for="lang">UI</label>
+                  <select id="lang">
+                    <option>한국어</option>
+                    <option>English</option>
+                  </select>
+                </div>
+                <p class="hint">USD · Amazon US · ROI · GO · CAUTION</p>
+              </div>
+            </div>
+          </section>
+        </main>
+
+        <aside class="panel" aria-label="고른 건 근거">
+          <p class="muted i18n" data-ko="고른 건" data-en="Selected"></p>
+          <h2>silicone spatula set</h2>
+          <div class="chips">
+            <span class="chip chip-ok i18n" data-ko="측정 · 가격" data-en="Measured · price"></span>
+            <span class="chip chip-unknown i18n" data-ko="미확인 · 반품률" data-en="Unknown · returns"></span>
+          </div>
+          <p class="i18n" data-ko="다음 행동 1개: 견적 요청 2건 보내기." data-en="One next action: send 2 quote requests."></p>
+        </aside>
+
+        <nav class="tabs" id="tab-nav" aria-label="주요 화면"></nav>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const copy = {
+      nav: [
+        { id: "today", ko: "오늘", en: "Today", tab: true },
+        { id: "research", ko: "가져오기", en: "Import", tab: false },
+        { id: "detail", ko: "후보", en: "Candidates", tab: true },
+        { id: "sourcing", ko: "견적", en: "Quotes", tab: true },
+        { id: "settings", ko: "설정", en: "Settings", tab: true }
+      ],
+      bound: {
+        ko: "이 시안은 보내지 않습니다. 실제 앱에서만 승인됩니다.",
+        en: "This mockup does not send anything. Approval exists only in the real app."
+      }
+    };
+
+    const stage = document.getElementById("stage");
+    const app = document.getElementById("app");
+    const banner = document.getElementById("banner");
+    let lang = "ko";
+    let screen = "today";
+
+    function applyI18n() {
+      document.documentElement.lang = lang;
+      document.querySelectorAll(".i18n").forEach((el) => {
+        el.textContent = el.dataset[lang] || el.dataset.ko;
+      });
+      renderNav();
+    }
+
+    function currentNav() {
+      const map = { today: "today", empty: "today", research: "research", detail: "detail", sourcing: "sourcing", settings: "settings" };
+      return map[screen];
+    }
+
+    function navHtml() {
+      const current = currentNav();
+      return copy.nav.map((item) => {
+        const cur = item.id === current ? ' aria-current="page"' : "";
+        return `<a href="#${item.id}" data-goto="${item.id}"${cur}>${item[lang]}</a>`;
+      }).join("");
+    }
+
+    function renderNav() {
+      document.getElementById("side-nav").innerHTML = navHtml();
+      document.getElementById("top-nav").innerHTML = navHtml();
+      const icons = {
+        today: '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="14" height="13" rx="2" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M3 8h14" stroke="currentColor" stroke-width="1.5"/></svg>',
+        detail: '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M4 5h12M4 10h12M4 15h8" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
+        sourcing: '<svg viewBox="0 0 20 20" aria-hidden="true"><rect x="3" y="4" width="6" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/><rect x="11" y="4" width="6" height="12" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
+        settings: '<svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="2.5" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M10 3.5v2M10 14.5v2M3.5 10h2M14.5 10h2" stroke="currentColor" stroke-width="1.5"/></svg>'
+      };
+      const current = currentNav();
+      document.getElementById("tab-nav").innerHTML = copy.nav.filter((item) => item.tab).map((item) => {
+        const cur = item.id === current ? ' aria-current="page"' : "";
+        return `<a href="#${item.id}" data-goto="${item.id}"${cur}>${icons[item.id]}${item[lang]}</a>`;
+      }).join("");
+      const titles = {
+        today: { ko: "오늘", en: "Today" },
+        empty: { ko: "오늘", en: "Today" },
+        research: { ko: "가져오기", en: "Import" },
+        detail: { ko: "후보", en: "Candidate" },
+        sourcing: { ko: "견적", en: "Quotes" },
+        settings: { ko: "설정", en: "Settings" }
+      };
+      document.getElementById("mobile-title").textContent = titles[screen][lang];
+    }
+
+    function showScreen(next) {
+      screen = next;
+      document.querySelectorAll(".screen").forEach((el) => el.classList.toggle("active", el.id === "screen-" + next));
+      app.dataset.hasPanel = next === "today" ? "true" : "false";
+      document.querySelectorAll("[data-screen]").forEach((btn) => btn.setAttribute("aria-pressed", String(btn.dataset.screen === next)));
+      renderNav();
+    }
+
+    document.querySelectorAll("[data-width]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        stage.dataset.width = btn.dataset.width;
+        document.querySelectorAll("[data-width]").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+      });
+    });
+    document.querySelectorAll("[data-screen]").forEach((btn) => {
+      btn.addEventListener("click", () => showScreen(btn.dataset.screen));
+    });
+    document.querySelectorAll("[data-lang]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        lang = btn.dataset.lang;
+        document.querySelectorAll("[data-lang]").forEach((b) => b.setAttribute("aria-pressed", String(b === btn)));
+        applyI18n();
+      });
+    });
+    document.body.addEventListener("click", (e) => {
+      const a = e.target.closest("[data-goto]");
+      if (!a) return;
+      e.preventDefault();
+      showScreen(a.dataset.goto);
+    });
+    document.querySelectorAll(".js-bound").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        banner.textContent = copy.bound[lang];
+        banner.classList.add("show");
+      });
+    });
+
+    applyI18n();
+  </script>
+</body>
+</html>

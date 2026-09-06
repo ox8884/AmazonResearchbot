@@ -1,0 +1,19 @@
+{
+  "name": "@forge-ops/integrations",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./jungle-scout/csv": "./src/jungle-scout/csv.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@forge-ops/domain": "workspace:*",
+    "csv-parse": "7.0.2"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "typescript": "5.9.2"
+  }
+}

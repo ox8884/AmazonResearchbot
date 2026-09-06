@@ -1,0 +1,29 @@
+{
+  "name": "@forge-ops/api",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@better-auth/drizzle-adapter": "1.7.3",
+    "@fastify/cookie": "11.0.2",
+    "@fastify/cors": "11.1.0",
+    "@fastify/multipart": "9.0.3",
+    "@forge-ops/db": "workspace:*",
+    "@forge-ops/domain": "workspace:*",
+    "@forge-ops/integrations": "workspace:*",
+    "@forge-ops/security": "workspace:*",
+    "better-auth": "1.7.3",
+    "fastify": "5.12.3",
+    "pg-boss": "12.30.0",
+    "pino": "9.9.0",
+    "tsx": "4.20.5",
+    "zod": "4.5.4"
+  },
+  "devDependencies": {
+    "@types/node": "24.3.0",
+    "typescript": "5.9.2"
+  }
+}
