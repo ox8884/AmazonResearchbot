@@ -11,3 +11,16 @@ coverage/
 *.tsbuildinfo
 apps/web/dist/
 .vite/
+
+# Local execution evidence and operational state; preserve locally, never publish.
+.omo/
+.debug-journal.md
+IMPLEMENTATION_STATUS.md
+apps/web/qa/
+docs/verification-*-state.json
+*.fops
+*.dump
+*.pfx
+*.p12
+.codex/
+*.key
