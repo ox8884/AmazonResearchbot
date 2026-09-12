@@ -11,7 +11,9 @@ export function amazonPackageScript(asin,marker) {
     const current=/^https:\/\/www\.amazon\.com\/(?:[A-Za-z0-9_-]+\/)?(?:dp|gp\/product)\/([A-Z0-9]{10})(?:\/(?:ref=[A-Za-z0-9_=.-]+)?)?$/.exec(base)?.[1];
     if(current!==asin)throw Error('PRODUCT_CHANGED');
    };
-   const selector='#productDetails_feature_div, #detailBullets_feature_div, #detailBulletsWrapper_feature_div, #prodDetails';
+   const selectors=['#productDetails_feature_div','#detailBullets_feature_div','#detailBulletsWrapper_feature_div','#prodDetails'];
+   let selector=selectors[0];
+   for(const candidate of selectors){try{await p.locator(candidate).waitFor({state:'visible',timeout:5000});selector=candidate;break;}catch{}}
    checkPage();await p.locator(selector).waitFor({state:'visible',timeout:15000});
    const read=()=>p.locator(selector).evaluate(root=>{
     const clean=value=>(value??'').replace(/[\u200e\u200f\u202a-\u202e]/g,'').replace(/\s+/g,' ').trim();
