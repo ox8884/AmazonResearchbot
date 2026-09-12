@@ -1,4 +1,5 @@
 import {savedSearchFilters} from '../../packages/domain/src/saved-search.ts';
+import {readFile} from 'node:fs/promises';
 
 export function savedSearchExportScript(request,marker){
  const filters=savedSearchFilters.parse(request.filters);
@@ -92,7 +93,7 @@ export function savedSearchExportScript(request,marker){
    const download=await waiting;
    if(!download)throw new Error('DOWNLOAD_UNCONFIRMED');
    const filename=download.suggestedFilename(),downloadPath=await download.path();
-   const bytes=await fs.readFile(downloadPath);
+   const bytes=await readFile(downloadPath);
    if(bytes.length===0||bytes.length>2*1024*1024||!/^Jungle Scout Opportunity Finder CSV Export - [^/\\]+\.csv$/.test(filename))throw new Error('EXPORT_UNCONFIRMED');
    if(await destination()!==sourcePageUrl)throw new Error('SITE_CHANGED');
    await verifyFilters();
