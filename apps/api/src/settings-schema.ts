@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { INITIAL_SETTINGS, type SettingsSnapshot } from "@forge-ops/domain";
+import type { SettingsSnapshot } from "@forge-ops/domain";
 
 const immutableSettingsKeys = ["marketplace", "currency", "timezone"] as const;
 const editableSettingsKeys = [
@@ -125,9 +125,7 @@ export function parseSettingsChange(
   raw: unknown,
   current: unknown,
 ): SettingsChangeParseResult {
-  const parsedCurrent = settingsBaselineSchema.safeParse(
-    isRecord(current) ? { ...INITIAL_SETTINGS, ...current } : current,
-  );
+  const parsedCurrent = settingsBaselineSchema.safeParse(current);
   if (!parsedCurrent.success) return invalid("invalid_current_settings");
   if (!isRecord(raw)) return invalid("invalid_patch");
 
@@ -156,7 +154,7 @@ export function parseSettingsChange(
   const parsedPatch = settingsPatchSchema.safeParse(raw);
   if (!parsedPatch.success) return invalid("invalid_patch");
 
-  const after = { ...INITIAL_SETTINGS, ...parsedCurrent.data, ...parsedPatch.data };
+  const after = { ...parsedCurrent.data, ...parsedPatch.data };
   const parsedAfter = settingsSnapshotSchema.safeParse(after);
   if (!parsedAfter.success) return invalid("invalid_after_settings");
 

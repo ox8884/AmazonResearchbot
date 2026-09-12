@@ -81,15 +81,18 @@ export async function importCsvWithinTransaction(client:QueryConnection,input:{f
           await insertCellEvidence(client, candidateId, sourceId, observedAt, field, value);
         }
         const representativeAsin = row.values.representative_asin?.trim().toUpperCase();
+        const terminalCandidate = candidateStage === 'decision_recorded' || candidateStage === 'rejected';
         if (representativeAsin) {
           if (!z.string().regex(/^[A-Z0-9]{10}$/).safeParse(representativeAsin).success) throw new Error('INVALID_REPRESENTATIVE_ASIN');
-          await client.query(
-            `INSERT INTO candidate_events (candidate_id, stage, input_version, detail)
-             VALUES ($1,'api_validation',$2,$3::jsonb)
-             ON CONFLICT (candidate_id, stage, input_version) DO UPDATE SET detail=EXCLUDED.detail`,
-            [candidateId, inputVersion, JSON.stringify({ importId, rowNumber: row.rowNumber, representativeAsin })],
-          );
-          await client.query("UPDATE candidates SET stage='api_validation',blocked_reason=NULL,last_progress_at=now() WHERE id=$1", [candidateId]);
+          if (!terminalCandidate) {
+            await client.query(
+              `INSERT INTO candidate_events (candidate_id, stage, input_version, detail)
+               VALUES ($1,'api_validation',$2,$3::jsonb)
+               ON CONFLICT (candidate_id, stage, input_version) DO UPDATE SET detail=EXCLUDED.detail`,
+              [candidateId, inputVersion, JSON.stringify({ importId, rowNumber: row.rowNumber, representativeAsin })],
+            );
+            await client.query("UPDATE candidates SET stage='api_validation',blocked_reason=NULL,last_progress_at=now() WHERE id=$1", [candidateId]);
+          }
         }
         await client.query(
           `INSERT INTO candidate_events (candidate_id, stage, input_version, detail)
@@ -97,8 +100,9 @@ export async function importCsvWithinTransaction(client:QueryConnection,input:{f
            ON CONFLICT (candidate_id, stage, input_version) DO NOTHING`,
           [candidateId, inputVersion, JSON.stringify({ importId, rowNumber: row.rowNumber })],
         );
-        const job: AdvanceJob = { candidateId, stage: representativeAsin ? "api_validation" : "imported", inputVersion };
-        if (candidateStage === "imported" || representativeAsin) {
+        const applyRepresentativeAsin = Boolean(representativeAsin) && !terminalCandidate;
+        const job: AdvanceJob = { candidateId, stage: applyRepresentativeAsin ? "api_validation" : "imported", inputVersion };
+        if (candidateStage === "imported" || applyRepresentativeAsin) {
           const queued = await boss.send(JOB_ADVANCE, job, { db: txAdapter(client) });
           if (!queued) throw new Error("PIPELINE_ENQUEUE_FAILED");
         }

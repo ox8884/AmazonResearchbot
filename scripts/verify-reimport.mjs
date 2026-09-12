@@ -34,6 +34,11 @@ ${caseKeyword}, US
  const working=candidates.find(c=>c.keyword_display===keyword).id,terminal=candidates.find(c=>c.keyword_display===terminalKeyword).id;
  await advanceCandidate(test.pool,denyTransport(),{candidateId:working,stage:'imported',inputVersion:1});
  await test.pool.query("UPDATE candidates SET stage='decision_recorded' WHERE id=$1",[terminal]);
+ const terminalRepresentativeCsv=`keyword,representative_asin\n${terminalKeyword},B0F7M3LVN8\n`;
+ assert.equal((await upload(terminalRepresentativeCsv)).status,200);
+ assert.equal((await test.pool.query('SELECT stage FROM candidates WHERE id=$1',[terminal])).rows[0].stage,'decision_recorded','Representative ASIN reimport must preserve a terminal candidate');
+ assert.equal((await test.pool.query("SELECT count(*)::int n FROM candidate_events WHERE candidate_id=$1 AND stage='api_validation'",[terminal])).rows[0].n,0,'Terminal candidate must not receive representative validation events');
+ assert.equal((await test.pool.query("SELECT count(*)::int n FROM pgboss.job WHERE name='candidate.advance' AND data->>'candidateId'=$1 AND data->>'inputVersion'='2'",[terminal])).rows[0].n,0,'Terminal candidate must not be queued after reimport');
  const version=(await test.pool.query('SELECT max(version)::int v FROM settings_versions')).rows[0].v;
  await test.pool.query("INSERT INTO evaluations(candidate_id,settings_version,kind,outcome,payload) VALUES($1,$2,'api_validation','pass','{\"synthetic\":true}')",[working,version]);
  const imported=await Promise.all([upload(csv(2)),upload(csv(2))]);
