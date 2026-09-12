@@ -13,7 +13,7 @@ import {advanceCandidate} from '../apps/worker/src/advance-candidate.ts';
 import {consumeOfficialValidation} from '../apps/worker/src/api-validation.ts';
 import {prepareReadyRfqs} from '../apps/worker/src/automatic-rfq.ts';
 
-const test=await openAcceptance({databaseKey:'unattended-flow-'+Date.now()});
+const test=await openAcceptance({databaseKey:'unattended-flow-'+Date.now(), authSecret:'unattended-auth-secret-32-characters'});
 const calls=[];
 const catalog=new Map();
 const leaders=new Set();
