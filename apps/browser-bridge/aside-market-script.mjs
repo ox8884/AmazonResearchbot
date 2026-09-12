@@ -12,8 +12,10 @@ export function amazonMarketScript(query,marker){
    await searchInput.waitFor({state:'visible',timeout:10000});
    await searchInput.fill(query);
    const go=page.getByRole('button',{name:'Go',exact:true});
-   if(await go.count()!==1)throw Error('AMAZON_SEARCH_BUTTON_UNAVAILABLE');
-   await go.click();
+   const fallbackGo=page.locator('#nav-search-submit-button');
+   const goCount=await go.count(),fallbackGoCount=await fallbackGo.count();
+   if(goCount!==1 && fallbackGoCount!==1)throw Error('AMAZON_SEARCH_BUTTON_UNAVAILABLE');
+   await (goCount===1?go:fallbackGo).click();
    await snapshot(page,{interactive:true,selector:'[role="search"]'});
    const root=page.locator('.s-main-slot');
    await root.waitFor({state:'visible',timeout:25000});
