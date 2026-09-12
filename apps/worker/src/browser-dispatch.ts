@@ -23,7 +23,7 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='amazon_search'
         AND t.input_version=c.input_version AND t.settings_version=v.version
         AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-      ORDER BY c.last_progress_at,c.id LIMIT 20`)).rows;
+      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT 20`)).rows;
     for(const candidate of candidates)if((await queueAmazonSearch(pool,{deviceId:marketDevice.id,candidateId:candidate.id},signing)).kind==='queued')queued++;
   }
   const packageDevice = devices.find(device => device.capability === 'amazon_package');
@@ -36,7 +36,7 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
         AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.spec_id IS NULL AND t.task_kind='amazon_package'
           AND t.input_version=c.input_version AND t.settings_version=v.version
           AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-      ORDER BY c.last_progress_at,c.id LIMIT 20`)).rows;
+      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT 20`)).rows;
     for (const candidate of candidates) {
       if ((await queueAmazonPackage(pool,{deviceId:packageDevice.id,candidateId:candidate.id},signing)).kind === 'queued') queued++;
     }
@@ -55,7 +55,7 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
         AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.spec_id=s.id
           AND t.input_version=c.input_version AND t.settings_version=v.version AND t.source_capture_id IS NULL
           AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-      ORDER BY c.last_progress_at,c.id LIMIT 20`)).rows;
+      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT 20`)).rows;
     for (const candidate of candidates) {
       if ((await queueSupplierSearch(pool, { deviceId: searchDevice.id, candidateId: candidate.id }, signing)).kind === "queued") queued++;
     }
