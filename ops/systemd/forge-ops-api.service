@@ -1,0 +1,38 @@
+[Unit]
+Description=Forge Kitchen Ops API
+After=network-online.target postgresql.service
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=forge-ops-api
+Group=forge-ops-api
+WorkingDirectory=/opt/forge-ops/current
+EnvironmentFile=/etc/forge-ops/runtime.env
+Environment=APP_ENV=production
+Environment=DATABASE_URL=postgresql:///forge_ops?host=/var/run/postgresql&user=forge_ops_api
+Environment=AI_TRANSPORT=disabled
+Environment=MAIL_TRANSPORT=disabled
+LoadCredential=encryption-key:/etc/forge-ops/credentials/encryption-key
+LoadCredential=auth-secret:/etc/forge-ops/credentials/auth-secret
+ExecStart=/usr/bin/node --import tsx apps/api/src/index.ts --production
+Restart=always
+RestartSec=5
+TimeoutStopSec=90
+KillSignal=SIGTERM
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

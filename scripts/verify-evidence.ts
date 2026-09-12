@@ -1,7 +1,6 @@
-import { createHmac } from "node:crypto";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import {readFile} from "node:fs/promises";
+import {openAcceptance} from "./support/acceptance.mjs";
+import {importCsv} from "./support/import-csv.mjs";
 import {
   INITIAL_SETTINGS,
   evaluateNiche,
@@ -10,19 +9,9 @@ import {
   measured,
   parseNumericCell,
   unknown,
+  assessStandardSize,
+  parseAmazonPackageMeasurements,
 } from "@forge-ops/domain";
-import { createPool } from "@forge-ops/db";
-
-const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const envText = await readFile(path.join(root, ".env"), "utf8");
-for (const line of envText.split(/\r?\n/)) {
-  if (!line || line.startsWith("#") || !line.includes("=")) continue;
-  const i = line.indexOf("=");
-  const k = line.slice(0, i);
-  const v = line.slice(i + 1);
-  if (process.env[k] == null) process.env[k] = v;
-}
-
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
@@ -36,6 +25,52 @@ assert(lt.kind === "unknown" && lt.reason.includes("450"), "< 450 must stay unkn
 assert(lt.reason.includes("inequality"), "< 450 reason");
 const ok = parseNumericCell("12", "s", "t");
 assert(ok.kind === "measured" && ok.value === "12", "12 should be measured");
+
+const representativeAsin = 'B0QA000001';
+const packaged = {asin:representativeAsin,marketplace:'us',basis:'packaged_unit',dimensions:{length:18,width:14,height:8,unit:'inches'},weight:{value:20,unit:'pounds'}};
+const sizeEvidence = (value:unknown) => measured(value,'synthetic:packaged-product','2026-09-09T00:00:00.000Z');
+const size = (value:unknown) => assessStandardSize(representativeAsin,sizeEvidence(value));
+const boundary = size(packaged);
+assert(boundary.kind==='measured'&&boundary.value===true,'Standard boundary is inclusive');
+const rotated = size({...packaged,dimensions:{...packaged.dimensions,length:8,width:18,height:14}});
+assert(rotated.kind==='measured'&&rotated.value===true,'Package orientation cannot change Standard eligibility');
+for(const field of ['length','width','height'] as const){
+ const exceeded=size({...packaged,dimensions:{...packaged.dimensions,[field]:packaged.dimensions[field]+0.0001}});
+ assert(exceeded.kind==='measured'&&exceeded.value===false,field+' above maximum is nonstandard');
+}
+const heavy=size({...packaged,weight:{...packaged.weight,value:20.0001}});
+assert(heavy.kind==='measured'&&heavy.value===false,'Weight above20lb is nonstandard');
+for(const value of [
+ {...packaged,asin:'B0QA000002'}, {...packaged,marketplace:'ca'}, {...packaged,basis:'product_only'},
+ {...packaged,dimensions:{...packaged.dimensions,unit:'cm'}},
+ {...packaged,weight:{...packaged.weight,value:0}}, {...packaged,weight:{...packaged.weight,value:'20'}},
+ {...packaged,dimensions:{...packaged.dimensions,length:Infinity}}, {...packaged,weight:null},
+])assert(size(value).kind==='unknown','Unconfirmed packaged measurements must stay unknown');
+assert(assessStandardSize(null,sizeEvidence(packaged)).kind==='unknown','Representative selection is required');
+assert(assessStandardSize(representativeAsin,unknown('missing')).kind==='unknown','Missing package evidence cannot pass');
+assert(assessStandardSize(representativeAsin,{...sizeEvidence(packaged),kind:'estimate'}).kind==='unknown','Estimated packaging is not a measurement');
+assert(assessStandardSize(representativeAsin,measured(packaged,'','not-a-date')).kind==='unknown','Source provenance is required');
+
+const packageSource={sourcePageUrl:'https://www.amazon.com/dp/'+representativeAsin,observedAt:'2026-09-09T00:00:00.000Z',rows:[{label:'ASIN',value:representativeAsin},{label:'Package Dimensions',value:'18 x 14 x 8 inches; 16 ounces'}]};
+const parsePackage=(value:unknown)=>parseAmazonPackageMeasurements(representativeAsin,value);
+const packageResult=parsePackage(packageSource);
+assert(packageResult.kind==='measured'&&packageResult.value.weight.value===1,'Explicit package ounces convert to pounds');
+const packageStandard=assessStandardSize(representativeAsin,packageResult);
+assert(packageStandard.kind==='measured'&&packageStandard.value,'Parsed package source must reach the Standard predicate');
+const separatePackage=parsePackage({...packageSource,rows:[packageSource.rows[0],{label:'Package Dimensions',value:'18 x 14 x 8 inches'},{label:'Package Weight',value:'20 pounds'}]});
+assert(separatePackage.kind==='measured'&&separatePackage.value.weight.value===20,'Explicit separate package weight is accepted');
+for(const source of [
+ {...packageSource,sourcePageUrl:'https://www.amazon.ca/dp/'+representativeAsin},
+ {...packageSource,sourcePageUrl:'https://www.amazon.com.evil.invalid/dp/'+representativeAsin},
+ {...packageSource,sourcePageUrl:'https://user@www.amazon.com/dp/'+representativeAsin},
+ {...packageSource,sourcePageUrl:'https://www.amazon.com/dp/'+representativeAsin+'/../B0QA000002'},
+ {...packageSource,sourcePageUrl:'https://www.amazon.com/dp/B0QA000002'},
+ {...packageSource,rows:[{label:'ASIN',value:'B0QA000002'},packageSource.rows[1]]},
+ {...packageSource,rows:[packageSource.rows[0],{label:'Item Dimensions L x W x Thickness',value:'10"L x 2.5"W x 2.5"Th'},{label:'Item Weight',value:'4.8 ounces'}]},
+ {...packageSource,rows:[packageSource.rows[0],{label:'Package Dimensions',value:'18 x 14 x 8 inches'},{label:'Item Weight',value:'1 pound'}]},
+ {...packageSource,rows:[...packageSource.rows,{label:'Package Weight',value:'2 pounds'}]},
+ {...packageSource,rows:[...packageSource.rows,{label:'Package Dimensions',value:'19 x 14 x 8 inches; 16 ounces'}]},
+])assert(parsePackage(source).kind==='unknown','Missing, mismatched or conflicting package sources cannot become measurements');
 
 const hardFail = evaluateNiche(
   {
@@ -124,96 +159,21 @@ const folded = foldParentRevenue([
 ]);
 assert(folded.kind === "known" && folded.total === "100" && folded.families === 1, "variants must not triple-count");
 
-const origin = `http://127.0.0.1:${process.env.API_PORT ?? 3001}`;
-const email = process.env.BOOTSTRAP_EMAIL ?? "jay@local.test";
-const password = process.env.BOOTSTRAP_PASSWORD;
-if (!password) throw new Error("BOOTSTRAP_PASSWORD missing");
-
-function totp(secretB32: string, at = Date.now()): string {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  let bits = "";
-  const s = secretB32.replace(/=+$/, "").toUpperCase();
-  for (const ch of s) {
-    const v = alphabet.indexOf(ch);
-    if (v < 0) continue;
-    bits += v.toString(2).padStart(5, "0");
-  }
-  const bytes: number[] = [];
-  for (let i = 0; i + 8 <= bits.length; i += 8) bytes.push(Number.parseInt(bits.slice(i, i + 8), 2));
-  const key = Buffer.from(bytes);
-  const counter = Math.floor(at / 1000 / 30);
-  const buf = Buffer.alloc(8);
-  buf.writeUInt32BE(Math.floor(counter / 0x100000000), 0);
-  buf.writeUInt32BE(counter >>> 0, 4);
-  const hmac = createHmac("sha1", key).update(buf).digest();
-  const offset = hmac[hmac.length - 1]! & 0xf;
-  const code =
-    ((hmac[offset]! & 0x7f) << 24) | (hmac[offset + 1]! << 16) | (hmac[offset + 2]! << 8) | hmac[offset + 3]!;
-  return String(code % 1_000_000).padStart(6, "0");
-}
-
-const jar: string[] = [];
-function cookieHeader() {
-  return jar.map((c) => c.split(";")[0]).join("; ");
-}
-function store(res: Response) {
-  for (const c of res.headers.getSetCookie?.() ?? []) {
-    const pair = c.split(";")[0] ?? "";
-    const name = pair.split("=")[0];
-    const kept = jar.filter((x) => !x.startsWith(`${name}=`));
-    jar.splice(0, jar.length, ...kept, pair);
-  }
-}
-async function api(pathName: string, init: RequestInit = {}) {
-  const res = await fetch(`${origin}${pathName}`, {
-    ...init,
-    headers: {
-      ...(typeof init.body === "string" ? { "content-type": "application/json" } : {}),
-      cookie: cookieHeader(),
-      origin,
-      ...((init.headers as Record<string, string>) ?? {}),
-    },
-  });
-  store(res);
-  const body = await res.json().catch(() => null);
-  return { res, body };
-}
-
-const signed = await api("/api/auth/sign-in/email", { method: "POST", body: JSON.stringify({ email, password }) });
-if (signed.body?.twoFactorRedirect) {
-  const secret = process.env.BOOTSTRAP_TOTP_SECRET;
-  if (!secret) throw new Error("BOOTSTRAP_TOTP_SECRET missing");
-  await api("/api/auth/two-factor/verify-totp", { method: "POST", body: JSON.stringify({ code: totp(secret) }) });
-}
-const session = await api("/api/session");
-if (session.res.status !== 200) throw new Error("sign-in required for evidence CSV");
-
-const csv = await readFile(path.join(root, "tests/fixtures/evidence-cells.csv"));
-const form = new FormData();
-form.append("file", new Blob([csv], { type: "text/csv" }), "evidence-cells.csv");
-const uploaded = await fetch(`${origin}/api/imports`, {
-  method: "POST",
-  headers: { cookie: cookieHeader(), origin },
-  body: form,
-});
-if (!uploaded.ok) throw new Error(`evidence csv import ${uploaded.status}`);
-
-const pool = createPool(process.env.DATABASE_URL ?? "");
-const rows = await pool.query<{ keyword_raw: string; field: string; kind: string; value_text: string | null; reason: string | null }>(
-  `SELECT ir.keyword_raw, e.field, e.kind, e.value_text, e.reason
-   FROM import_rows ir
-   JOIN candidate_import_rows cir ON cir.import_row_id = ir.id
-   JOIN evidence e ON e.candidate_id = cir.candidate_id
-   WHERE e.field = 'reviews'`,
-);
-await pool.end();
+const test=await openAcceptance({databaseKey:'evidence-'+Date.now()});
+try {
+ const bytes=await readFile(new URL('../tests/fixtures/evidence-cells.csv',import.meta.url));
+ const uploaded=await importCsv(test,'evidence-cells.csv',bytes);
+ assert(uploaded.status===200,'Evidence CSV must import through the authenticated API');
+ const rows=await test.pool.query<{keyword_raw:string;field:string;kind:string;value_text:string|null;reason:string|null}>(
+  `SELECT ir.keyword_raw,e.field,e.kind,e.value_text,e.reason FROM import_rows ir
+   JOIN candidate_import_rows cir ON cir.import_row_id=ir.id JOIN evidence e ON e.candidate_id=cir.candidate_id
+   WHERE ir.import_id=$1 AND e.field='reviews'`,[uploaded.body.importId]);
 const byKw: Record<string, { kind: string; value_text: string | null; reason: string | null }> = {};
 for (const row of rows.rows) byKw[row.keyword_raw] = row;
 assert(byKw["lt-reviews"]?.kind === "unknown", "CSV < 450 stored unknown");
 assert(byKw["lt-reviews"]?.value_text == null, "CSV < 450 must not store 450");
 assert(byKw["empty-reviews"]?.kind === "unknown", "empty reviews unknown");
 assert(byKw["ok-reviews"]?.kind === "measured" && byKw["ok-reviews"]?.value_text === "12", "12 measured");
-
 console.log(
   JSON.stringify(
     {
@@ -228,3 +188,5 @@ console.log(
     2,
   ),
 );
+
+} finally {await test.close();}

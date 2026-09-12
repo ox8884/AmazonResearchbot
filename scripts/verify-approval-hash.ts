@@ -1,0 +1,10 @@
+import assert from "node:assert/strict";
+import { exactPayloadHash } from "../packages/security/src/approval-hash.ts";
+assert.equal(exactPayloadHash({a:1,b:{d:4,c:3}}),exactPayloadHash({b:{c:3,d:4},a:1}));
+assert.notEqual(exactPayloadHash({subject:"Quote A"}),exactPayloadHash({subject:"quote a"}));
+assert.notEqual(exactPayloadHash({body:"a\nb"}),exactPayloadHash({body:"a b"}));
+assert.notEqual(exactPayloadHash({quantity:300}),exactPayloadHash({quantity:600}));
+assert.notEqual(exactPayloadHash(JSON.parse('{"__proto__":null}')),exactPayloadHash({}));
+assert.throws(()=>exactPayloadHash({a:undefined}));
+assert.throws(()=>exactPayloadHash(new Date()));
+console.log("PASS: exact approval hash preserves case, newlines, quantity, nested keys and prototype-named keys.");

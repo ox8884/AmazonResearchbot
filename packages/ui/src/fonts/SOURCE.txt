@@ -1,0 +1,9 @@
+Noto Sans KR variable font
+
+Source: existing Windows NotoSansKR-VF.ttf. No network download.
+Weight axis: 100-900.
+Subset: Latin, Korean, punctuation and full-width forms.
+License: SIL Open Font License 1.1; see OFL.txt.
+
+Original font copyright:
+© 2014-2021 Adobe (http://www.adobe.com/), with Reserved Font Name 'Source'.

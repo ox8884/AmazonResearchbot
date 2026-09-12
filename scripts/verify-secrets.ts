@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import {randomBytes} from 'node:crypto';
+import {encryptSecret,decryptSecret,last4} from '../packages/security/src/secrets.ts';
+const key=randomBytes(32),plain=Buffer.from('synthetic-secret-value'),aad='provider:fixture:key';
+const encrypted=encryptSecret(plain,key,aad);
+assert.deepEqual(decryptSecret(encrypted,key,aad),plain);
+assert.throws(()=>decryptSecret(encrypted,key,'provider:different:key'));
+assert.throws(()=>decryptSecret(encrypted,randomBytes(32),aad));
+const version=encrypted.split('.');version[1]='999';assert.throws(()=>decryptSecret(version.join('.'),key,aad));
+const tag=encrypted.split('.');tag[4]=(tag[4]??'').slice(0,6);assert.throws(()=>decryptSecret(tag.join('.'),key,aad));
+assert.throws(()=>encryptSecret(plain,key,aad,2));
+assert.notEqual(last4('abc'),'abc');assert.equal(last4('abcdefgh'),'efgh');
+console.log('PASS: authenticated encryption roundtrip/AAD/key/version/tag gates and short secret masking.');

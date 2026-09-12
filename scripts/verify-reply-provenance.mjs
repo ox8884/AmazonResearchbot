@@ -1,0 +1,10 @@
+import assert from 'node:assert/strict';
+import {createElement} from '../apps/web/node_modules/react/index.js';
+import {renderToStaticMarkup} from '../apps/web/node_modules/react-dom/server.node.js';
+import {MemoryRouter} from '../apps/web/node_modules/react-router/dist/development/index.mjs';
+import {ContactReplies} from '../apps/web/src/ContactReplies.tsx';
+const markup=renderToStaticMarkup(createElement(MemoryRouter,null,createElement(ContactReplies,{rfq:{id:'rfq'},replies:[{id:'reply',source:'inbox:INTERNAL_CAPTURE_HASH',receivedAt:'2026-09-06T12:00:00Z',createdAt:'2026-09-06T12:00:00Z',messageId:'INTERNAL_MESSAGE_ID',inboxMessageId:'source-message',body:'<b>literal source</b>'}],loading:false,error:false,onSaved:async()=>{}})));
+assert.ok(markup.includes('업무 메일 회신'));assert.ok(markup.includes('href="/inbox/source-message"'));
+assert.ok(!markup.includes('INTERNAL_CAPTURE_HASH'));assert.ok(!markup.includes('INTERNAL_MESSAGE_ID'));
+assert.ok(markup.includes('&lt;b&gt;literal source&lt;/b&gt;'));
+console.log('PASS: verified reply provenance is a human-readable link, not internal identifiers or executable HTML.');

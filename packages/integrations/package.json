@@ -4,10 +4,29 @@
   "type": "module",
   "exports": {
     "./jungle-scout/csv": "./src/jungle-scout/csv.ts",
+    "./jungle-scout/search-export": "./src/jungle-scout/search-export.ts",
+    "./amazon/market-source": "./src/amazon/market-source.ts",
+    "./amazon/product-source": "./src/amazon/product-source.ts",
     "./jungle-scout/execute": "./src/jungle-scout/execute.ts",
     "./jungle-scout/transport": "./src/jungle-scout/transport.ts",
     "./jungle-scout/fingerprint": "./src/jungle-scout/fingerprint.ts",
-    "./jungle-scout/endpoints": "./src/jungle-scout/endpoints.ts"
+    "./jungle-scout/endpoints": "./src/jungle-scout/endpoints.ts",
+    "./mail/transport": "./src/mail/transport.ts",
+    "./mail/mailpit": "./src/mail/mailpit.ts",
+    "./jungle-scout/requests": "./src/jungle-scout/requests.ts",
+    "./jungle-scout/pagination": "./src/jungle-scout/pagination.ts",
+    "./jungle-scout/responses": "./src/jungle-scout/responses.ts",
+    "./jungle-scout/validation": "./src/jungle-scout/validation.ts",
+    "./subscriptions/capabilities": "./src/subscriptions/capabilities.ts",
+    "./mail/smtp": "./src/mail/smtp.ts",
+    "./mail/connection-types": "./src/mail/connection-types.ts",
+    "./mail/inbox-types": "./src/mail/inbox-types.ts",
+    "./mail/inbox": "./src/mail/inbox.ts",
+    "./mail/quote-source": "./src/mail/quote-source.ts",
+    "./mail/quote-record": "./src/mail/quote-record.ts",
+    "./ai/transport": "./src/ai/transport.ts",
+    "./ai/execute": "./src/ai/execute.ts",
+    "./sourcing/capture": "./src/sourcing/capture.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"
@@ -15,7 +34,10 @@
   "dependencies": {
     "@forge-ops/db": "workspace:*",
     "@forge-ops/domain": "workspace:*",
-    "csv-parse": "7.0.2"
+    "csv-parse": "7.0.2",
+    "imapflow": "1.7.8",
+    "nodemailer": "10.0.0",
+    "@forge-ops/security": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "24.3.0",

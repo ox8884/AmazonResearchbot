@@ -16,6 +16,8 @@ export function encryptSecret(
   aad: string,
   keyVersion = 1,
 ): string {
+  if (keyVersion !== 1) throw new Error("Unsupported encryption key version");
+  if (key.length !== 32) throw new Error("Invalid encryption key");
   const nonce = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, nonce);
   cipher.setAAD(Buffer.from(aad, "utf8"));
@@ -32,12 +34,13 @@ export function encryptSecret(
 
 export function decryptSecret(payload: string, key: Buffer, aad: string): Buffer {
   const parts = payload.split(".");
-  if (parts.length !== 5 || parts[0] !== PREFIX) {
+  if (parts.length !== 5 || parts[0] !== PREFIX || parts[1] !== "1" || key.length !== 32 || parts.slice(2).some(part => !/^[A-Za-z0-9_-]*$/.test(part))) {
     throw new Error("ciphertext rejected");
   }
   const nonce = Buffer.from(parts[2] ?? "", "base64url");
   const ciphertext = Buffer.from(parts[3] ?? "", "base64url");
   const tag = Buffer.from(parts[4] ?? "", "base64url");
+  if (nonce.length !== 12 || tag.length !== 16) throw new Error("ciphertext rejected");
   const decipher = createDecipheriv("aes-256-gcm", key, nonce);
   decipher.setAAD(Buffer.from(aad, "utf8"));
   decipher.setAuthTag(tag);
@@ -49,6 +52,6 @@ export function decryptSecret(payload: string, key: Buffer, aad: string): Buffer
 }
 
 export function last4(value: string): string {
-  if (value.length <= 4) return value;
+  if (value.length <= 4) return "••••";
   return value.slice(-4);
 }

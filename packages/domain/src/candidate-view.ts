@@ -67,6 +67,9 @@ export function nextAction(input: {
       target: "provider_unavailable",
     };
   }
+  if (input.stage === "awaiting_quote") {
+    return { kind: "waiting", label: ko ? "공급처의 견적 회신을 기다립니다" : "Waiting for the supplier’s quote", target: "awaiting_quote" };
+  }
   if (input.stage === "awaiting_contact_approval") {
     return {
       kind: "approval",

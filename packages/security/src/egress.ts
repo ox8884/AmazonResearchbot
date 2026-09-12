@@ -1,45 +1,34 @@
-const BLOCKED_HOSTS: Record<string, true> = {
-  localhost: true,
-  "metadata.google.internal": true,
-};
-
-function hostBlocked(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/\.+$/, "");
-  if (BLOCKED_HOSTS[host]) return true;
-  if (host === "127.0.0.1" || host === "::1" || host === "0.0.0.0") return true;
-  if (host.endsWith(".local")) return true;
-  return false;
-}
-
-function ipv4Private(ip: string): boolean {
-  const m = /^(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(ip);
-  if (!m) return false;
-  const a = Number(m[1]);
-  const b = Number(m[2]);
-  if (a === 10 || a === 127 || a === 0) return true;
-  if (a === 169 && b === 254) return true;
-  if (a === 172 && b >= 16 && b <= 31) return true;
-  if (a === 192 && b === 168) return true;
-  return false;
-}
-
-export type EgressDecision = { ok: true; url: URL } | { ok: false; code: string };
-
-export function authorizeUrl(raw: string, allowedHosts: Readonly<Record<string, true>>): EgressDecision {
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    return { ok: false, code: "URL_INVALID" };
+import { isIP } from 'node:net';
+import { lookup } from 'node:dns/promises';
+import { isAllowedAddress } from './ip-policy.ts';
+export type EgressDecision={ok:true;url:URL;hostname:string}|{ok:false;code:string};
+export type HostResolver=(hostname:string)=>Promise<readonly {address:string;family:number}[]>;
+export type ResolvedTarget={hostname:string;address:string;family:4|6;path:string;origin:string};
+export type ResolvedDecision={ok:true;target:Readonly<ResolvedTarget>}|{ok:false;code:string};
+export function authorizeUrl(raw:string,allowedHosts:Readonly<Record<string,true>>):EgressDecision {
+  let url:URL;try{url=new URL(raw);}catch{return {ok:false,code:'URL_INVALID'};}
+  if(url.protocol!=='https:')return {ok:false,code:'HTTPS_ONLY'};
+  if(url.username||url.password)return {ok:false,code:'USERINFO_FORBIDDEN'};
+  if(url.port&&url.port!=='443')return {ok:false,code:'PORT_FORBIDDEN'};
+  if(url.hash)return {ok:false,code:'FRAGMENT_FORBIDDEN'};
+  const hostname=url.hostname.replace(/^\[|\]$/g,'').replace(/\.$/,'').toLowerCase();
+  const family=isIP(hostname);
+  if(family){if(!isAllowedAddress(hostname))return {ok:false,code:'NON_PUBLIC_ADDRESS'};}
+  else {
+    if(hostname.length>253||!hostname.includes('.')||!hostname.split('.').every(label=>/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label)))return {ok:false,code:'HOST_INVALID'};
+    if(['localhost','local','internal','lan','home'].some(suffix=>hostname===suffix||hostname.endsWith('.'+suffix)))return {ok:false,code:'PRIVATE_HOST'};
   }
-  if (url.protocol !== "https:") return { ok: false, code: "HTTPS_ONLY" };
-  if (url.username || url.password) return { ok: false, code: "USERINFO_FORBIDDEN" };
-  if (url.port && url.port !== "443") return { ok: false, code: "PORT_FORBIDDEN" };
-  const host = url.hostname.toLowerCase();
-  if (hostBlocked(host) || ipv4Private(host)) return { ok: false, code: "PRIVATE_ADDRESS" };
-  if (Object.keys(allowedHosts).length === 0 || !allowedHosts[host]) return { ok: false, code: "HOST_NOT_ALLOWED" };
-  return { ok: true, url };
+  if(!((Object.hasOwn(allowedHosts,hostname)&&allowedHosts[hostname]===true)||(Object.hasOwn(allowedHosts,url.hostname)&&allowedHosts[url.hostname]===true)))return {ok:false,code:'HOST_NOT_ALLOWED'};
+  url.hostname=family===6?'['+hostname+']':hostname;
+  return {ok:true,url,hostname};
 }
-
-/** M1: no Jungle Scout wire. Empty allowlist denies every URL. */
-export const M1_ALLOWED_HOSTS: Readonly<Record<string, true>> = {};
+export async function resolveApprovedTarget(raw:string,allowedHosts:Readonly<Record<string,true>>,resolver:HostResolver=host=>lookup(host,{all:true,verbatim:true})):Promise<ResolvedDecision> {
+  const decision=authorizeUrl(raw,allowedHosts);if(!decision.ok)return decision;
+  const family=isIP(decision.hostname);
+  let addresses:readonly {address:string;family:number}[];
+  let timer:ReturnType<typeof setTimeout>|undefined;
+  try{addresses=family?[{address:decision.hostname,family}]:await Promise.race([resolver(decision.hostname),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(new Error('DNS timeout')),5000);})]);}catch{return {ok:false,code:'DNS_FAILED'};}finally{if(timer)clearTimeout(timer);}
+  if(addresses.length===0||addresses.some(item=>!isAllowedAddress(item.address)||isIP(item.address)!==item.family))return {ok:false,code:'DNS_NON_PUBLIC'};
+  const selected=addresses[0];if(!selected||(selected.family!==4&&selected.family!==6))return {ok:false,code:'DNS_FAILED'};
+  return {ok:true,target:Object.freeze({hostname:decision.hostname,address:selected.address,family:selected.family,path:decision.url.pathname+decision.url.search,origin:decision.url.origin})};
+}

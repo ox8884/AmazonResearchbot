@@ -5,7 +5,11 @@ export type SettingsSnapshot = {
   marginBeforeAdsPct: string;
   marginAfterAdsPct: string;
   roiPct: string;
-  timezone: "Asia/Seoul";
+  timezone: "Asia/Seoul" | "America/Chicago";
+  researchStartLocalTime?: string;
+  summaryEmail?: string | null;
+  summaryEmailEnabled?: boolean;
+  supplierContactMode?: "website";
   summaryLocalTime: string;
   review700Max: number;
   review2000HardFailCount: number;
@@ -30,6 +34,7 @@ export const INITIAL_SETTINGS: SettingsSnapshot = {
   roiPct: "150",
   timezone: "Asia/Seoul",
   summaryLocalTime: "08:00",
+  researchStartLocalTime: "00:10",
   review700Max: 3,
   review2000HardFailCount: 2,
   topPriceMinUsd: "17",

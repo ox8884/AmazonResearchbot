@@ -1,0 +1,93 @@
+import assert from 'node:assert/strict';
+import {createServer} from 'node:net';
+import {once} from 'node:events';
+import {randomUUID,randomBytes} from 'node:crypto';
+import {mkdtemp,rm,writeFile} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {openAcceptance} from './support/acceptance.mjs';
+import {browserSigningFixture} from './support/browser-signing-fixture.mjs';
+import {publishBrowserSigningIdentity} from '../apps/worker/src/browser-signing-key.ts';
+import {queueSearchExport} from '../apps/worker/src/search-export-producer.ts';
+import {dispatchBrowserWork} from '../apps/worker/src/browser-dispatch.ts';
+import {createAsideAdapter} from '../apps/browser-bridge/aside-adapter.mjs';
+import {decryptSecret} from '../packages/security/src/secrets.ts';
+
+const reservation=createServer();reservation.listen(0,'127.0.0.1');await once(reservation,'listening');
+const address=reservation.address();assert.ok(address&&typeof address==='object');await new Promise(resolve=>reservation.close(resolve));
+const origin='http://127.0.0.1:'+address.port,test=await openAcceptance({databaseKey:'search-export-'+Date.now(),webOrigin:origin});
+let adapter,directory,liveResult=null;
+try{
+ await test.app.listen({host:'127.0.0.1',port:address.port});
+ const keys=browserSigningFixture(),identity=await publishBrowserSigningIdentity(test.pool,keys.privateKey),signing={origin,privateKey:keys.privateKey,fingerprint:identity.fingerprint};
+ const pair=(await test.call('/api/bridge/pairings',{})).body;
+ const enrolled=await test.call('/api/bridge/pair',{pairingCode:pair.pairingCode,name:'Synthetic search export reader'});assert.equal(enrolled.status,201);
+ const deviceId=enrolled.body.id;
+ const call=async(url,body)=>{const response=await fetch(origin+url,{method:body===undefined?'GET':'POST',headers:{origin,authorization:'Bearer '+enrolled.body.credential,...(body===undefined?{}:{'content-type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)}),redirect:'error',signal:AbortSignal.timeout(10000)});return {status:response.status,body:await response.json()};};
+ assert.equal((await call('/api/bridge/capabilities',{connected:true,supportedTasks:['saved_search_export'],keyFingerprint:identity.fingerprint})).status,200);
+ const search=(await test.call('/api/saved-searches',{name:'Synthetic search export',filters:{}})).body;
+ const run=(await test.call('/api/saved-searches/'+search.id+'/run',{})).body.run;
+ assert.equal(run.mode,'browser');
+ assert.equal((await dispatchBrowserWork(test.pool,signing)).queued,1);
+ const claim=(await call('/api/bridge/tasks/claim',{})).body;
+ const task=JSON.parse(Buffer.from(claim.envelope.payload,'base64url'));
+ assert.equal(task.request.kind,'saved_search_export');assert.equal(task.request.searchRunId,run.id);
+ const scope=(await test.pool.query('SELECT candidate_id,spec_id,input_version,settings_version,search_run_id FROM browser_tasks WHERE id=$1',[claim.taskId])).rows[0];
+ assert.deepEqual(scope,{candidate_id:null,spec_id:null,input_version:null,settings_version:null,search_run_id:run.id});
+ const repeated=await Promise.all([queueSearchExport(test.pool,{deviceId,runId:run.id},signing),queueSearchExport(test.pool,{deviceId,runId:run.id},signing)]);
+ assert.ok(repeated.every(result=>result.kind==='existing'&&result.taskId===claim.taskId));
+ const keyword='synthetic export '+test.runId;
+ const header='Keyword,Niche Score,Units Sold - Monthly Avg,Price - Monthly Avg,Search Volume - 30 Day Exact,Search Trend - 30 Day,Search Trend - 90 Day,Competition,Seasonality,Last Updated';
+ const bytes=Buffer.from('JUNGLESCOUT WEBAPP CSV EXPORT\nReport Generated at: synthetic fixture\n'+header+'\n"'+keyword+'","8","1,000","$25.00","< 450","-","-","Low","Low","Sep 08, 2026"\n');
+ const observation={protocol:1,kind:'captured',scope:'opportunity_finder_export',sourcePageUrl:'https://members.junglescout.com/#/opportunity-finder',observedAt:new Date().toISOString(),searchRunId:run.id,searchId:search.id,revision:1,marketplace:'us',discoveryCategory:'Home & Kitchen',filters:{},applied:{lower:['','','','','',''],upper:['','','','','',''],competition:['Very Low','Very High'],seasonality:['Very Low','Very High']},records:[{keyword,dominantCategory:'Home & Kitchen'}],totalResults:10,page:1,filename:'Jungle Scout Opportunity Finder CSV Export - synthetic.csv',csvBase64:bytes.toString('base64'),snapshot:keyword+' Home & Kitchen'};
+ const submit=obs=>call('/api/bridge/tasks/'+claim.taskId+'/results',{taskHash:claim.taskHash,observation:obs});
+ assert.equal((await submit({...observation,searchRunId:randomUUID()})).status,400);
+ assert.equal((await submit({...observation,observedAt:'2020-01-01T00:00:00.000Z'})).status,409);
+ const counts=async()=>(await test.pool.query('SELECT (SELECT count(*)::int FROM imports) AS imports,(SELECT count(*)::int FROM import_rows) AS rows,(SELECT count(*)::int FROM candidates) AS candidates,(SELECT count(*)::int FROM evidence) AS evidence,(SELECT count(*)::int FROM sources) AS sources,(SELECT count(*)::int FROM browser_task_results) AS receipts,(SELECT count(*)::int FROM pgboss.job) AS jobs')).rows[0];
+ const before=await counts(),send=test.boss.send;
+ test.boss.send=async(...args)=>{await send.apply(test.boss,args);throw Error('Synthetic enqueue failure');};
+ try{assert.equal((await submit(observation)).status,500);}finally{test.boss.send=send;}
+ assert.deepEqual(await counts(),before,'Import, provenance and queue must roll back together');
+ assert.equal((await call('/api/bridge/tasks/'+claim.taskId)).body.state,'delivered');
+ const accepted=await submit(observation);assert.equal(accepted.status,201);
+ const imported=(await test.pool.query('SELECT * FROM imports WHERE id=$1',[accepted.body.importId])).rows[0];
+ assert.equal(imported.source_type,'junglescout_web');assert.deepEqual(imported.column_mapping,{keyword:'Keyword'});
+ assert.deepEqual(decryptSecret(imported.blob_ciphertext,Buffer.from(test.encryptionKeyHex,'hex'),'import:'+observation.filename+':bytes'),bytes);
+ const completed=(await test.call('/api/saved-search-runs')).body.runs.find(item=>item.id===run.id);
+ assert.equal(completed.importId,imported.id);assert.equal(completed.filterVerification,'applied');assert.equal(completed.mode,'browser');
+ const receipt=(await test.pool.query('SELECT body_ciphertext FROM browser_task_results WHERE id=$1',[accepted.body.receiptId])).rows[0];
+ assert.deepEqual(JSON.parse(decryptSecret(receipt.body_ciphertext,Buffer.from(test.encryptionKeyHex,'hex'),'browser-task-result:'+accepted.body.receiptId)),observation);
+ const after=await counts(),duplicate=await submit(observation);assert.equal(duplicate.status,200);assert.equal(duplicate.body.receiptId,accepted.body.receiptId);assert.deepEqual(await counts(),after);
+ assert.equal((await dispatchBrowserWork(test.pool,signing)).queued,0);
+ const candidate=(await test.call('/api/candidates')).body.candidates.find(item=>item.keyword===keyword);
+ const evidence=(await test.call('/api/candidates/'+candidate.id)).body.evidence;
+ assert.equal(evidence.some(item=>item.field==='top_price'&&item.kind!=='unknown'),false,'Average price is not top price');
+ if(process.argv.includes('--live')){
+  const liveSearch=(await test.call('/api/saved-searches',{name:'Actual browser export fixture',filters:{priceMinUsd:'20',priceMaxUsd:'40',monthlySearchMin:500,competitionMax:'Low',seasonalityMax:'Low'}})).body;
+  const liveRun=(await test.call('/api/saved-searches/'+liveSearch.id+'/run',{})).body.run;
+  const queued=await queueSearchExport(test.pool,{deviceId,runId:liveRun.id},signing);assert.equal(queued.kind,'queued');
+  const liveClaim=(await call('/api/bridge/tasks/claim',{})).body;assert.equal(liveClaim.taskId,queued.taskId);
+  directory=await mkdtemp(path.join(tmpdir(),'forge-search-export-'));
+  adapter=createAsideAdapter({directory,origin,deviceId,publicKey:keys.publicKey.export({format:'pem',type:'spki'}).toString(),cliPath:process.env.FORGE_ASIDE_CLI_PATH,accountId:process.env.FORGE_ASIDE_ACCOUNT});
+  const captured=await adapter.collect(liveClaim.envelope);assert.equal(captured.kind,'captured','Actual ASIDE export required');
+  assert.equal((await adapter.collect(liveClaim.envelope)).kind,'pending_reconciliation','Do not repeat the download before receipt');
+  const result=await call('/api/bridge/tasks/'+liveClaim.taskId+'/results',{taskHash:liveClaim.taskHash,observation:captured.observation});assert.equal(result.status,201);
+  adapter.confirmServerReceipt({taskId:liveClaim.taskId,taskHash:liveClaim.taskHash,receiptId:result.body.receiptId});
+  assert.equal((await adapter.collect(liveClaim.envelope)).kind,'completed');
+  const history=(await test.call('/api/saved-search-runs')).body.runs.find(item=>item.id===liveRun.id);
+  assert.equal(history.linkedCandidates,captured.observation.records.length);assert.equal(history.filterVerification,'applied');
+  liveResult={rows:history.linkedCandidates,importId:history.importId,filterVerification:history.filterVerification,sameTaskNotRepeated:true};
+  await writeFile('.omo/evidence/saved-search-export/live-task-observation.json',JSON.stringify({syntheticRun:true,syntheticDevice:true,actualBrowserSource:true,observation:captured.observation,liveResult},null,2));
+ }
+ const memoSearch=(await test.call('/api/saved-searches',{name:'Legacy note semantics',filters:{competition:'Low'}})).body;
+ const memoResponse=await test.call('/api/saved-searches/'+memoSearch.id+'/run',{});
+ assert.equal(memoResponse.body.run.mode,'manual');assert.equal(memoResponse.body.nextAction.target,'manual_filters');
+ assert.equal((await queueSearchExport(test.pool,{deviceId,runId:memoResponse.body.run.id},signing)).kind,'not_ready','Legacy notes must not be silently interpreted as filter limits');
+ const other=await test.call('/api/auth/sign-up/email',{email:'other-'+test.runId+'@fixture.invalid',password:randomBytes(24).toString('base64url'),name:'Other fixture'});assert.equal(other.status,200);
+ const foreign=(await test.pool.query('INSERT INTO saved_search_runs(saved_search_id,created_by,search_revision,snapshot) SELECT saved_search_id,$2,search_revision,snapshot FROM saved_search_runs WHERE id=$1 RETURNING id',[run.id,other.body.user.id])).rows[0];
+ assert.equal((await queueSearchExport(test.pool,{deviceId,runId:foreign.id},signing)).kind,'not_ready','A device cannot export another owner\'s run');
+ console.log(JSON.stringify({scenario:'search-export-task',result:'PASS',realLocalHttp:true,withoutFakeCandidate:true,atomicImport:true,duplicateReceipt:true,ownerBound:true,oldObservationRejected:true,liveResult,paidApiCalls:0,externalMessages:0}));
+}finally{
+ adapter?.close();await test.close();
+ if(directory){assert.equal(path.dirname(path.resolve(directory)),path.resolve(tmpdir()));assert.ok(path.basename(directory).startsWith('forge-search-export-'));await rm(directory,{recursive:true,force:true});}
+}

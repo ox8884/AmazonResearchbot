@@ -10,7 +10,11 @@
     "dev": "node scripts/dev.mjs",
     "verify:local": "node scripts/verify-local.mjs",
     "migrate": "tsx scripts/migrate.ts",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "tsc --noEmit -p apps/edge/tsconfig.json && pnpm -r typecheck",
+    "backup:local": "tsx scripts/backup-local.mjs backup",
+    "restore:local": "tsx scripts/backup-local.mjs restore",
+    "verify:restore": "node scripts/verify-local.mjs --scenario backup",
+    "backup:schedule": "tsx scripts/backup-scheduler.mjs"
   },
   "dependencies": {
     "@forge-ops/db": "workspace:*",

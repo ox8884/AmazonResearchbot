@@ -8,16 +8,22 @@ export type AdvanceJob = {
   inputVersion: number;
 };
 
-export async function createProducer(connectionString: string): Promise<PgBoss> {
+export async function createProducer(connectionString: string, appEnv: "development" | "production"): Promise<PgBoss> {
   const boss = new PgBoss({
     connectionString,
     supervise: false,
     schedule: false,
     migrate: false,
   });
-  await boss.start();
-  await boss.createQueue(JOB_ADVANCE);
-  return boss;
+  try {
+    await boss.start();
+    if(appEnv === "development")await boss.createQueue(JOB_ADVANCE);
+    else if(!await boss.getQueue(JOB_ADVANCE))throw new Error("Queue migration is required before startup");
+    return boss;
+  } catch(error) {
+    await boss.stop({graceful:false,timeout:2000});
+    throw error;
+  }
 }
 
 export function txAdapter(client: {

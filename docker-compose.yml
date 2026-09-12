@@ -6,7 +6,7 @@ services:
       POSTGRES_PASSWORD: forge
       POSTGRES_DB: forge_ops
     ports:
-      - "5433:5432"
+      - "127.0.0.1:5433:5432"
     volumes:
       - forge_ops_pg:/var/lib/postgresql/data
     healthcheck:
@@ -17,7 +17,7 @@ services:
   mailpit:
     image: axllent/mailpit
     ports:
-      - "1025:1025"
-      - "8025:8025"
+      - "127.0.0.1:1025:1025"
+      - "127.0.0.1:8025:8025"
 volumes:
   forge_ops_pg:

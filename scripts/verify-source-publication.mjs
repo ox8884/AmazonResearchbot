@@ -9,15 +9,20 @@ const mode=process.argv.includes('--worktree')?'worktree':'index';
 const git=(args,input)=>execFileSync('git',args,{input,maxBuffer:64*1024*1024,windowsHide:true});
 const root=git(['rev-parse','--show-toplevel']).toString().trim();
 const protectedValues=[];
-for(const name of await readdir(root)){
- if(!/^\.env(?:\.|$)/i.test(name)||name.toLowerCase()==='.env.example')continue;
- const values=parseEnv(await readFile(path.join(root,name),'utf8'));
+const inventoryRoots=[root,path.join(root,'apps/edge')];
+for(const inventoryRoot of inventoryRoots){
+let names;
+try{names=await readdir(inventoryRoot);}catch(error){if(error.code==='ENOENT')continue;throw error;}
+for(const name of names){
+ if(!/^\.env(?:\.|$)/i.test(name)&&!/^\.dev\.vars(?:\.|$)/i.test(name)||['.env.example','.dev.vars.example'].includes(name.toLowerCase()))continue;
+ const values=parseEnv(await readFile(path.join(inventoryRoot,name),'utf8'));
  for(const [key,value] of Object.entries(values)){
-  if(/(?:PASSWORD|TOKEN|SECRET|API_KEY|API_KEY_NAME|ENCRYPTION_KEY)$/i.test(key)&&value.length>=8)protectedValues.push(value);
+  if(/(?:PASSWORD|TOKEN|SECRET|API_KEY|API_KEY_NAME|ENCRYPTION_KEY|ACCESS_CLIENT_ID)$/i.test(key)&&value.length>=8)protectedValues.push(value);
   const domain=value.includes('@')?value.split('@').at(-1).toLowerCase():'';
   if(/^[^\s@:/]+@[^\s@:/]+\.[^\s@:/]+$/.test(value)&&!['example.com','example.org','example.net'].includes(domain)&&!/(?:\.invalid|\.test|\.example|\.local)$/.test(domain))protectedValues.push(value);
   if(key==='DATABASE_URL'){try{const password=decodeURIComponent(new URL(value).password);if(password.length>=8)protectedValues.push(password);}catch{throw new Error('Local secret inventory could not be parsed');}}
  }
+}
 }
 let entries=[],baseline;
 if(mode==='index'){

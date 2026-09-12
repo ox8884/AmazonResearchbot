@@ -1,26 +1,56 @@
+import { recoverProposedSpecs } from "./automatic-spec.ts";
+import { loadBrowserSigningKey, publishBrowserSigningIdentity } from "./browser-signing-key.ts";
+import { dispatchBrowserWork } from "./browser-dispatch.ts";
+import { readRuntimeAuthority, runtimeEnvironment, assertDatabaseAuthority } from "@forge-ops/security";
+import { runSummaryDeliveryCycle } from "./summary-delivery-loop.ts";
+import { prepareReadyRfqs } from "./automatic-rfq.ts";
+import { createAiTransport } from "@forge-ops/integrations/ai/transport";
+import { runDailyPlanner } from "./planner.ts";
+import { recordInboxQuotes } from "./inbox-quote-loop.ts";
+import { createInboxCycle } from "./inbox-loop.ts";
+import { advanceCandidate, type AdvanceJob } from "./advance-candidate.ts";
+import { createContactCycle } from "./contact-loop.ts";
+import { resolveWorkMailTransport } from "./work-mail.ts";
+import { parseKey } from "@forge-ops/security";
+import { recoverContactOutcomes } from "./contact-runner.ts";
 import { createPool, recoverDispatchingAttempts } from "@forge-ops/db";
-import { evaluateNiche, unknown, type Evidence, type NicheInput, type SettingsSnapshot, type Stage } from "@forge-ops/domain";
-import { executeJsQuery } from "@forge-ops/integrations/jungle-scout/execute";
 import { resolveTransport } from "@forge-ops/integrations/jungle-scout/transport";
 import { PgBoss, type Job } from "pg-boss";
 const JOB_ADVANCE = "candidate.advance";
 
-type AdvanceJob = { candidateId: string; stage: string; inputVersion: number };
 
-const appEnv = process.env.APP_ENV === "production" ? "production" : "development";
-if (appEnv === "production") {
-  throw new Error("This worker binary refuses production. Oracle systemd worker only.");
-}
-const databaseUrl = process.env.DATABASE_URL;
-if (!databaseUrl) throw new Error("DATABASE_URL missing");
 
-const pool = createPool(databaseUrl);
-const identity = await pool.query(
-  `SELECT environment FROM deployment_identity WHERE environment = 'development'`,
-);
-if ((identity.rowCount ?? 0) === 0) {
-  throw new Error("development identity missing");
-}
+const runtimeAuthority=await readRuntimeAuthority("worker",process.env);
+const source=await runtimeEnvironment(runtimeAuthority,process.env);
+const appEnv=runtimeAuthority.appEnv;
+const databaseUrl=runtimeAuthority.databaseUrl;
+const keyHex=source.ENCRYPTION_KEY;
+if(!keyHex)throw new Error("ENCRYPTION_KEY missing");
+const encryptionKey=parseKey(keyHex);
+const browserPrivateKey=await loadBrowserSigningKey(source,appEnv);
+const pool=createPool(databaseUrl);
+try { await assertDatabaseAuthority(pool,runtimeAuthority); }
+catch(error){await pool.end();throw error;}
+
+const authorityConnection = await pool.connect();
+const authority = await authorityConnection.query<{acquired:boolean}>("SELECT pg_try_advisory_lock(hashtext('forge_ops.worker_authority')) AS acquired");
+if (!authority.rows[0]?.acquired) { authorityConnection.release(); await pool.end(); throw new Error("A worker already owns this database"); }
+
+const browserSigning = await (async () => {
+  if (!browserPrivateKey) return null;
+  try {
+    const origin = source.WEB_ORIGIN ?? "http://localhost:5173";
+    const url = new URL(origin);
+    const local = appEnv === "development" && url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if ((!local && url.protocol !== "https:") || url.origin !== origin || url.username || url.password) throw new Error("INVALID_BROWSER_TASK_ORIGIN");
+    const identity = await publishBrowserSigningIdentity(pool, browserPrivateKey);
+    return { origin, privateKey: browserPrivateKey, fingerprint: identity.fingerprint };
+  } catch (error) {
+    authorityConnection.release();
+    await pool.end();
+    throw error;
+  }
+})();
 
 const boss = new PgBoss({
   connectionString: databaseUrl,
@@ -30,181 +60,92 @@ const boss = new PgBoss({
 });
 await boss.start();
 await recoverDispatchingAttempts(pool);
-await boss.createQueue(JOB_ADVANCE);
+await recoverContactOutcomes(pool);
+if(appEnv === "development")await boss.createQueue(JOB_ADVANCE);
 
 await boss.work<AdvanceJob>(JOB_ADVANCE, { localConcurrency: 4, batchSize: 1 }, async (jobs: Job<AdvanceJob>[]) => {
   const job = jobs[0];
   if (!job) return;
-  await advance(job.data);
+  await advanceCandidate(pool, resolveTransport(source), job.data, {transport:createAiTransport(source.AI_TRANSPORT === "official"),encryptionKey});
 });
 
-async function currentSettings(): Promise<SettingsSnapshot> {
-  const row = await pool.query<{ snapshot: SettingsSnapshot }>(
-    `SELECT snapshot FROM settings_versions ORDER BY version DESC LIMIT 1`,
-  );
-  const snapshot = row.rows[0]?.snapshot;
-  if (!snapshot) throw new Error("settings missing");
-  return snapshot;
+let rfqTask: Promise<void> | null = null;
+function prepareRfqWork(): void {
+  if (rfqTask) return;
+  rfqTask = recoverProposedSpecs(pool).then(() => prepareReadyRfqs(pool)).catch(() => {
+    console.error("RFQ preparation interrupted; the next tick will retry");
+  }).finally(() => { rfqTask = null; });
 }
+const rfqTimer = setInterval(prepareRfqWork, 5000);
+prepareRfqWork();
 
-async function advance(data: AdvanceJob): Promise<void> {
-  const client = await pool.connect();
-  let stageAfter: Stage | null = null;
-  let settings: SettingsSnapshot;
-  try {
-    await client.query("BEGIN");
-    const found = await client.query<{
-      id: string;
-      stage: Stage;
-      blocked_reason: string | null;
-      input_version: number;
-    }>(`SELECT id, stage, blocked_reason, input_version FROM candidates WHERE id = $1 FOR UPDATE`, [
-      data.candidateId,
-    ]);
-    const candidate = found.rows[0];
-    if (!candidate) {
-      await client.query("COMMIT");
-      return;
-    }
-    if (candidate.blocked_reason === "web_session") {
-      await client.query("COMMIT");
-      return;
-    }
-    settings = await currentSettings();
-    if (candidate.stage === "imported" || data.stage === "imported") {
-      await client.query(`UPDATE candidates SET stage = 'screening', last_progress_at = now() WHERE id = $1`, [
-        candidate.id,
-      ]);
-      await client.query(
-        `INSERT INTO candidate_events (candidate_id, stage, input_version, detail)
-         VALUES ($1,'screening',$2,'{}'::jsonb)
-         ON CONFLICT (candidate_id, stage, input_version) DO NOTHING`,
-        [candidate.id, candidate.input_version],
-      );
-      const ev = await client.query<{
-        field: string;
-        kind: string;
-        value_text: string | null;
-        reason: string | null;
-        source_id: string | null;
-        observed_at: Date | null;
-      }>(`SELECT field, kind, value_text, reason, source_id, observed_at FROM evidence WHERE candidate_id = $1`, [
-        candidate.id,
-      ]);
-      const nicheInput: NicheInput = {
-        review700Count: evidenceNumber(ev.rows, "review_700_count"),
-        review2000Count: evidenceNumber(ev.rows, "review_2000_count"),
-        topPriceUsd: evidenceText(ev.rows, "top_price"),
-        monthlyRevenueCompetitorCount: evidenceNumber(ev.rows, "monthly_revenue_competitors"),
-        standardSize: evidenceBool(ev.rows, "standard_size"),
-        differentiation: evidenceBool(ev.rows, "differentiation"),
-      };
-      const assessment = evaluateNiche(nicheInput, settings);
-      await client.query(
-        `INSERT INTO evaluations (candidate_id, settings_version, kind, outcome, payload)
-         VALUES ($1, (SELECT max(version) FROM settings_versions), 'niche', $2, $3::jsonb)`,
-        [candidate.id, assessment.outcome, JSON.stringify(assessment)],
-      );
-      if (assessment.outcome === "reject") {
-        await client.query(`UPDATE candidates SET stage = 'rejected', last_progress_at = now() WHERE id = $1`, [
-          candidate.id,
-        ]);
-      } else {
-        await client.query(
-          `UPDATE candidates SET stage = 'api_validation', last_progress_at = now() WHERE id = $1`,
-          [candidate.id],
-        );
-        await client.query(
-          `INSERT INTO candidate_events (candidate_id, stage, input_version, detail)
-           VALUES ($1,'api_validation',$2,'{}'::jsonb)
-           ON CONFLICT DO NOTHING`,
-          [candidate.id, candidate.input_version],
-        );
-      }
-    }
-    const after = await client.query<{ stage: Stage }>(`SELECT stage FROM candidates WHERE id = $1`, [candidate.id]);
-    stageAfter = after.rows[0]?.stage ?? null;
-    if (stageAfter === "api_validation" && settings.jsDailyWireCap <= 0) {
-      await client.query(
-        `UPDATE candidates SET blocked_reason = 'budget', last_progress_at = now() WHERE id = $1`,
-        [candidate.id],
-      );
-    }
-    await client.query("COMMIT");
-  } catch (err) {
-    await client.query("ROLLBACK");
-    throw err;
-  } finally {
-    client.release();
-  }
+const contactCycle = createContactCycle(pool, () => resolveWorkMailTransport(pool, encryptionKey, appEnv, source.MAIL_TRANSPORT));
+let contactTask: Promise<void> | null = null;
+const contactTimer = setInterval(() => {
+  if (contactTask) return;
+  contactTask = contactCycle().catch(() => { console.error("Contact processing interrupted; persisted state will be reconciled"); }).finally(() => { contactTask = null; });
+}, 5000);
 
-  if (stageAfter === "api_validation" && settings!.jsDailyWireCap > 0) {
-    const result = await executeJsQuery(pool, resolveTransport(process.env), {
-      endpoint: "product_database_query",
-      marketplace: "us",
-      query: { keyword: data.candidateId },
-      accountScope: "local",
-      wireLimit: settings!.jsDailyWireCap,
-    });
-    if (result.kind === "budget_blocked") {
-      await pool.query(`UPDATE candidates SET blocked_reason = 'budget', last_progress_at = now() WHERE id = $1`, [
-        data.candidateId,
-      ]);
-    }
-  }
+const inboxCycle = createInboxCycle(pool, encryptionKey, { mode: source.MAIL_TRANSPORT });
+let inboxTask: Promise<void> | null = null;
+function collectInbox(): void {
+  if (inboxTask) return;
+  inboxTask = inboxCycle().then(() => recordInboxQuotes(pool, encryptionKey)).then(() => undefined).catch(() => {
+    console.error("Inbox collection interrupted; the saved cursor will be reused");
+  }).finally(() => { inboxTask = null; });
 }
+const inboxTimer = setInterval(collectInbox, 60000);
+collectInbox();
 
-type EvidenceRow = {
-  field: string;
-  kind: string;
-  value_text: string | null;
-  reason: string | null;
-  source_id: string | null;
-  observed_at: Date | null;
-};
-
-function evidenceNumber(rows: EvidenceRow[], field: string): Evidence<number> {
-  const row = rows.find((r) => r.field === field);
-  if (!row || row.kind === "unknown" || row.value_text == null) {
-    return unknown(row?.reason ?? "missing", row?.source_id ?? null);
-  }
-  if (row.kind !== "measured" && row.kind !== "estimate" && row.kind !== "quote") {
-    return unknown("bad kind", row.source_id);
-  }
-  return {
-    kind: row.kind,
-    value: Number(row.value_text),
-    sourceId: row.source_id ?? "",
-    observedAt: row.observed_at?.toISOString() ?? "",
-  };
+let summaryTask: Promise<void> | null = null;
+function deliverSummaries(): void {
+  if(summaryTask)return;
+  summaryTask=runSummaryDeliveryCycle(pool,()=>resolveWorkMailTransport(pool,encryptionKey,appEnv,source.MAIL_TRANSPORT)).catch(()=>{
+    console.error("Summary delivery interrupted; saved state will be reconciled");
+  }).finally(()=>{summaryTask=null;});
 }
+const summaryTimer=setInterval(deliverSummaries,60000);
+deliverSummaries();
 
-function evidenceText(rows: EvidenceRow[], field: string): Evidence<string> {
-  const row = rows.find((r) => r.field === field);
-  if (!row || row.kind === "unknown" || row.value_text == null) {
-    return unknown(row?.reason ?? "missing", row?.source_id ?? null);
-  }
-  if (row.kind !== "measured" && row.kind !== "estimate" && row.kind !== "quote") {
-    return unknown("bad kind", row.source_id);
-  }
-  return {
-    kind: row.kind,
-    value: row.value_text,
-    sourceId: row.source_id ?? "",
-    observedAt: row.observed_at?.toISOString() ?? "",
-  };
+let plannerTask: Promise<void> | null = null;
+let plannerFailed = false;
+function planDailyWork(): void {
+  if (plannerTask) return;
+  plannerTask = runDailyPlanner(pool,boss,{apiAvailable:resolveTransport(source).kind === "ready"}).then(result=>{
+    if(result.created.length) console.log("Daily work prepared", {schedules:result.created,queued:result.queued});
+    plannerFailed=false;
+  }).catch(()=>{if(!plannerFailed)console.error("Daily planning interrupted; the next tick will retry");plannerFailed=true;}).finally(()=>{plannerTask=null;});
 }
+const plannerTimer=setInterval(planDailyWork,60000);
+planDailyWork();
 
-function evidenceBool(rows: EvidenceRow[], field: string): Evidence<boolean> {
-  const text = evidenceText(rows, field);
-  if (text.kind === "unknown") return text;
-  return { ...text, value: text.value === "true" || text.value === "1" };
+let browserTask: Promise<void> | null = null;
+let browserFailed = false;
+function dispatchBrowserTasks(): void {
+  if (!browserSigning || browserTask) return;
+  browserTask = dispatchBrowserWork(pool, browserSigning).then(result => {
+    if (result.queued) console.log("Browser read tasks prepared", { queued: result.queued });
+    browserFailed = false;
+  }).catch(() => {
+    if (!browserFailed) console.error("Browser dispatch interrupted; the next tick will retry");
+    browserFailed = true;
+  }).finally(() => { browserTask = null; });
 }
+const browserTimer = browserSigning ? setInterval(dispatchBrowserTasks, 5000) : null;
+dispatchBrowserTasks();
 
 console.log("worker listening for candidate.advance");
 
-process.on("SIGTERM", async () => {
-  await boss.stop({ graceful: true, timeout: 20000 });
+process.once("SIGTERM", async () => {
+  if (browserTimer) clearInterval(browserTimer);
+  clearInterval(contactTimer);
+  clearInterval(rfqTimer);
+  clearInterval(inboxTimer);
+  clearInterval(plannerTimer);
+  clearInterval(summaryTimer);
+  const stopQueue = boss.stop({ graceful: true, timeout: 20000 });
+  await Promise.all([stopQueue, contactTask, inboxTask, plannerTask, rfqTask, summaryTask, browserTask]);
+  authorityConnection.release();
   await pool.end();
   process.exit(0);
 });

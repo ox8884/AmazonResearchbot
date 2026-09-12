@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import { openAcceptance } from './support/acceptance.mjs';
+const test=await openAcceptance();
+try {
+  const before=(await test.call('/api/settings')).body;
+  assert.equal((await test.call('/api/settings/proposals',{marketplace:'ca'})).status,400);
+  assert.equal((await test.call('/api/settings/proposals',{launchBudgetUsd:'4000'},{origin:'https://unapproved.invalid'})).status,403);
+  const first=await test.call('/api/settings/proposals',{launchBudgetUsd:'2500'}),second=await test.call('/api/settings/proposals',{launchBudgetUsd:'3500'});
+  assert.equal(first.status,201);assert.equal(second.status,201);
+  assert.equal((await test.call('/api/settings')).body.version,before.version,'A proposal must not apply');
+  const results=await Promise.all([test.call(`/api/approvals/${first.body.approvalId}/approve`,{}),test.call(`/api/approvals/${second.body.approvalId}/approve`,{})]);
+  assert.deepEqual(results.map(r=>r.status).sort(),[200,409]);
+  const applied=(await test.call('/api/settings')).body;assert.equal(applied.version,before.version+1);
+  const winner=results[0].status===200?first.body.approvalId:second.body.approvalId;
+  const replay=await test.call(`/api/approvals/${winner}/approve`,{});assert.equal(replay.status,200);assert.equal(replay.body.reused,true);
+  assert.equal((await test.call('/api/settings')).body.version,applied.version);
+  const changed=await test.call('/api/settings/proposals',{roiPct:'175'});assert.equal(changed.status,201);
+  await test.pool.query("UPDATE approvals SET payload=jsonb_set(payload,'{after,roiPct}','\"1\"'::jsonb) WHERE id=$1",[changed.body.approvalId]);
+  assert.equal((await test.call(`/api/approvals/${changed.body.approvalId}/approve`,{})).status,409);
+  assert.equal((await test.call('/api/settings')).body.version,applied.version);
+  const rejected=await test.call('/api/settings/proposals',{roiPct:'180'});assert.equal(rejected.status,201);
+  assert.equal((await test.call(`/api/approvals/${rejected.body.approvalId}/reject`,{})).status,200);
+  assert.equal((await test.call(`/api/approvals/${rejected.body.approvalId}/approve`,{})).status,409);
+  assert.equal((await test.call(`/api/approvals/${winner}/reject`,{})).status,409);
+  assert.equal((await test.call(`/api/approvals/${winner}/approve`,{payload:{after:{roiPct:'0'}}})).status,400);
+  const audit=await test.pool.query("SELECT count(*)::int AS n FROM audit_events WHERE action='approve' AND target=$1",[winner]);assert.equal(audit.rows[0].n,1);
+  const current=(await test.call('/api/settings')).body;
+  const {shareTop1MustBeBelowPct,shareTop3MustBeBelowPct,firstPageSalesMinUsd,...legacy}=current.snapshot;
+  await test.pool.query("INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) VALUES($1,now(),'acceptance-legacy-fixture',$2::jsonb)",[current.version+1,JSON.stringify(legacy)]);
+  assert.equal((await test.call('/api/settings/proposals',{roiPct:'190'})).status,400);
+  const repair=await test.call('/api/settings/proposals',{shareTop1MustBeBelowPct,shareTop3MustBeBelowPct,firstPageSalesMinUsd});assert.equal(repair.status,201);
+  assert.equal((await test.call('/api/settings')).body.snapshot.shareTop1MustBeBelowPct,undefined);
+  assert.equal((await test.call('/api/approvals/'+repair.body.approvalId+'/approve',{})).status,200);
+  assert.equal((await test.call('/api/settings')).body.snapshot.shareTop1MustBeBelowPct,shareTop1MustBeBelowPct);
+  console.log(JSON.stringify({scenario:'settings-approvals',result:'PASS',isolatedDatabase:test.database,proposalOnly:'unchanged',concurrent:'one approved, one stale',replay:'same version, single audit',tamper:'rejected',protectedFields:'rejected',realWorkspaceSettings:'untouched'}));
+} finally {await test.close();}

@@ -1,0 +1,203 @@
+.inbox-page,
+.inbox-detail {
+  gap: var(--space-24);
+}
+
+.inbox-profile,
+.inbox-message,
+.inbox-link-form,
+.inbox-linked,
+.inbox-overview {
+  gap: var(--space-16);
+}
+
+.inbox-profile-heading,
+.inbox-message-heading,
+.inbox-settings-links,
+.inbox-filter,
+.inbox-attachment-meta {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-12);
+}
+
+.inbox-profile-heading,
+.inbox-message-heading {
+  justify-content: space-between;
+}
+
+.inbox-profile h2,
+.inbox-message h2,
+.inbox-link-form h2,
+.inbox-linked h2,
+.inbox-detail-section h2 {
+  font-size: var(--body);
+}
+
+.inbox-status-values,
+.inbox-message-meta,
+.inbox-link-preview {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-16);
+  margin: 0;
+}
+
+.inbox-status-values {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.inbox-status-values dt,
+.inbox-message-meta dt,
+.inbox-link-preview dt {
+  color: var(--muted);
+  font-size: var(--small);
+  margin-bottom: var(--space-4);
+}
+
+.inbox-status-values dd,
+.inbox-message-meta dd,
+.inbox-link-preview dd {
+  margin: 0;
+  font-size: var(--small);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+
+.inbox-settings-links {
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.inbox-filter {
+  flex-wrap: wrap;
+}
+
+.inbox-filter-button.is-selected {
+  background: var(--canvas);
+  border-color: var(--action);
+  color: var(--action);
+}
+
+.inbox-list {
+  display: grid;
+  gap: var(--space-12);
+}
+
+.inbox-message-heading .stack {
+  gap: var(--space-4);
+}
+
+.inbox-sender {
+  color: var(--muted);
+  font-size: var(--small);
+  font-weight: 500;
+}
+
+.inbox-load-more {
+  align-self: flex-start;
+}
+
+.inbox-detail-section {
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-16);
+}
+
+.inbox-text {
+  margin: 0;
+  padding: var(--space-16);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--small);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.inbox-attachments {
+  display: grid;
+  gap: var(--space-12);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.inbox-attachments li {
+  display: grid;
+  gap: var(--space-12);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: var(--space-16);
+}
+
+.inbox-attachments .inbox-text {
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+
+.inbox-attachment-meta {
+  flex-wrap: wrap;
+}
+
+.inbox-attachment-meta strong {
+  overflow-wrap: anywhere;
+}
+
+.inbox-attachment-meta .chip {
+  margin-left: auto;
+}
+
+.inbox-link-preview {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  padding: var(--space-12) 0;
+}
+
+.inbox-linked .keyword-link {
+  width: fit-content;
+}
+
+.inbox-conflict,
+.inbox-manual-record {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-12);
+}
+
+@media (min-width: 1280px) {
+  .inbox-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 767px) {
+  .inbox-profile-heading,
+  .inbox-message-heading {
+    flex-direction: column;
+  }
+
+  .inbox-status-values,
+  .inbox-message-meta,
+  .inbox-link-preview {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-12);
+  }
+
+  .inbox-filter .btn,
+  .inbox-load-more,
+  .inbox-linked .btn {
+    width: 100%;
+  }
+
+  .inbox-attachment-meta .chip {
+    margin-left: 0;
+  }
+}

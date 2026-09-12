@@ -1,4 +1,8 @@
-# 검증 명세 — 아직 실행하지 않음
+# 검증 명세와 실행 기록
+
+## 2026-09-06 후속 구현
+
+견적 입력·저장·손익 계산의 실제 로컬 검증은 [verification-quotes.md](verification-quotes.md)에 기록했다. 아래 내용은 최초 계획 당시의 검증 명세이며 전체 시나리오를 실행했다는 뜻이 아니다.
 
 애플리케이션·`pnpm verify:local`은 M1 이후 제공한다. 이 문서는 PLAN 검증 계약을 옮겨 적는다. 아래 시나리오를 돌렸다고 말하지 않는다.
 
@@ -40,3 +44,27 @@ cwd 신규 저장소 루트. Node 24, pnpm, Docker Desktop. production credentia
 - `계약서-SPEC.md`와 승인된 PLAN을 문서에 반영.
 - 제안 색 대비율을 계산해 DESIGN.md에 기록 (본문 쌍 모두 ≥4.5:1).
 - `design/screens.html`을 브라우저에서 375/768/1280으로 열어 시안을 확인 (앱 동작 합격 아님).
+
+## 2026-09-07 일일 planner·내부 요약
+
+`pnpm verify:local -- --scenario planner`, `pnpm exec tsx scripts/verify-settings.ts`, `pnpm exec tsx scripts/verify-candidate-view.mjs`, `pnpm typecheck` 통과. 상세 결과와 소스23개 해시: `.omo/evidence/daily-planner/integration.json`. 독립 코드·시각 검토 승인. 실제 외부 발송이나 전체 SPEC 합격을 뜻하지 않는다.
+
+메인0020 적용, 기존 로그인과 설정v2 보존. 아래 초기 캡처 당시에는07:30 전이었으며, 이후 실제예약생성은 다음 실행기록으로 확인했다. 요약이 있는 화면은 격리 합성 DB이며, 빈 화면은 메인 로컬 앱이다. 검토한 전체 캡처6개:
+
+- `apps/web/qa/summaries/summary-375.png`
+- `apps/web/qa/summaries/summary-768.png`
+- `apps/web/qa/summaries/summary-1280.png`
+- `apps/web/qa/summaries/main-empty-375.jpg`
+- `apps/web/qa/summaries/main-empty-768.jpg`
+- `apps/web/qa/summaries/main-empty-1280.jpg`
+
+메인 빈화면3개는 브라우저가 반환한 JPEG 형식에 맞춰 확장자만 정정했다. 픽셀 내용은 검토된 캡처와 동일하다. CSS 폭·nativeDPR·파일hash는 `apps/web/qa/summaries/main-empty-check.json`.
+
+
+## 2026-09-07 실제 예약 요약·일일 로컬 백업
+
+- DB 실제시계 기준 `2026-09-07T12:30:18.826Z`에 시카고07:30 내부요약1건생성. 가짜시계/응답없이실제브라우저에서기준v2·기간·후보링크25개확인. 외부메일은not_sent.
+- pnpm dev의관리하위프로세스가일일암호화백업생성. 완료파일검증뒤감사기록1건,별도프로세스및앱전체재시작뒤동일ID재사용. 실제유료API기록3건증가없음.
+- `pnpm verify:local -- --scenario daily-backup` 및 `pnpm verify:restore -- --target isolated` PASS. 자동백업·수동복원회귀/실패복구/동시실행/새프로세스/손상/키교체/다음날검증. 검증후run-ID전용파일폴더정리.
+- 근거: `.omo/evidence/daily-backup/verification.json`, `main-check.json`, `scheduled-summary-ui.json`. 실제화면사진은Git제외 `data/qa/scheduled-summary-2026-09-07.jpg`에만보관.
+- Oracle/R2·실제외부메일·production권한·retention/RPO/RTO·전체SPEC합격은아직아니다.

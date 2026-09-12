@@ -1,0 +1,67 @@
+import assert from 'node:assert/strict';
+import {openAcceptance} from './support/acceptance.mjs';
+import {evaluateNiche,measured} from '../packages/domain/src/index.ts';
+import {INITIAL_SETTINGS} from '../packages/domain/src/settings.ts';
+import {applyApiValidationDecision,loadCanonicalNicheEvidence} from '../apps/worker/src/api-validation-store.ts';
+const test=await openAcceptance();
+try{
+ const id=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'imported') RETURNING id",['QA view '+test.runId])).rows[0].id;
+ const source=(await test.pool.query("INSERT INTO sources(kind,label) VALUES('csv','synthetic candidate-view fixture') RETURNING id")).rows[0].id;
+ await test.pool.query("INSERT INTO evidence(candidate_id,field,kind,value_text,source_id,observed_at) VALUES($1,'keyword','measured','synthetic keyword',$2,now())",[id,source]);
+ const initial=(await test.call('/api/candidates/'+id)).body;
+ assert.ok(initial.candidate.unknowns.length>=6,'A keyword alone must not imply that nothing is unknown');
+ assert.equal(initial.validation.status,'unconfirmed');
+ for(const [field,value]of[['standard_size','false'],['differentiation','true']])await test.pool.query("INSERT INTO evidence(candidate_id,field,kind,value_text,source_id,observed_at) VALUES($1,$2,'measured',$3,$4,now())",[id,field,value,source]);
+ const known=(await test.call('/api/candidates/'+id)).body;
+ assert.equal(known.candidate.unknowns.length,initial.candidate.unknowns.length-2,'Known false is evidence, not an unknown');
+ await test.pool.query("INSERT INTO evidence(candidate_id,field,kind,reason,source_id) VALUES($1,'standard_size','unknown','missing',$2)",[id,source]);
+ const latest=(await test.call('/api/candidates/'+id)).body;
+ assert.equal(latest.candidate.unknowns.length,known.candidate.unknowns.length+1);
+ assert.equal(latest.evidence.filter(e=>e.field==='standard_size').length,1);
+ assert.equal(latest.evidence.find(e=>e.field==='standard_size').kind,'unknown');
+ assert.equal((await test.call('/api/candidates/not-a-uuid')).status,400);
+ const version=(await test.pool.query('SELECT max(version)::int AS version FROM settings_versions')).rows[0].version;
+ await test.pool.query("UPDATE candidates SET stage='api_validation' WHERE id=$1",[id]);
+ for(const [asin,inputVersion]of[['B0QA000001',1],['B0QA000002',1],['B0QA000003',2]]){
+  await test.pool.query("INSERT INTO evidence(candidate_id,field,kind,reason,source_id,input_version,settings_version) VALUES($1,$2,'unknown','CATALOG_WEIGHT_UNKNOWN','api-validation-source:synthetic',$3,$4)",[id,'api_catalog_weight:'+asin,inputVersion,version]);
+ }
+ const path='/api/candidates/'+id+'/representative';
+ const choices=await test.call(path);
+ assert.equal(choices.status,200);
+ assert.deepEqual(choices.body.availableAsins,['B0QA000001','B0QA000002']);
+ assert.equal(choices.body.selectedAsin,null);
+ assert.equal((await test.call(path,{asin:'B0QA000003',inputVersion:1})).status,409);
+ assert.equal((await test.call(path,{asin:'B0QA000001',inputVersion:2})).status,409);
+ assert.equal((await test.call(path,{asin:'bad',inputVersion:1})).status,400);
+ assert.equal((await test.call(path,{asin:'B0QA000001',inputVersion:1},{origin:'http://untrusted.invalid'})).status,403);
+ const fact=value=>measured(value,'synthetic representative fixture',new Date().toISOString());
+ const input={review700Count:fact(0),review2000Count:fact(0),topPriceUsd:fact('25'),monthlyRevenueCompetitorCount:fact(5),standardSize:fact(true),differentiation:fact(true)};
+ const decision={input,assessment:evaluateNiche(input,INITIAL_SETTINGS),outcome:'pass',evidenceBlock:null,sourceIds:['synthetic representative fixture']};
+ await test.pool.query("INSERT INTO evaluations(candidate_id,settings_version,kind,outcome,payload) VALUES($1,$2,'api_validation','pass',$3::jsonb)",[id,version,JSON.stringify({inputVersion:1,...decision})]);
+ assert.equal((await test.call('/api/candidates/'+id)).body.validation.status,'pass','Fixture must contain a valid prior assessment');
+ const send=test.boss.send.bind(test.boss);
+ test.boss.send=async(...args)=>{await send(...args);return null;};
+ try{assert.equal((await test.call(path,{asin:'B0QA000001',inputVersion:1})).status,500);}finally{test.boss.send=send;}
+ assert.equal((await test.call(path)).body.inputVersion,1,'Queue failure rolls back selection and version');
+ assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM candidate_events WHERE candidate_id=$1',[id])).rows[0].n,0);
+ assert.equal((await test.pool.query("SELECT count(*)::int AS n FROM pgboss.job WHERE data->>'candidateId'=$1",[id])).rows[0].n,0,'Inserted job must roll back too');
+ const saved=await test.call(path,{asin:'B0QA000001',inputVersion:1});
+ assert.equal(saved.status,200);
+ assert.equal(saved.body.inputVersion,2);
+ const restored=(await test.call(path)).body;
+ assert.equal(restored.selectedAsin,'B0QA000001');
+ assert.equal(restored.inputVersion,2);
+ assert.equal((await test.call('/api/candidates/'+id)).body.validation.status,'stale');
+ assert.equal((await test.pool.query("SELECT count(*)::int AS n FROM pgboss.job WHERE name='candidate.advance' AND data->>'candidateId'=$1 AND data->>'inputVersion'='2'",[id])).rows[0].n,1);
+ assert.equal((await test.call(path,{asin:'B0QA000002',inputVersion:1})).status,409);
+ assert.equal((await test.call(path,{asin:'B0QA000001',inputVersion:2})).status,200,'Same selection is idempotent');
+ assert.equal((await test.call(path)).body.inputVersion,2);
+ const canonical=await loadCanonicalNicheEvidence(test.pool,id);
+ assert.equal(canonical.standardSize.kind,'unknown');
+ assert.equal(canonical.differentiation.kind,'unknown','Previous product differentiation cannot be borrowed');
+ assert.equal(await applyApiValidationDecision({pool:test.pool,context:{candidateId:id,inputVersion:1,settingsVersion:version},decision}),'stale','Old worker result cannot apply after selection');
+ await test.pool.query("INSERT INTO spec_revisions(candidate_id,revision,material,dimensions,packaging,requirements,requested_quantity,source) VALUES($1,1,'synthetic','unknown','unknown','synthetic',1,'synthetic fixture')",[id]);
+ assert.equal((await test.call(path)).body.editable,false);
+ assert.equal((await test.call(path,{asin:'B0QA000003',inputVersion:2})).status,409,'Existing sourcing specification prevents mixing products');
+ console.log(JSON.stringify({scenario:'candidate-view',result:'PASS',missingRequiredEvidence:'unknown',knownFalse:'preserved',latestOnly:true,invalidId:400}));
+}finally{await test.close();}

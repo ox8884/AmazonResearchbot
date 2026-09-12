@@ -59,6 +59,7 @@ export function parseNumericCell(
   if (!/^-?\d+(\.\d+)?$/.test(trimmed)) {
     return unknown(`not numeric: ${trimmed}`, sourceId);
   }
+  if (!Number.isFinite(Number(trimmed))) return unknown("number_out_of_range", sourceId);
   return measured(trimmed, sourceId, observedAt);
 }
 

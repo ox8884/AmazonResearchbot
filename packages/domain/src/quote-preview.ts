@@ -1,0 +1,21 @@
+import type { CostField, KnownCostEvidence, QuoteRecord } from './sourcing.ts';
+import type { SupplierQuoteField } from './mail-quote.ts';
+export type InboxQuotePreview = {
+  readonly inboxMessageId: string;
+  readonly candidateId: string | null;
+  readonly specId: string | null;
+  readonly bound: boolean;
+  readonly complete: boolean;
+  readonly supplierName: string | null;
+  readonly supplierSource: string;
+  readonly sourceText: string;
+  readonly operatorEvidence: string;
+  readonly receivedAt: string | null;
+  readonly validUntil: string | null;
+  readonly incoterm: string | null;
+  readonly quantity: number | null;
+  readonly moq: number | null;
+  readonly costs: Readonly<Partial<Record<CostField, KnownCostEvidence>>>;
+  readonly issues: readonly { readonly field: SupplierQuoteField; readonly reason: 'missing' | 'ambiguous' | 'invalid' }[];
+  readonly quote: QuoteRecord | null;
+};

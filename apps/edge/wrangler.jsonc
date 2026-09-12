@@ -1,0 +1,16 @@
+{
+  "name": "forge-kitchen-ops",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-08",
+  "workers_dev": false,
+  "assets": {
+    "directory": "../web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api", "/api/*"]
+  },
+  "vars": {
+    "PUBLIC_ORIGIN": "",
+    "API_ORIGIN": ""
+  }
+}

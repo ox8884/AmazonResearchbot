@@ -1,0 +1,15 @@
+import assert from "node:assert/strict";
+import { dueDailySchedules } from "../packages/domain/src/daily-schedule.ts";
+const settings={timezone:"America/Chicago",researchStartLocalTime:"03:00",summaryLocalTime:"07:30"};
+assert.deepEqual(dueDailySchedules(new Date("2026-03-08T07:59:00Z"),settings)?.due,[]);
+assert.deepEqual(dueDailySchedules(new Date("2026-03-08T08:00:00Z"),settings)?.due,["research"]);
+assert.deepEqual(dueDailySchedules(new Date("2026-03-08T12:30:00Z"),settings)?.due,["research","summary"]);
+const fold={...settings,researchStartLocalTime:"01:30"};
+const a=dueDailySchedules(new Date("2026-11-01T06:30:00Z"),fold),b=dueDailySchedules(new Date("2026-11-01T07:30:00Z"),fold);
+assert.equal(a?.localDate,b?.localDate);assert.deepEqual(a?.due,b?.due);
+assert.equal(dueDailySchedules(new Date("2026-09-06T16:00:00Z"),{timezone:"Asia/Seoul",summaryLocalTime:"08:00"})?.localDate,"2026-09-07");
+assert.deepEqual(dueDailySchedules(new Date("2026-09-07T18:00:00Z"),{timezone:"America/Chicago",summaryLocalTime:"07:30"})?.unconfigured,["research"]);
+assert.equal(dueDailySchedules(new Date(),{...settings,timezone:"invalid"}),null);
+assert.equal(dueDailySchedules(new Date(),{...settings,summaryLocalTime:"25:00"}),null);
+assert.equal(dueDailySchedules(new Date("invalid"),settings),null);
+console.log("PASS daily schedule: DST gap/fold, local date, unconfigured time, and invalid inputs.");

@@ -24,3 +24,7 @@ docs/verification-*-state.json
 *.p12
 .codex/
 *.key
+
+.dev.vars
+.dev.vars.*
+!.dev.vars.example

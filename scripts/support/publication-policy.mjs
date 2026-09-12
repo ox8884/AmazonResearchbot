@@ -1,7 +1,8 @@
-const credentialPatterns=[/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,/\bgh[pousr]_[A-Za-z0-9]{30,}\b/,/\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}\b/];
+const credentialPatterns=[/fb[dp]_[a-f0-9]{64}/,/cfast_[A-Za-z0-9]{48}/,/-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,/\bgh[pousr]_[A-Za-z0-9]{30,}\b/,/\bsk-(?:proj-)?[A-Za-z0-9_-]{32,}\b/];
 const privateRoots=['.omo/','.codex/','data/','apps/web/qa/'];
 export function privateSourcePath(name){
  const path=name.replaceAll(String.fromCharCode(92),'/').toLowerCase(),base=path.split('/').at(-1);
+ if((base==='.dev.vars'||base.startsWith('.dev.vars.'))&&base!=='.dev.vars.example')return 'Worker secrets file';
  if(privateRoots.some(root=>path.startsWith(root)))return 'local operational artifact';
  if(['.debug-journal.md','implementation_status.md','worker-authority.json'].includes(base))return 'local operational state';
  if((base==='.env'||base.startsWith('.env.')||base.endsWith('.env'))&&!base.endsWith('.env.example'))return 'environment file';

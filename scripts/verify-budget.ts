@@ -1,272 +1,485 @@
-import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { retryNotBefore } from "../packages/integrations/src/jungle-scout/retry-parser.ts";
+import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
-import { createPool, recoverDispatchingAttempts } from "@forge-ops/db";
-import { executeJsQuery } from "@forge-ops/integrations/jungle-scout/execute";
-import { createSimulatorTransport } from "@forge-ops/integrations/jungle-scout/transport";
+import { createHash } from "node:crypto";
+import { once } from "node:events";
+import { createServer, type ServerResponse } from "node:http";
+import {
+  authorizeAttempt,
+  createPool,
+  finalizeAttempt,
+  markDispatching,
+  recoverDispatchingAttempts,
+} from "@forge-ops/db";
+import {
+  executeJsQuery,
+  type JsQueryRequest,
+} from "@forge-ops/integrations/jungle-scout/execute";
+import {
+  createSimulatorTransport,
+  denyTransport,
+} from "@forge-ops/integrations/jungle-scout/transport";
+import { openAcceptance } from "./support/acceptance.mjs";
 
-const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
-const envText = await readFile(path.join(root, ".env"), "utf8");
-for (const line of envText.split(/\r?\n/)) {
-  if (!line || line.startsWith("#") || !line.includes("=")) continue;
-  const i = line.indexOf("=");
-  const k = line.slice(0, i);
-  const v = line.slice(i + 1);
-  if (process.env[k] == null) process.env[k] = v;
-}
+type PlannedResponse = {
+  readonly status: number;
+  readonly retryAfter?: string;
+  readonly body?: unknown;
+};
 
-function assert(cond: unknown, msg: string): asserts cond {
-  if (!cond) throw new Error(msg);
-}
-
-const hits: string[] = [];
-const held: ServerResponse[] = [];
-let sequence = ["429", "500", "200"];
-
-const server = createServer((req: IncomingMessage, res: ServerResponse) => {
+const test = await openAcceptance({ databaseKey: `budget-rate-retry-${process.pid}-${Date.now().toString(36)}` });
+let wireHits = 0;
+let plannedResponses: PlannedResponse[] = [];
+let heldResponse: ServerResponse | undefined;
+const receivedHang = Promise.withResolvers<void>();
+const server = createServer(async (request, response) => {
   const chunks: Buffer[] = [];
-  req.on("data", (c) => chunks.push(c as Buffer));
-  req.on("end", () => {
-    const raw = Buffer.concat(chunks).toString("utf8");
-    hits.push(`${req.method} ${req.url} ${raw.slice(0, 80)}`);
-    if (raw.includes('"hang":true')) {
-      held.push(res);
-      return;
-    }
-    if (raw.includes('"seq":true') || raw.includes('"seq2":true')) {
-      const code = Number(sequence.shift() ?? "200");
-      res.writeHead(code, { "content-type": "application/json" });
-      res.end(JSON.stringify({ data: [] }));
-      return;
-    }
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ data: [] }));
-  });
-});
-const listening = Promise.withResolvers<void>();
-server.listen(0, "127.0.0.1", listening.resolve);
-await listening.promise;
-const addr = server.address();
-if (!addr || typeof addr === "string") throw new Error("no port");
-const origin = `http://127.0.0.1:${addr.port}`;
-const transport = createSimulatorTransport(origin, "development");
-const pool = createPool(process.env.DATABASE_URL ?? "");
-const day = new Date().toISOString().slice(0, 10);
-
-await pool.query(`DELETE FROM api_attempts`);
-await pool.query(`DELETE FROM api_cache`);
-await pool.query(`DELETE FROM api_operations`);
-await pool.query(`DELETE FROM budget_days WHERE day_utc = $1::date`, [day]);
-await pool.query(`INSERT INTO budget_days (day_utc, wire_limit) VALUES ($1::date, 3)`, [day]);
-
-hits.length = 0;
-const different = await Promise.all(
-  Array.from({ length: 20 }, (_, i) =>
-    executeJsQuery(pool, transport, {
-      endpoint: "product_database_query",
-      marketplace: "us",
-      query: { i },
-      accountScope: "budget",
-      wireLimit: 3,
-      budgetDay: day,
-    }),
-  ),
-);
-assert(hits.length <= 3, `cap3 expected <=3 wires, got ${hits.length}`);
-assert(
-  different.filter((r) => r.kind === "succeeded" || r.kind === "cache").length <= 3,
-  "cap3 successes",
-);
-assert(different.filter((r) => r.kind === "budget_blocked").length >= 17, "cap3 should block the rest");
-
-await pool.query(`DELETE FROM api_attempts`);
-await pool.query(`DELETE FROM api_cache`);
-await pool.query(`DELETE FROM api_operations`);
-await pool.query(`UPDATE budget_days SET reserved = 0, consumed = 0, wire_limit = 0 WHERE day_utc = $1::date`, [day]);
-hits.length = 0;
-const cap0 = await Promise.all(
-  Array.from({ length: 5 }, (_, i) =>
-    executeJsQuery(pool, transport, {
-      endpoint: "product_database_query",
-      marketplace: "us",
-      query: { cap0: i },
-      accountScope: "budget",
-      wireLimit: 0,
-      budgetDay: day,
-    }),
-  ),
-);
-assert(hits.length === 0, `cap0 wires ${hits.length}`);
-assert(cap0.every((r) => r.kind === "budget_blocked"), "cap0 all blocked");
-
-await pool.query(`DELETE FROM api_attempts`);
-await pool.query(`DELETE FROM api_cache`);
-await pool.query(`DELETE FROM api_operations`);
-await pool.query(`UPDATE budget_days SET reserved = 0, consumed = 0, wire_limit = 3 WHERE day_utc = $1::date`, [day]);
-hits.length = 0;
-const same = await Promise.all(
-  Array.from({ length: 20 }, () =>
-    executeJsQuery(pool, transport, {
-      endpoint: "product_database_query",
-      marketplace: "us",
-      query: { same: true },
-      accountScope: "budget",
-      wireLimit: 3,
-      budgetDay: day,
-    }),
-  ),
-);
-assert(hits.length === 1, `same query concurrent wires ${hits.length}`);
-const cacheAgain = await executeJsQuery(pool, transport, {
-  endpoint: "product_database_query",
-  marketplace: "us",
-  query: { same: true },
-  accountScope: "budget",
-  wireLimit: 3,
-  budgetDay: day,
-});
-assert(cacheAgain.kind === "cache", `cache rerun ${cacheAgain.kind}`);
-assert(hits.length === 1, "cache rerun must not wire");
-assert(same.some((r) => r.kind === "succeeded" || r.kind === "cache"), "one winner");
-
-await pool.query(`DELETE FROM api_attempts`);
-await pool.query(`DELETE FROM api_cache`);
-await pool.query(`DELETE FROM api_operations`);
-await pool.query(`UPDATE budget_days SET reserved = 0, consumed = 0, wire_limit = 3 WHERE day_utc = $1::date`, [day]);
-hits.length = 0;
-sequence = ["429", "500", "200"];
-const seqTransport = createSimulatorTransport(origin, "development");
-const seqResult = await executeJsQuery(pool, seqTransport, {
-  endpoint: "product_database_query",
-  marketplace: "us",
-  query: { seq: true },
-  pagination: { seq: true },
-  accountScope: "budget",
-  wireLimit: 3,
-  budgetDay: day,
-});
-void seqResult;
-assert(hits.length === 3, `429-500-200 wires ${hits.length}`);
-
-await pool.query(`DELETE FROM api_attempts`);
-await pool.query(`DELETE FROM api_cache`);
-await pool.query(`DELETE FROM api_operations`);
-await pool.query(`UPDATE budget_days SET reserved = 0, consumed = 0, wire_limit = 2 WHERE day_utc = $1::date`, [day]);
-hits.length = 0;
-sequence = ["429", "500", "200"];
-await executeJsQuery(pool, createSimulatorTransport(origin, "development"), {
-  endpoint: "product_database_query",
-  marketplace: "us",
-  query: { seq2: true },
-  accountScope: "budget",
-  wireLimit: 2,
-  budgetDay: day,
-});
-assert(hits.length === 2, `budget2 third wire must be 0, got ${hits.length}`);
-
-hits.length = 0;
-const dead = createPool(process.env.DATABASE_URL ?? "");
-await dead.end();
-const dbFail = await executeJsQuery(dead, transport, {
-  endpoint: "product_database_query",
-  marketplace: "us",
-  query: { dbFail: true },
-  accountScope: "budget",
-  wireLimit: 3,
-  budgetDay: day,
-});
-assert(dbFail.kind === "db_unavailable", `db fail ${dbFail.kind}`);
-assert(hits.length === 0, "db fail must not wire");
-
-await pool.query(`DELETE FROM api_attempts`);
-await pool.query(`DELETE FROM api_cache`);
-await pool.query(`DELETE FROM api_operations`);
-await pool.query(`UPDATE budget_days SET reserved = 0, consumed = 0, wire_limit = 3 WHERE day_utc = $1::date`, [day]);
-hits.length = 0;
-const child = spawn(
-  process.execPath,
-  [path.join(root, "node_modules/tsx/dist/cli.mjs"), "scripts/hang-js-query.ts"],
-  {
-    cwd: root,
-    env: { ...process.env, JS_SIMULATOR_ORIGIN: origin, DATABASE_URL: process.env.DATABASE_URL },
-    stdio: "ignore",
-  },
-);
-for (let i = 0; i < 50 && hits.length === 0; i++) await new Promise((r) => setTimeout(r, 100));
-assert(hits.length === 1, `hang never reached simulator ${hits.length}`);
-child.kill("SIGKILL");
-await new Promise((r) => setTimeout(r, 300));
-await recoverDispatchingAttempts(pool);
-const afterKill = await executeJsQuery(pool, transport, {
-  endpoint: "product_database_query",
-  marketplace: "us",
-  query: { hang: true },
-  accountScope: "budget-kill",
-  wireLimit: 3,
-  budgetDay: day,
-});
-assert(afterKill.kind === "already_handled" || afterKill.kind === "outcome_unknown", `kill retry ${afterKill.kind}`);
-assert(hits.length === 1, `kill must not rewire, got ${hits.length}`);
-for (const res of held) {
-  try {
-    res.writeHead(200);
-    res.end("{}");
-  } catch {
-    /* ignore */
+  for await (const chunk of request) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk)));
   }
+  wireHits += 1;
+  if (Buffer.concat(chunks).toString("utf8").includes('"hang":true')) {
+    heldResponse = response;
+    receivedHang.resolve();
+    return;
+  }
+  const plan = plannedResponses.shift() ?? { status: 200, body: { data: [] } };
+  response.writeHead(plan.status, {
+    "content-type": "application/json",
+    ...(plan.retryAfter === undefined ? {} : { "retry-after": plan.retryAfter }),
+  });
+  response.end(JSON.stringify(plan.body ?? { data: [] }));
+});
+server.listen(0, "127.0.0.1");
+await once(server, "listening");
+const address = server.address();
+if (!address || typeof address === "string") throw new Error("Local fixture unavailable");
+const origin = `http://127.0.0.1:${address.port}`;
+const transport = createSimulatorTransport(origin, "development");
+let hangingChild: ReturnType<typeof spawn> | undefined;
+
+function at(iso: string): Date {
+  const value = new Date(iso);
+  if (Number.isNaN(value.getTime())) throw new Error(`Invalid fixture time ${iso}`);
+  return value;
 }
 
-const sortA = await executeJsQuery(pool, transport, {
-  endpoint: "product_database_query",
-  marketplace: "us",
-  query: { q: "k" },
-  sort: { field: "revenue" },
-  pagination: { cursor: "a" },
-  accountScope: "budget",
-  wireLimit: 3,
-  budgetDay: day,
-});
-const sortB = await executeJsQuery(pool, transport, {
-  endpoint: "product_database_query",
-  marketplace: "us",
-  query: { q: "k" },
-  sort: { field: "price" },
-  pagination: { cursor: "b" },
-  accountScope: "budget",
-  wireLimit: 3,
-  budgetDay: day,
-});
-assert(sortA.fingerprint !== sortB.fingerprint, "sort/cursor must split cache keys");
+function day(atTime: Date): string {
+  return atTime.toISOString().slice(0, 10);
+}
 
-const day2 = "1999-01-02";
-await pool.query(`INSERT INTO budget_days (day_utc, wire_limit) VALUES ($1::date, 1) ON CONFLICT DO NOTHING`, [day2]);
-const midnight = await executeJsQuery(pool, transport, {
-  endpoint: "product_database_query",
-  marketplace: "us",
-  query: { midnight: true },
-  accountScope: "budget",
-  wireLimit: 1,
-  budgetDay: day2,
-});
-assert(midnight.kind === "succeeded" || midnight.kind === "cache" || midnight.kind === "budget_blocked", "utc day used");
+function request(
+  testDispatchAt: Date,
+  wireLimit: number,
+  query: unknown,
+  scope = "budget",
+): JsQueryRequest {
+  return {
+    endpoint: "product_database_query",
+    marketplace: "us",
+    query,
+    accountScope: `${scope}:${test.runId}`,
+    wireLimit,
+    testDispatchAt,
+  };
+}
 
-await pool.end();
-server.close();
-console.log(
-  JSON.stringify(
+async function approveCap(limit: number): Promise<void> {
+  await test.pool.query(
+    `INSERT INTO settings_versions(version,effective_at,approved_by,snapshot)
+     SELECT version+1,now(),'budget-fixture',jsonb_set(snapshot,'{jsDailyWireCap}',to_jsonb($1::int))
+     FROM settings_versions ORDER BY version DESC LIMIT 1`,
+    [limit],
+  );
+}
+
+async function runResumeChild(input: JsQueryRequest): Promise<string> {
+  const child = spawn(
+    process.execPath,
+    ["--import", "tsx", "scripts/support/resume-js-query.ts"],
     {
-      scenario: "budget",
-      cap3Wires: true,
-      cap0Wires: 0,
-      sameQueryWires: 1,
-      retryBudget: true,
-      dbFailWires: 0,
-      killNoRewire: true,
-      sortCursorSplit: true,
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        DATABASE_URL: test.databaseUrl,
+        JS_SIMULATOR_ORIGIN: origin,
+        TEST_ACCOUNT_SCOPE: input.accountScope,
+        TEST_DISPATCH_AT: input.testDispatchAt?.toISOString() ?? "",
+        TEST_QUERY: JSON.stringify(input.query),
+      },
+      stdio: ["ignore", "pipe", "pipe"],
     },
-    null,
-    2,
-  ),
-);
+  );
+  let output = "";
+  child.stdout?.on("data", (chunk: Buffer) => {
+    output += chunk.toString("utf8");
+  });
+  const [code] = await once(child, "close");
+  assert.equal(code, 0, "Fresh-process retry probe must finish");
+  return output;
+}
+
+try {
+  const initialAt = at("2099-01-01T00:00:00.000Z");
+  await approveCap(1_000);
+
+  // Given a disabled transport, when a request is evaluated, then it creates no attempt.
+  const attemptsBeforeDenied = Number(
+    (await test.pool.query("SELECT count(*)::int AS count FROM api_attempts")).rows[0]
+      ?.count,
+  );
+  assert.equal(
+    (await executeJsQuery(
+      test.pool,
+      denyTransport(),
+      request(initialAt, 1_000, { disabled: true }),
+    )).kind,
+    "denied",
+  );
+  assert.equal(
+    Number((await test.pool.query("SELECT count(*)::int AS count FROM api_attempts")).rows[0]?.count),
+    attemptsBeforeDenied,
+  );
+
+  // Given 20 concurrent requests for one account, when the second window is full, then only 15 wire calls occur.
+  const rateResults = await Promise.all(
+    Array.from({ length: 20 }, (_, index) =>
+      executeJsQuery(test.pool, transport, request(initialAt, 1_000, { rateSecond: index }, "rate-second")),
+    ),
+  );
+  assert.equal(wireHits, 15);
+  assert.equal(rateResults.filter((result) => result.kind === "deferred").length, 5);
+  assert.ok(
+    rateResults
+      .filter((result) => result.kind === "deferred")
+      .every((result) => result.kind === "deferred" && result.reason === "rate_limit"),
+  );
+  assert.deepEqual(
+    (
+      await test.pool.query(
+        `SELECT request_count FROM api_rate_windows
+         WHERE account_scope=$1 AND window_kind='second' AND window_started_at=$2`,
+        [`rate-second:${test.runId}`, initialAt],
+      )
+    ).rows[0],
+    { request_count: 15 },
+  );
+  assert.equal(
+    (
+      await executeJsQuery(
+        test.pool,
+        transport,
+        request(initialAt, 1_000, { otherAccount: true }, "rate-other-account"),
+      )
+    ).kind,
+    "succeeded",
+  );
+  assert.equal(wireHits, 16, "A different account has an independent rate window");
+
+  const boundaryStart = at("2099-01-01T00:01:00.900Z");
+  const boundaryBefore = wireHits;
+  const boundaryFirst = await Promise.all(
+    Array.from({ length: 15 }, (_, index) =>
+      executeJsQuery(test.pool, transport, request(boundaryStart, 1_000, { boundaryFirst: index }, "rate-boundary")),
+    ),
+  );
+  assert.ok(boundaryFirst.every((result) => result.kind === "succeeded"));
+  const boundarySecond = await Promise.all(
+    Array.from({ length: 15 }, (_, index) =>
+      executeJsQuery(
+        test.pool,
+        transport,
+        request(at("2099-01-01T00:01:01.000Z"), 1_000, { boundarySecond: index }, "rate-boundary"),
+      ),
+    ),
+  );
+  assert.ok(
+    boundarySecond.every(
+      (result) => result.kind === "deferred" && result.reason === "rate_limit" && result.retryAt.toISOString() === "2099-01-01T00:01:01.900Z",
+    ),
+  );
+  assert.equal(wireHits, boundaryBefore + 15, "Rolling one-second limit blocks a boundary burst");
+
+  // Given 300 authorized requests distributed over one minute, when request 301 is dispatched, then it is deferred without a wire attempt.
+  const minuteStart = at("2099-01-02T00:00:00.000Z");
+  const minuteScope = `rate-minute:${test.runId}`;
+  for (let index = 0; index < 300; index += 1) {
+    const client = await test.pool.connect();
+    const dispatchAt = new Date(minuteStart.getTime() + Math.floor(index / 15) * 1_000);
+    try {
+      await client.query("BEGIN");
+      const decision = await authorizeAttempt(client, {
+        fingerprint: createHash("sha256").update(`minute:${test.runId}:${index}`).digest("hex"),
+        provider: "junglescout",
+        endpoint: "product_database_query",
+        accountScope: minuteScope,
+        budgetDay: day(dispatchAt),
+        wireLimit: 1_000,
+        testNow: dispatchAt,
+      });
+      assert.equal(decision.kind, "authorized");
+      if (decision.kind !== "authorized") throw new Error("Minute fixture was not authorized");
+      await markDispatching(client, decision.attemptId);
+      await finalizeAttempt(client, {
+        attemptId: decision.attemptId,
+        budgetDay: day(dispatchAt),
+        fingerprint: createHash("sha256").update(`minute:${test.runId}:${index}`).digest("hex"),
+        status: "http_failed",
+        httpStatus: 400,
+      });
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+  const minuteClient = await test.pool.connect();
+  try {
+    await minuteClient.query("BEGIN");
+    const blocked = await authorizeAttempt(minuteClient, {
+      fingerprint: createHash("sha256").update(`minute:${test.runId}:301`).digest("hex"),
+      provider: "junglescout",
+      endpoint: "product_database_query",
+      accountScope: minuteScope,
+      budgetDay: day(at("2099-01-02T00:00:20.000Z")),
+      wireLimit: 1_000,
+      testNow: at("2099-01-02T00:00:20.000Z"),
+    });
+    assert.equal(blocked.kind, "deferred");
+    if (blocked.kind === "deferred") {
+      assert.equal(blocked.reason, "rate_limit");
+      assert.equal(blocked.retryAt.toISOString(), "2099-01-02T00:01:00.000Z");
+    }
+    await minuteClient.query("COMMIT");
+  } catch (error) {
+    await minuteClient.query("ROLLBACK");
+    throw error;
+  } finally {
+    minuteClient.release();
+  }
+  assert.equal(wireHits, boundaryBefore + 15, "Rate ledger authorization never emits a wire request");
+
+  // Given a 429 before UTC midnight, when the retry is due after midnight, then the current day cap is reauthorized.
+  const firstDispatch = at("2099-12-31T23:59:58.000Z");
+  const retryRequest = request(firstDispatch, 3, { restart: true }, "retry-restart");
+  await approveCap(3);
+  wireHits = 0;
+  plannedResponses = [
+    {
+      status: 429,
+      retryAfter: "1",
+      body: { errors: [{ detail: "REQUEST_THROTTLED; retry again at 2100-01-01T00:00:15.000Z" }] },
+    },
+  ];
+  const firstRetry = await executeJsQuery(test.pool, transport, {
+    ...retryRequest,
+    testResponseReceivedAt: at("2100-01-01T00:00:08.000Z"),
+  });
+  assert.equal(firstRetry.kind, "deferred");
+  if (firstRetry.kind === "deferred") {
+    assert.equal(firstRetry.reason, "retry");
+    assert.equal(firstRetry.retryAt.toISOString(), "2100-01-01T00:00:15.000Z");
+  }
+  assert.equal(wireHits, 1);
+  assert.deepEqual(
+    (await test.pool.query("SELECT reserved,consumed,wire_limit FROM budget_days WHERE day_utc=$1", [day(firstDispatch)])).rows[0],
+    { reserved: 0, consumed: 1, wire_limit: 3 },
+  );
+  const immediateRetry = await executeJsQuery(test.pool, transport, retryRequest);
+  assert.equal(immediateRetry.kind, "deferred");
+  assert.equal(wireHits, 1, "Retry-before-due must not hammer the provider");
+  const resumedOutput = await runResumeChild({ ...retryRequest, testDispatchAt: at("2099-12-31T23:59:59.000Z") });
+  assert.match(resumedOutput, /"kind":"deferred"/);
+  assert.equal(wireHits, 1, "A fresh process must retain retry state and avoid a duplicate wire");
+  assert.deepEqual(
+    (
+      await test.pool.query(
+        `SELECT retry_count,next_attempt_at FROM api_retry_schedules
+         WHERE operation_id=(SELECT id FROM api_operations WHERE fingerprint=$1)`,
+        [firstRetry.fingerprint],
+      )
+    ).rows[0],
+    { retry_count: 1, next_attempt_at: at("2100-01-01T00:00:15.000Z") },
+  );
+  await approveCap(1);
+  plannedResponses = [
+    {
+      status: 500,
+      retryAfter: "Thu, 01 Jan 2100 00:00:40 GMT",
+      body: { error: "retry again at 2100-01-01T00:00:42.000Z" },
+    },
+  ];
+  const tighterWindow=await executeJsQuery(test.pool,transport,{...retryRequest,testDispatchAt:at("2100-01-01T00:00:15.000Z")});
+  assert.equal(tighterWindow.kind,"deferred");
+  if(tighterWindow.kind==="deferred"){assert.equal(tighterWindow.reason,"rate_limit");assert.equal(tighterWindow.retryAt.toISOString(),"2100-01-01T00:00:58.000Z");}
+  assert.equal(wireHits,1,"A lowered rate cap also counts the previous UTC day's recent wire");
+  const secondRetry = await executeJsQuery(
+    test.pool,
+    transport,
+    { ...retryRequest, testDispatchAt: at("2100-01-01T00:00:58.000Z") },
+  );
+  assert.equal(secondRetry.kind, "deferred");
+  if (secondRetry.kind === "deferred") {
+    assert.equal(secondRetry.retryAt.toISOString(), "2100-01-01T00:01:28.000Z");
+  }
+  assert.equal(wireHits, 2);
+  assert.deepEqual(
+    (await test.pool.query("SELECT reserved,consumed,wire_limit FROM budget_days WHERE day_utc='2100-01-01'"))
+      .rows[0],
+    { reserved: 0, consumed: 1, wire_limit: 1 },
+  );
+  await approveCap(0);
+  const blockedRetry = await executeJsQuery(
+    test.pool,
+    transport,
+    { ...retryRequest, testDispatchAt: at("2100-01-01T00:01:28.000Z") },
+  );
+  assert.equal(blockedRetry.kind, "budget_blocked");
+  assert.equal(wireHits, 2, "Every due retry must consume the current approved daily cap");
+
+  // Given two deferred retries, when the third confirmed 5xx finishes, then no fourth wire request is possible.
+  const exhaustedStart = at("2100-01-02T00:00:00.000Z");
+  const exhaustedRequest = request(exhaustedStart, 3, { exhausted: true }, "retry-exhausted");
+  await approveCap(3);
+  wireHits = 0;
+  plannedResponses = [{ status: 429 }, { status: 500 }, { status: 500 }];
+  assert.equal((await executeJsQuery(test.pool, transport, exhaustedRequest)).kind, "deferred");
+  assert.equal(
+    (
+      await executeJsQuery(test.pool, transport, {
+        ...exhaustedRequest,
+        testDispatchAt: at("2100-01-02T00:00:05.000Z"),
+      })
+    ).kind,
+    "deferred",
+  );
+  assert.equal(
+    (
+      await executeJsQuery(test.pool, transport, {
+        ...exhaustedRequest,
+        testDispatchAt: at("2100-01-02T00:00:35.000Z"),
+      })
+    ).kind,
+    "http_failed",
+  );
+  assert.equal(wireHits, 3);
+  const exhaustedAgain = await executeJsQuery(test.pool, transport, {
+    ...exhaustedRequest,
+    testDispatchAt: at("2100-01-02T00:01:05.000Z"),
+  });
+  assert.equal(exhaustedAgain.kind, "already_handled");
+  if (exhaustedAgain.kind === "already_handled") assert.equal(exhaustedAgain.reason, "failed");
+  assert.equal(wireHits, 3, "Maximum two extra retries prevents a fourth wire request");
+
+  // Given a dispatching process is killed before a response, when recovery runs, then a new day cannot resend the unknown request.
+  const hangAt = at("2100-01-03T00:00:00.000Z");
+  await approveCap(3);
+  hangingChild = spawn(
+    process.execPath,
+    ["--import", "tsx", "scripts/hang-js-query.ts"],
+    {
+      cwd: process.cwd(),
+      env: {
+        ...process.env,
+        DATABASE_URL: test.databaseUrl,
+        JS_SIMULATOR_ORIGIN: origin,
+        TEST_DISPATCH_AT: hangAt.toISOString(),
+        TEST_ACCOUNT_SCOPE: `budget-kill:${test.runId}`,
+      },
+      stdio: "ignore",
+    },
+  );
+  const exitedHang = once(hangingChild, "close");
+  await Promise.race([
+    receivedHang.promise,
+    new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => reject(new Error("Fixture never received request")), 10_000);
+      receivedHang.promise.finally(() => clearTimeout(timer));
+    }),
+  ]);
+  hangingChild.kill("SIGKILL");
+  await exitedHang;
+  await recoverDispatchingAttempts(test.pool);
+  const unknownRetry = await executeJsQuery(
+    test.pool,
+    transport,
+    request(at("2100-01-04T00:00:00.000Z"), 3, { hang: true }, "budget-kill"),
+  );
+  assert.equal(unknownRetry.kind, "already_handled");
+  if (unknownRetry.kind === "already_handled") assert.equal(unknownRetry.reason, "unknown");
+  heldResponse?.end("{}");
+
+  const dead = createPool(test.databaseUrl);
+  await dead.end();
+  assert.equal(
+    (await executeJsQuery(test.pool, transport, request(at("2100-01-05T00:00:00.000Z"), 3, { dbFail: true }))).kind,
+    "succeeded",
+  );
+  assert.equal(
+    (await executeJsQuery(dead, transport, request(at("2100-01-05T00:00:01.000Z"), 3, { dbFail: true }))).kind,
+    "db_unavailable",
+  );
+
+  await approveCap(1000);
+  const expiring=request(at("2101-01-01T00:00:00.000Z"),1000,{expiry:true},"expiry");
+  plannedResponses=[{status:200,body:{version:1}}];
+  const initialCache=await executeJsQuery(test.pool,transport,expiring);
+  assert.equal(initialCache.kind,"succeeded");
+  await test.pool.query("UPDATE api_cache SET stored_at=now()-interval '25 hours' WHERE fingerprint=$1",[initialCache.fingerprint]);
+  const beforeRefresh=wireHits;
+  plannedResponses=[{status:200,body:{version:2}}];
+  const refreshed=await executeJsQuery(test.pool,transport,{...expiring,testDispatchAt:at("2101-01-01T00:00:02.000Z")});
+  assert.equal(refreshed.kind,"succeeded","An expired successful cache must collect fresh data");
+  assert.equal(wireHits,beforeRefresh+1);
+  if(refreshed.kind==="succeeded")assert.deepEqual(refreshed.body,{version:2});
+  assert.equal((await test.pool.query("SELECT generation FROM api_cache WHERE fingerprint=$1",[initialCache.fingerprint])).rows[0].generation,2);
+  assert.equal((await test.pool.query("SELECT count(*)::int AS count FROM api_operations WHERE fingerprint=$1",[initialCache.fingerprint])).rows[0].count,2,"Cache renewal creates a new logical generation");
+
+  const hintClock=at("2030-01-01T00:00:00.000Z");
+  assert.equal(retryNotBefore({retryNumber:1,retryAfter:null,body:null,now:hintClock}).toISOString(),"2030-01-01T00:00:05.000Z");
+  assert.equal(retryNotBefore({retryNumber:2,retryAfter:null,body:null,now:hintClock}).toISOString(),"2030-01-01T00:00:30.000Z");
+  assert.equal(retryNotBefore({retryNumber:1,retryAfter:"120",body:null,now:hintClock}).toISOString(),"2030-01-01T00:02:00.000Z");
+  assert.equal(retryNotBefore({retryNumber:1,retryAfter:null,body:{error:"retry again at 2030-01-01T00:10:00.000Z"},now:hintClock}).toISOString(),"2030-01-01T00:10:00.000Z");
+  await test.pool.query("UPDATE api_cache SET stored_at=now()-interval '25 hours' WHERE fingerprint=$1",[initialCache.fingerprint]);
+  const lost=await executeJsQuery(test.pool,{kind:"ready",send:async()=>{throw new Error("Synthetic lost response");}},{...expiring,testDispatchAt:at("2101-01-02T00:00:00.000Z")});
+  assert.equal(lost.kind,"outcome_unknown");
+  const generationCount=(await test.pool.query("SELECT count(*)::int AS count FROM api_operations WHERE fingerprint=$1",[initialCache.fingerprint])).rows[0].count;
+  const beforeBlocked=wireHits;
+  const blockedRenewal=await executeJsQuery(test.pool,transport,{...expiring,testDispatchAt:at("2101-01-03T00:00:00.000Z")});
+  assert.equal(blockedRenewal.kind,"already_handled");
+  if(blockedRenewal.kind==="already_handled")assert.equal(blockedRenewal.reason,"unknown");
+  assert.equal(wireHits,beforeBlocked);
+  assert.equal((await test.pool.query("SELECT count(*)::int AS count FROM api_operations WHERE fingerprint=$1",[initialCache.fingerprint])).rows[0].count,generationCount,"An unknown refreshed generation cannot be bypassed");
+
+  await approveCap(2);
+  const lowCapTimes=["2102-01-01T23:59:59.900Z","2102-01-02T00:00:00.100Z","2102-01-02T00:00:00.200Z"];
+  const lowCapResults=[];
+  for(const [index,stamp] of lowCapTimes.entries())lowCapResults.push(await executeJsQuery(test.pool,transport,request(at(stamp),2,{lowCap:index},"low-cap-window")));
+  assert.equal(lowCapResults[0]?.kind,"succeeded");assert.equal(lowCapResults[1]?.kind,"succeeded");
+  assert.equal(lowCapResults[2]?.kind,"deferred","A lower approved cap also bounds rolling windows across UTC reset");
+
+  console.log(
+    JSON.stringify({
+      scenario: "budget-rate-retry",
+      result: "PASS",
+      database: test.database,
+      runId: test.runId,
+      localHttpOnly: true,
+      rateLimits: { perSecond: 15, perMinute: 300, accountBound: true },
+      retry: { maxExtraAttempts: 2, persistedAcrossProcess: true, utcReauthorized: true, responseReceiptBackoff: true },
+      unknownNeverResent: true,
+      expiredCacheRenewsGeneration: true,
+      deletedRows: 0,
+    }),
+  );
+} finally {
+  if (hangingChild && hangingChild.exitCode === null && hangingChild.signalCode === null) {
+    hangingChild.kill("SIGKILL");
+  }
+  heldResponse?.destroy();
+  server.closeAllConnections();
+  await new Promise<void>((resolve) => server.close(() => resolve()));
+  await test.close();
+}

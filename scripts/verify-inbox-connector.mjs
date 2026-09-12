@@ -1,0 +1,24 @@
+import assert from 'node:assert/strict';
+import {createImapInboxTransport} from '../packages/integrations/src/mail/inbox.ts';
+const grant={id:'profile-fixture',version:1,secretVersion:1,config:{name:'Synthetic',smtpHost:'smtp.example.com',smtpPort:465,imapHost:'imap.example.com',imapPort:993,sender:'buyer@example.com',username:'buyer@example.com',sentMailbox:'Sent',inboxMailbox:'INBOX'}};
+const body='Quote USD 5\n<script>literal only</script>';
+const headers=Buffer.from('Message-ID: <reply@example.net>\r\nIn-Reply-To: <forge-rfq-fixture@example.com>\r\n\r\n');
+const raw=Buffer.concat([headers,Buffer.from(body)]);
+function fixture(overrides={}){
+ let current=true,passwordReads=0,opened=0,closed=0;const searched=[],fetched=[];
+ const access={isCurrent:async()=>current,readPassword:async()=>{passwordReads++;return 'PRIVATE_FIXTURE_PASSWORD';},pauseProfile:async()=>{current=false;return true;}};
+ const client={connect:async()=>{},logout:async()=>{closed++;},close:()=>{closed++;},openReadOnly:async mailbox=>{opened++;assert.equal(mailbox,'INBOX');return {uidValidity:'7',uidNext:34,release(){}};},searchAfter:async after=>{searched.push(after);return Array.from({length:30},(_,i)=>i+1);},fetch:async(uid,query)=>{fetched.push(query);if(query.envelope)return {uid,seq:uid,size:raw.length,headers,envelope:{from:[{address:'supplier@example.net'}],to:[{address:'buyer@example.com'}],subject:'Quote'},internalDate:new Date('2026-09-06T12:00:00Z'),bodyStructure:{type:'text/plain',encoding:'7bit',size:Buffer.byteLength(body)}};if(query.source)return {uid,seq:uid,source:raw};return {uid,seq:uid,bodyParts:new Map([['text',Buffer.from(body)]])};},...overrides};
+ const transport=createImapInboxTransport(grant,access,{resolveHost:async()=>[{address:'8.8.8.8',family:4}],createClient:options=>{assert.equal(options.host,'8.8.8.8');assert.equal(options.port,993);assert.equal(options.tls.servername,'imap.example.com');assert.equal(options.tls.rejectUnauthorized,true);assert.equal(options.logger,false);return client;}});
+ return {transport,access,client,searched,fetched,counts:()=>({passwordReads,opened,closed}),deactivate:()=>{current=false;}};
+}
+const first=fixture();const batch=await first.transport.read(null);
+assert.equal(batch.kind,'batch');assert.equal(batch.batch.messages.length,20);assert.equal(batch.batch.hasMore,true);assert.equal(batch.batch.lastUid,20);assert.equal(batch.batch.messages[0].bodyText,body);assert.equal(batch.batch.messages[0].receivedAt,'2026-09-06T12:00:00.000Z');assert.deepEqual(first.searched,[0]);assert.equal(first.fetched.length,60);assert.equal(first.counts().passwordReads,1);
+const truncated=fixture();const completeFetch=truncated.client.fetch;truncated.client.fetch=async(uid,query)=>query.bodyParts?{uid,seq:uid,bodyParts:new Map([['text',Buffer.from('Quote')]])}:completeFetch(uid,query);
+const truncatedBatch=await truncated.transport.read(null);assert.equal(truncatedBatch.batch.messages[0].contentState,'unreadable');assert.equal(truncatedBatch.batch.messages[0].bodyText,null,'A shorter-than-declared body part must not become quote evidence');
+const reset=fixture();assert.equal((await reset.transport.read({uidValidity:'6',lastUid:999})).batch.messages.length,20);assert.deepEqual(reset.searched,[0]);
+const tail=fixture();const end=await tail.transport.read({uidValidity:'7',lastUid:29});assert.deepEqual(end.batch.messages.map(m=>m.uid),[30]);assert.equal(end.batch.lastUid,33);assert.equal(end.batch.hasMore,false);
+const empty=fixture();assert.equal((await empty.transport.read({uidValidity:'7',lastUid:33})).batch.messages.length,0);assert.equal(empty.searched.length,0,'Never issue a reversed UID range');
+const stale=fixture();const fetchOriginal=stale.client.fetch;stale.client.fetch=async(uid,query)=>{const value=await fetchOriginal(uid,query);stale.deactivate();return value;};assert.equal((await stale.transport.read(null)).kind,'blocked');assert.equal(stale.fetched.length,1,'Disable must stop the next content fetch');
+let secrets=0;const denied=createImapInboxTransport(grant,{isCurrent:async()=>true,readPassword:async()=>{secrets++;return 'secret';}},{resolveHost:async()=>[{address:'127.0.0.1',family:4}],createClient:()=>{throw new Error('Must not construct a client');}});assert.equal((await denied.read(null)).kind,'blocked');assert.equal(secrets,0);
+const auth=fixture({connect:async()=>{throw Object.assign(new Error('PRIVATE_SERVER_DETAILS'),{authenticationFailed:true,serverResponseCode:'AUTHENTICATIONFAILED'});}});const deniedAuth=await auth.transport.read(null);assert.equal(deniedAuth.reason,'MAIL_IMAP_CREDENTIALS_REJECTED');assert.equal(await auth.access.isCurrent(grant),false);assert.ok(!JSON.stringify(deniedAuth).includes('PRIVATE'));
+console.log('PASS: readonly pinned IMAP, bounded batch, UID reset, no reversed range, disable between fetches, private DNS before secrets, safe authentication failure. No external connections.');
