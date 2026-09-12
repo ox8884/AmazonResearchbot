@@ -71,7 +71,10 @@ export function createAsideAdapter(configuration) {
       alibabaProductKey(observation.sourcePageUrl)!==alibabaProductKey(task.request.productUrl))throw new Error('ASIDE_CAPTURE_INVALID');
    }
    return {kind:'captured',taskId:claim.taskId,taskHash:claim.taskHash,observation};
-  }catch{return {kind:'pending_reconciliation',taskId:claim.taskId,taskHash:claim.taskHash,reason:'ASIDE_EXECUTION_UNCONFIRMED'};}
+  }catch(error){
+   const reason=error instanceof Error && /^[A-Z0-9_]+$/.test(error.message)?error.message:'ASIDE_EXECUTION_UNCONFIRMED';
+   return {kind:'pending_reconciliation',taskId:claim.taskId,taskHash:claim.taskHash,reason};
+  }
  }
  return Object.freeze({probe,collect,confirmServerReceipt:ledger.complete,inspect:ledger.inspect,close:ledger.close});
 }
