@@ -22,7 +22,9 @@ async function readRepresentative(db: Pick<Pool, "query">, id: string,key:Buffer
   const view=(await db.query<RepresentativeView&{settingsVersion:number}>(`
     SELECT c.input_version AS "inputVersion",(SELECT max(version) FROM settings_versions) AS "settingsVersion",
       (SELECT detail->>'representativeAsin' FROM candidate_events
-       WHERE candidate_id=c.id AND input_version=c.input_version AND stage='api_validation') AS "selectedAsin",
+       WHERE candidate_id=c.id AND input_version<=c.input_version AND stage='api_validation'
+         AND detail->>'representativeAsin' ~ '^[A-Z0-9]{10}$'
+       ORDER BY input_version DESC, id DESC LIMIT 1) AS "selectedAsin",
       ARRAY(SELECT DISTINCT substring(e.field from ':([A-Z0-9]{10})$') FROM evidence e
         WHERE e.candidate_id=c.id AND e.input_version=c.input_version
           AND e.settings_version=(SELECT max(version) FROM settings_versions)
