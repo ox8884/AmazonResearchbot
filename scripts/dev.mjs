@@ -96,15 +96,15 @@ try {
   if (!(error instanceof Error) || !("code" in error) || error.code !== "ENOENT") throw error;
 }
 
-const compose = spawn("docker", ["compose", "-p", "forgeops", "up", "-d"], { windowsHide: true, detached: process.platform === "win32", stdio: "inherit", cwd: root, shell: true });
+const compose = spawn("docker", ["compose", "-p", "forgeops", "up", "-d"], { windowsHide: true, detached: false, stdio: "inherit", cwd: root, shell: false });
 await wait(compose);
 if (compose.exitCode !== 0) fail("Docker Desktop이 실행 중인지 확인해 주세요. 데이터베이스 볼륨은 지우지 않았습니다.");
 
 for (let i = 0; i < 40; i++) {
   const ping = spawn("docker", ["compose", "-p", "forgeops", "exec", "-T", "postgres", "pg_isready", "-U", "forge", "-d", "forge_ops"], {
     cwd: root,
-    shell: true,
-    windowsHide: true, detached: process.platform === "win32", stdio: "ignore",
+    shell: false,
+    windowsHide: true, detached: false, stdio: "ignore",
   });
   const code = await wait(ping);
   if (code === 0) break;
@@ -122,19 +122,19 @@ try {
   }finally{await preflight.end();}
 }catch{fail("LOCAL_DEVELOPMENT_DATABASE_REQUIRED: DB 식별자를 확인하지 못해 마이그레이션하지 않습니다.");}
 
-const migrate = spawn("pnpm", ["exec", "tsx", "scripts/migrate.ts"], {
-  windowsHide: true, detached: process.platform === "win32", stdio: "inherit",
+const migrate = spawn(process.execPath, ["--import", "tsx", "scripts/migrate.ts"], {
+  windowsHide: true, detached: false, stdio: "inherit",
   cwd: root,
-  shell: true,
+  shell: false,
   env: process.env,
 });
 await wait(migrate);
 if (migrate.exitCode !== 0) fail("데이터베이스 준비에 실패했습니다.");
 const children = [
-  spawn(process.execPath, ["--import", "tsx", "scripts/backup-scheduler.mjs"], { windowsHide: true, detached: process.platform === "win32", stdio: "inherit", cwd: root, env: process.env }),
-  spawn("pnpm", ["--filter", "@forge-ops/api", "start"], { windowsHide: true, detached: process.platform === "win32", stdio: "inherit", cwd: root, shell: true, env: process.env }),
-  spawn("pnpm", ["--filter", "@forge-ops/worker", "start"], { windowsHide: true, detached: process.platform === "win32", stdio: "inherit", cwd: root, shell: true, env: process.env }),
-  spawn("pnpm", ["--filter", "@forge-ops/web", "dev"], { windowsHide: true, detached: process.platform === "win32", stdio: "inherit", cwd: root, shell: true, env: process.env }),
+  spawn(process.execPath, ["--import", "tsx", "scripts/backup-scheduler.mjs"], { windowsHide: true, detached: false, stdio: "inherit", cwd: root, env: process.env }),
+  spawn(process.execPath, ["--import", "tsx", "apps/api/src/index.ts"], { windowsHide: true, detached: false, stdio: "inherit", cwd: root, shell: false, env: process.env }),
+  spawn(process.execPath, ["--import", "tsx", "apps/worker/src/index.ts"], { windowsHide: true, detached: false, stdio: "inherit", cwd: root, shell: false, env: process.env }),
+  spawn(process.execPath, ["node_modules/vite/bin/vite.js"], { windowsHide: true, detached: false, stdio: "inherit", cwd: path.join(root, "apps/web"), shell: false, env: process.env }),
 ];
 
 const browserClient = await startOptionalBrowserClient({root,source:process.env});
