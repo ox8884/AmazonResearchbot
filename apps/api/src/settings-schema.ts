@@ -125,7 +125,9 @@ export function parseSettingsChange(
   raw: unknown,
   current: unknown,
 ): SettingsChangeParseResult {
-  const parsedCurrent = settingsBaselineSchema.safeParse(current);
+  const parsedCurrent = settingsBaselineSchema.safeParse(
+    isRecord(current) ? { ...INITIAL_SETTINGS, ...current } : current,
+  );
   if (!parsedCurrent.success) return invalid("invalid_current_settings");
   if (!isRecord(raw)) return invalid("invalid_patch");
 
