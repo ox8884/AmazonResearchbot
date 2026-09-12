@@ -115,6 +115,7 @@ export async function buildApp(env: ApiEnv, pool: Pool, options: { aiTransport?:
 
 
   app.get("/api/health", async () => ({ ok: true, env: env.appEnv }));
+  app.get("/health", async () => ({ ok: true, env: env.appEnv }));
 
   app.get("/api/session", async (request, reply) => {
     const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
