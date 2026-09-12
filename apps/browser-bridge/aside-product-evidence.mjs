@@ -4,6 +4,9 @@ export function readAmazonProductEvidence(root){
  const visible=el=>el&&el.getClientRects().length>0&&getComputedStyle(el).visibility==='visible';
  const text=el=>visible(el)?clean(el.innerText):'';
  const title=text(root.querySelector('#productTitle'))||null;
+ const bodyText=text(root.querySelector('body'));
+ const detailsMatch=/PRODUCT DETAILS\s+No\. of Sellers:\s*(\d+)\s+Fulfillment:\s*([^\n]+)\s+Dimensions:\s*([^\n]+)\s+Weight:\s*([^\n]+)\s+Product Tier:\s*([^\n]+)/i.exec(bodyText);
+ const productDetails=detailsMatch?{sellers:Number(detailsMatch[1]),fulfillment:clean(detailsMatch[2]),dimensions:clean(detailsMatch[3]),weight:clean(detailsMatch[4]),productTier:clean(detailsMatch[5])}:null;
  const claims=[...root.querySelectorAll('#feature-bullets li .a-list-item')].map(text).filter(Boolean);
  const reviews=[];
  for(const row of root.querySelectorAll('#localTopReviewsList [data-hook="review"]')){
@@ -20,5 +23,5 @@ export function readAmazonProductEvidence(root){
   reviews.push({id:row.id,title,bodyExcerpt,ratingText:/^[1-5](?:\.0)? out of 5 stars$/.test(ratingText)?ratingText:null,
    variantLabel,variantPath:reviewedAsin?'/portal/customer-reviews/'+reviewedAsin:null,reviewedAsin});
  }
- return {basis:'listing_claims_and_review_excerpts',title,claims,reviews};
+ return {basis:'listing_claims_and_review_excerpts',title,claims,reviews,...(productDetails?{productDetails}: {})};
 }
