@@ -59,7 +59,7 @@ export function Settings() {
 
   const current = snapshot ? draftFromSnapshot(snapshot) : null;
   const validationDraft = proposal?.after ?? draft;
-  const errors = validationDraft ? validateSettingsDraft(validationDraft) : {};
+  const errors = validationDraft ? validateSettingsDraft(validationDraft, current ?? undefined) : {};
   const changed = draft && current ? changedSettings(draft, current) : [];
   const patch = draft && current ? patchFromDraft(draft, current) : {};
   const valid = changed.length > 0 && Object.keys(errors).length === 0;

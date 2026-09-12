@@ -87,10 +87,11 @@ export function patchFromDraft(
   );
 }
 
-export function validateSettingsDraft(draft: SettingsDraft): Partial<Record<EditableSettingsKey, "value" | "priceRange">> {
+export function validateSettingsDraft(draft: SettingsDraft, current?: SettingsDraft): Partial<Record<EditableSettingsKey, "value" | "priceRange">> {
   const errors: Partial<Record<EditableSettingsKey, "value" | "priceRange">> = {};
   for (const field of settingsFields) {
     const value = draft[field.key];
+    if (current && value === current[field.key]) continue;
     if(field.kind === "boolean") {if(!["true","false"].includes(value))errors[field.key]="value";continue;}
     if(field.kind === "email") {if((value!=="" || draft.summaryEmailEnabled === "true") && !summaryMailConsentSchema.shape.summaryEmail.safeParse(value).success)errors[field.key]="value";continue;}
     if (field.kind === "time") {
