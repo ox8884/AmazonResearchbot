@@ -4,6 +4,7 @@ import {parseNumericCell,unknown,type Stage} from '@forge-ops/domain';
 import {SYNTHETIC_SCHEMA,type ParseResult} from '@forge-ops/integrations/jungle-scout/csv';
 import {encryptSecret} from '@forge-ops/security';
 import {JOB_ADVANCE,txAdapter,type AdvanceJob} from './queue.ts';
+import { z } from 'zod';
 
 export class ImportMappingConflict extends Error{constructor(){super('IMPORT_MAPPING_CONFLICT');}}
 type CsvSource={kind:'manual';mapped:boolean}|{kind:'browser';observedAt:string};
@@ -79,14 +80,25 @@ export async function importCsvWithinTransaction(client:QueryConnection,input:{f
           if (!present) continue;
           await insertCellEvidence(client, candidateId, sourceId, observedAt, field, value);
         }
+        const representativeAsin = row.values.representative_asin?.trim().toUpperCase();
+        if (representativeAsin) {
+          if (!z.string().regex(/^[A-Z0-9]{10}$/).safeParse(representativeAsin).success) throw new Error('INVALID_REPRESENTATIVE_ASIN');
+          await client.query(
+            `INSERT INTO candidate_events (candidate_id, stage, input_version, detail)
+             VALUES ($1,'api_validation',$2,$3::jsonb)
+             ON CONFLICT (candidate_id, stage, input_version) DO UPDATE SET detail=EXCLUDED.detail`,
+            [candidateId, inputVersion, JSON.stringify({ importId, rowNumber: row.rowNumber, representativeAsin })],
+          );
+          await client.query("UPDATE candidates SET stage='api_validation',blocked_reason=NULL,last_progress_at=now() WHERE id=$1", [candidateId]);
+        }
         await client.query(
           `INSERT INTO candidate_events (candidate_id, stage, input_version, detail)
            VALUES ($1,'imported',$2,$3::jsonb)
            ON CONFLICT (candidate_id, stage, input_version) DO NOTHING`,
           [candidateId, inputVersion, JSON.stringify({ importId, rowNumber: row.rowNumber })],
         );
-        const job: AdvanceJob = { candidateId, stage: "imported", inputVersion };
-        if (candidateStage === "imported") {
+        const job: AdvanceJob = { candidateId, stage: representativeAsin ? "api_validation" : "imported", inputVersion };
+        if (candidateStage === "imported" || representativeAsin) {
           const queued = await boss.send(JOB_ADVANCE, job, { db: txAdapter(client) });
           if (!queued) throw new Error("PIPELINE_ENQUEUE_FAILED");
         }

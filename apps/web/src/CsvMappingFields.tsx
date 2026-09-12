@@ -9,6 +9,7 @@ const fields: readonly { field: CsvField; ko: string; en: string }[] = [
   { field: "top_price", ko: "1위 상품 가격 (USD)", en: "Top product price (USD)" },
   { field: "monthly_revenue_competitors", ko: "월매출 기준 충족 경쟁 상품 수", en: "Competitors meeting the monthly revenue threshold" },
   { field: "marketplace", ko: "판매 시장 (US)", en: "Marketplace (US)" },
+  { field: "representative_asin", ko: "대표 ASIN", en: "Representative ASIN" },
 ];
 
 export function CsvMappingFields({ preview, mapping, busy, reviewed, onChange }: {

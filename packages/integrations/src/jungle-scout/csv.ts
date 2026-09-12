@@ -59,8 +59,8 @@ export async function parseCsv(bytes: Buffer, selectedMapping?: CsvMapping): Pro
       const normalized = headers.map((header) => header.trim().toLowerCase());
       defaultMapping={};
       for(const field of CSV_FIELDS){
-        const found=field==='keyword'||field==='marketplace'?headers.find(h=>h.trim().toLowerCase()===field)
-          :field==='reviews'?headers.find(h=>h==='reviews'||h==='Reviews'):headers.find(h=>h===field);
+        const aliases = field === 'representative_asin' ? ['representativeasin','representative_asin'] : [field];
+        const found=headers.find(h=>aliases.includes(h.trim().toLowerCase()));
         if(found!==undefined)defaultMapping[field]=found;
       }
       mapping=selectedMapping===undefined?{...defaultMapping}:{...selectedMapping};
