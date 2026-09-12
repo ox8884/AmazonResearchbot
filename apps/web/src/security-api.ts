@@ -35,6 +35,17 @@ export const revokeLoginSession = (id: string) =>
   );
 export const signOut = () => request<unknown>("/api/auth/sign-out", true);
 
+export const changePassword = (input: {
+  currentPassword: string;
+  newPassword: string;
+  revokeOtherSessions: boolean;
+}) =>
+  request<{ token: string | null; user: { id: string } }>(
+    "/api/auth/change-password",
+    true,
+    input,
+  );
+
 export const listTrustedDevices = () =>
   request<{ devices: TrustedDevice[] }>("/api/security/trusted-devices");
 export const revokeTrustedDevice = (id: string) =>

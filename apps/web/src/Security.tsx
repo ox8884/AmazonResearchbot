@@ -1,5 +1,6 @@
 import { SecurityAudit } from "./SecurityAudit.tsx";
 import { RecoveryCodesPanel } from "./RecoveryCodesPanel.tsx";
+import { PasswordChangePanel } from "./PasswordChangePanel.tsx";
 import { TrustedDevices } from "./TrustedDevices.tsx";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
@@ -198,6 +199,7 @@ export function Security() {
         )}
       </p>
       <RecoveryCodesPanel />
+      <PasswordChangePanel />
       <SecurityAudit />
     </>
   );
