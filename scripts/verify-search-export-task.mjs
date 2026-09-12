@@ -15,7 +15,7 @@ import {decryptSecret} from '../packages/security/src/secrets.ts';
 
 const reservation=createServer();reservation.listen(0,'127.0.0.1');await once(reservation,'listening');
 const address=reservation.address();assert.ok(address&&typeof address==='object');await new Promise(resolve=>reservation.close(resolve));
-const origin='http://127.0.0.1:'+address.port,test=await openAcceptance({databaseKey:'search-export-'+Date.now(),webOrigin:origin});
+const origin='http://127.0.0.1:'+address.port,test=await openAcceptance({databaseKey:'search-export-'+Date.now(),webOrigin:origin,authSecret:'search-export-auth-secret-32-characters'});
 let adapter,directory,liveResult=null;
 try{
  await test.app.listen({host:'127.0.0.1',port:address.port});
