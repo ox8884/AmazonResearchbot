@@ -33,7 +33,7 @@ try{
   try{
    const result=await cycle();
    for(const item of result.reconciled??[])if(['conflict','cancelled'].includes(item.kind))console.log(JSON.stringify({service:'browser-bridge',kind:item.kind,taskId:item.taskId}));
-   const status=JSON.stringify({service:'browser-bridge',kind:result.kind,taskId:result.taskId??null,recovered:result.reconciled?.filter(item=>item.kind==='completed').length??0});
+   const status=JSON.stringify({service:'browser-bridge',kind:result.kind,taskId:result.taskId??null,recovered:result.reconciled?.filter(item=>item.kind==='completed').length??0,...(typeof result.reason==='string'&&/^[A-Z0-9_]+$/.test(result.reason)?{reason:result.reason}:{}),...(result.reconciled?.some(item=>item.kind==='retryable_reset')?{retryableReset:true}: {})});
    if(status!==lastStatus){console.log(status);lastStatus=status;}
   }catch(error){
    const code=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:'BRIDGE_CYCLE_FAILED';
