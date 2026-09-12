@@ -113,7 +113,7 @@ if (!candidate) {
 assert.ok(candidate);
 const prefix = `/api/candidates/${candidate.id}`;
 const source =
-  "합성 인수 검증용 · 실제 제품/공급처/견적 아님 · 별도 선지급은 도착원가와 중복되지 않음";
+  `합성 인수 검증용 v${settings.data.version} · 실제 제품/공급처/견적 아님 · 별도 선지급은 도착원가와 중복되지 않음`;
 let view = await call(prefix + "/sourcing");
 assert.equal(view.status, 200);
 let spec = view.data.specs.find((s) => s.source === source);
