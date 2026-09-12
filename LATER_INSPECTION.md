@@ -24,3 +24,8 @@
 - 공식 API 17건은 아직 재호출하지 않음. 현재 메인에서 5건 HTTP 200만 확인.
 - 새로 추가된 Amazon shortcut과 settings stale approval copy는 live page에서 최종 캡처할 것.
 - `pnpm typecheck`, unattended flow/UI, order API PASS 상태를 기준으로 다음 세션을 시작.
+
+## 2026-09-12 final local checkpoint
+- Local web/API healthy; ASIDE device connected. Core local verifier suite is green.
+- Main DB intentionally has 20 evidence-held candidates, 4 budget-held candidates, and 1 web-session hold. Do not auto-convert unknowns or spend remaining calls without Jay approval.
+- Two browser tasks may be delivered while ASIDE is reading; result submission depends on a valid searchable candidate surface.
