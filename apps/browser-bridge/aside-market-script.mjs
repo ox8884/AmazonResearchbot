@@ -23,7 +23,7 @@ export function amazonMarketScript(query,marker){
    const sortBox=page.getByRole('combobox',{name:'Sort by:',exact:true});
    const sort=await sortBox.count()?await sortBox.evaluate(el=>el.value):'relevanceblender';
    if(sort!=='relevanceblender')throw Error('SORT_CHANGED');
-   const headings=await page.locator('h1,h2,[role="heading"]').evaluateAll(els=>els.filter(el=>!el.querySelector('h1,h2,[role="heading"]')).map(el=>el.innerText.trim().replace(/\s+/g,' ')).filter(text=>/^1[-–]\d+\s+of\b/.test(text)));
+   const headings=await page.locator('h1,h2,[role="heading"]').evaluateAll(els=>els.map(el=>el.innerText.trim().replace(/\s+/g,' ')).filter(text=>/^1[-–]\d+\s+of\b/.test(text)));
    const ranges=[...new Set(headings)].filter(text=>text.includes(query));
    if(ranges.length!==1)throw Error('FIRST_PAGE_RANGE_UNCONFIRMED');
    const rangeText=ranges[0],rangeEnd=Number(/^1[-–](\d+)\s/.exec(rangeText)?.[1]);
