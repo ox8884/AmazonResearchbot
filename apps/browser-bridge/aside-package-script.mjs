@@ -11,15 +11,17 @@ export function amazonPackageScript(asin,marker) {
     const current=/^https:\/\/www\.amazon\.com\/(?:[A-Za-z0-9_-]+\/)?(?:dp|gp\/product)\/([A-Z0-9]{10})(?:\/(?:ref=[A-Za-z0-9_=.-]+)?)?$/.exec(base)?.[1];
     if(current!==asin)throw Error('PRODUCT_CHANGED');
    };
-   const selector='#productDetails_feature_div';
+   const selector='#productDetails_feature_div, #detailBullets_feature_div, #detailBulletsWrapper_feature_div, #prodDetails';
    checkPage();await p.locator(selector).waitFor({state:'visible',timeout:15000});
    const read=()=>p.locator(selector).evaluate(root=>{
     const clean=value=>(value??'').replace(/[\u200e\u200f\u202a-\u202e]/g,'').replace(/\s+/g,' ').trim();
     const rows=[],asins=[];
-    for(const element of root.querySelectorAll('table tr')){
+    for(const element of root.querySelectorAll('table tr, li')){
      const cells=Array.from(element.children).filter(cell=>cell.tagName==='TH'||cell.tagName==='TD');
-     if(cells.length!==2)continue;
-     const label=clean(cells[0].innerText),value=clean(cells[1].innerText);
+     const text=clean(element.innerText);
+     const label=cells.length===2?clean(cells[0].innerText):clean((/^(Package Dimensions|Package Weight|Item Weight|Item Dimensions[^:]*|Product Dimensions):/.exec(text)?.[1])??'');
+     const value=cells.length===2?clean(cells[1].innerText):clean(text.replace(new RegExp('^'+label+'\\s*:\\s*'),'').replace(new RegExp('^'+label+'\\s+'),'').trim());
+     if(!label||!value)continue;
      if(label==='ASIN')asins.push(value);
      if(!/^(?:ASIN|Package Dimensions|Package Weight|Item Weight|(?:Item|Product) Dimensions.*)$/.test(label))continue;
      if(element.getClientRects().length===0||getComputedStyle(element).visibility==='hidden')continue;
