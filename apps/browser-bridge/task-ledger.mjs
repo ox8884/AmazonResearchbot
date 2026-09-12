@@ -47,7 +47,14 @@ export function openBrowserTaskLedger(configuration) {
    const task=verifyTask(envelope),taskId=task.id.toLowerCase(),taskHash=createHash('sha256').update(envelope.payload).digest('hex');
    return transaction(()=>{
     const row=rowFor(taskId);
-    if(row){if(row.task_hash!==taskHash)throw new Error('TASK_PAYLOAD_CONFLICT');return summary(row);}
+    if(row){
+     if(row.task_hash!==taskHash)throw new Error('TASK_PAYLOAD_CONFLICT');
+     if(['cancelled','conflict'].includes(row.state)&&row.receipt_id===null&&row.body_hash===null){
+      db.prepare("UPDATE task_receipts SET state='started',completed_at=NULL WHERE task_id=?").run(taskId);
+      return {kind:'claimed',taskId,taskHash,task};
+     }
+     return summary(row);
+    }
     db.prepare("INSERT INTO task_receipts(task_id,task_hash,state,created_at) VALUES(?,?,'started',?)").run(taskId,taskHash,new Date().toISOString());
     return {kind:'claimed',taskId,taskHash,task};
    });
@@ -84,7 +91,10 @@ export function openBrowserTaskLedger(configuration) {
    return row?.ciphertext?openObservation(row,credential,'browser-stage:'+scope+':'+row.task_id+':'+row.task_hash):null;
   },
   pending(){
-   return db.prepare("SELECT task_id AS taskId,task_hash AS taskHash,body_hash AS bodyHash FROM task_receipts WHERE state='started' ORDER BY created_at,task_id").all();
+   return db.prepare("SELECT task_id AS taskId,task_hash AS taskHash,body_hash AS bodyHash FROM task_receipts WHERE state='started' AND body_hash IS NOT NULL ORDER BY created_at,task_id").all();
+  },
+  retryable(){
+   return db.prepare("SELECT task_id AS taskId,task_hash AS taskHash FROM task_receipts WHERE state='started' AND body_hash IS NULL ORDER BY created_at,task_id").all();
   },
   settle(input){
    if(!input||!uuid.test(input.taskId)||!/^[a-f0-9]{64}$/.test(input.taskHash)||!['cancelled','conflict'].includes(input.state))throw new Error('INVALID_TASK_SETTLEMENT');

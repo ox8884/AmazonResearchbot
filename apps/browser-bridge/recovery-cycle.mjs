@@ -40,6 +40,11 @@ export function createRecoveryCycle({client,adapter,ledger,deviceId,readCredenti
     if(shouldStop())return {kind:'stopping',reconciled};
     reconciled.push(await reconcile(item));
    }
+   for(const item of (ledger.retryable?.() ?? [])){
+    if(shouldStop())return {kind:'stopping',reconciled};
+    ledger.settle({...item,state:'cancelled'});
+    reconciled.push({kind:'retryable_reset',taskId:item.taskId});
+   }
    if(shouldStop())return {kind:'stopping',reconciled};
    if(!await canClaim())return {kind:'unavailable',reconciled};
    if(shouldStop())return {kind:'stopping',reconciled};
