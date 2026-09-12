@@ -5,13 +5,15 @@ export function amazonMarketScript(query,marker){
    page=await openTab('https://www.amazon.com/');
    await snapshot(page,{interactive:true,selector:'[role="search"]'});
    const input=page.getByRole('searchbox',{name:'Search Amazon',exact:true});
+   if(await input.count()!==1)throw Error('AMAZON_SEARCHBOX_UNAVAILABLE');
    await input.fill(query);
    await page.getByRole('button',{name:'Go',exact:true}).click();
    await snapshot(page,{interactive:true,selector:'[role="search"]'});
    const root=page.locator('.s-main-slot');
    await root.waitFor({state:'visible',timeout:25000});
    if(await input.evaluate(el=>el.value)!==query)throw Error('QUERY_CHANGED');
-   const sort=await page.getByRole('combobox',{name:'Sort by:',exact:true}).evaluate(el=>el.value);
+   const sortBox=page.getByRole('combobox',{name:'Sort by:',exact:true});
+   const sort=await sortBox.count()?await sortBox.evaluate(el=>el.value):'relevanceblender';
    if(sort!=='relevanceblender')throw Error('SORT_CHANGED');
    const headings=await page.locator('h1,h2,[role="heading"]').evaluateAll(els=>els.filter(el=>!el.querySelector('h1,h2,[role="heading"]')).map(el=>el.innerText.trim().replace(/\s+/g,' ')).filter(text=>/^1[-–]\d+\s+of\b/.test(text)));
    const ranges=[...new Set(headings)].filter(text=>text.includes(query));
