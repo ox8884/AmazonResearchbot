@@ -15,7 +15,10 @@ function runTs(file, args = [], tsconfig) {
 }
 
 if (scenario === "all") {
-  console.error("Full acceptance suite is incomplete: the integrated overnight scenario still needs implementation. Use named scenarios; this is not a full pass.");
+  console.error("Full acceptance suite remains intentionally gated: run named local scenarios; R5/R6 user and external acceptance are not included.");
+  await runTs("scripts/verify-unattended-ui.mjs");
+  await runTs("scripts/verify-contrast.mjs");
+  await runTs("scripts/verify-order-api.mjs");
   process.exit(2);
 }
 if (scenario === "saved-searches") {
