@@ -29,3 +29,6 @@
 - Local web/API healthy; ASIDE device connected. Core local verifier suite is green.
 - Main DB intentionally has 20 evidence-held candidates, 4 budget-held candidates, and 1 web-session hold. Do not auto-convert unknowns or spend remaining calls without Jay approval.
 - Two browser tasks may be delivered while ASIDE is reading; result submission depends on a valid searchable candidate surface.
+
+## Provenance
+- 운영/fixture 후보 provenance 분리: 현재 메인 후보 25개가 모두 synthetic.kitchen.v1 import로 생성되어 문자열 필터는 안전하지 않음. 별도 append-only provenance schema 검토 필요.
