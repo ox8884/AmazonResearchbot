@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { SettingsSnapshot } from "@forge-ops/domain";
+import { INITIAL_SETTINGS, type SettingsSnapshot } from "@forge-ops/domain";
 
 const immutableSettingsKeys = ["marketplace", "currency", "timezone"] as const;
 const editableSettingsKeys = [
@@ -154,7 +154,7 @@ export function parseSettingsChange(
   const parsedPatch = settingsPatchSchema.safeParse(raw);
   if (!parsedPatch.success) return invalid("invalid_patch");
 
-  const after = { ...parsedCurrent.data, ...parsedPatch.data };
+  const after = { ...INITIAL_SETTINGS, ...parsedCurrent.data, ...parsedPatch.data };
   const parsedAfter = settingsSnapshotSchema.safeParse(after);
   if (!parsedAfter.success) return invalid("invalid_after_settings");
 
