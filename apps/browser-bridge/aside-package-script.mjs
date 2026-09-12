@@ -13,7 +13,7 @@ export function amazonPackageScript(asin,marker) {
    };
    const selectors=['#productDetails_feature_div','#detailBullets_feature_div','#detailBulletsWrapper_feature_div','#prodDetails'];
    let selector=selectors[0];
-   for(const candidate of selectors){try{await p.locator(candidate).waitFor({state:'visible',timeout:5000});selector=candidate;break;}catch{}}
+   for(const candidate of selectors){try{if(await p.locator(candidate).count()>0){selector=candidate;break;}}catch{}}
    checkPage();await p.locator(selector).waitFor({state:'visible',timeout:15000});
    const read=()=>p.locator(selector).evaluate(root=>{
     const clean=value=>(value??'').replace(/[\u200e\u200f\u202a-\u202e]/g,'').replace(/\s+/g,' ').trim();
