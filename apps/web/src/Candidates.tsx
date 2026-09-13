@@ -59,6 +59,10 @@ export function CandidateCard({
             {c.nextAction.label}
           </p>
         )}
+        <NavLink className="text-btn candidate-detail-link" to={`/candidates/${c.id}`}>
+          {t("상세 보기", "View details")}
+          <Icon name="arrow" />
+        </NavLink>
         {onSelect && (
           <button
             type="button"
