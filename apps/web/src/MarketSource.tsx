@@ -2,11 +2,11 @@ import {useQuery} from '@tanstack/react-query';
 import type {Evidence} from '../../../packages/domain/src/evidence.ts';
 import {Loading,LoadError,useLocale} from './ui.tsx';
 
-type MarketView={state:'not_collected'|'stale'|'waiting'|'collecting'}|{
+export type MarketView={state:'not_collected'|'stale'|'waiting'|'collecting'}|{
  state:'captured';query:string;observedAt:string;sourcePageUrl:string;coverage:'complete'|'partial';rangeText:string;
  slots:readonly {position:number;asin:string|null;title:string|null;productUrl:string|null;adStatus:'sponsored'|'not_marked'|'unknown';priceTexts:readonly string[];price:Evidence<string>}[];
 };
-async function loadMarket(id:string):Promise<MarketView>{
+export async function loadMarket(id:string):Promise<MarketView>{
  const response=await fetch(`/api/candidates/${encodeURIComponent(id)}/market-source`,{credentials:'include'});
  if(!response.ok)throw Error('MARKET_SOURCE_UNAVAILABLE');return response.json();
 }

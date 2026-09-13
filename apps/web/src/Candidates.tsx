@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { NavLink } from "react-router";
 import { listCandidates, type CandidateView } from "./api.ts";
+import { loadMarket, type MarketView } from "./MarketSource.tsx";
 import { evidenceText } from "./evidence.ts";
 import {
   Empty,
@@ -33,7 +34,20 @@ export function CandidateCard({
   onSelect?: () => void;
 }) {
   const { t, language } = useLocale();
+  const market = useQuery({
+    queryKey: ["market-source", c.id],
+    queryFn: () => loadMarket(c.id),
+    retry: false,
+    refetchInterval: 10000,
+  });
   const approvalPath = candidateApprovalPath(c);
+  const captured = market.data?.state === "captured" ? market.data : null;
+  const first = captured?.slots[0];
+  const firstPrice = first
+    ? first.price.kind === "unknown"
+      ? first.priceTexts[0] ?? t("가격 미확인", "Price unknown")
+      : `$${first.price.value}`
+    : t("가격 미확인", "Price unknown");
   return (
     <article className={`card candidate-card${selected ? " selected" : ""}`}>
       <Stage>{c.stageLabel}</Stage>
@@ -43,6 +57,13 @@ export function CandidateCard({
         </NavLink>
       </h3>
       <p>{evidenceText(c.evidenceSummary, language)}</p>
+      {captured && first && (
+        <div className="market-observation">
+          <span className="muted">{t("Amazon 첫 페이지 관측", "Amazon first-page observation")}</span>
+          <strong>{captured.slots.length}{t("개 항목", " observed items")} · {firstPrice}</strong>
+          <p className="muted">{first.title ?? t("첫 상품명 미확인", "First title unknown")}</p>
+        </div>
+      )}
       <div className="unknown-summary">
         <span className="muted">{t("모르는 것", "Unknown")}</span>
         <Unknowns values={c.unknowns} />
