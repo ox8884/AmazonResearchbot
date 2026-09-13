@@ -168,6 +168,14 @@ export function Settings() {
                 : t("변경 승인 요청", "Request approval to change")}
             </button>
           )}
+          {!proposal && !locked && changed.length === 0 && (
+            <p className="muted">
+              {t(
+                "현재 적용 중인 값과 다른 항목이 있을 때 승인 요청할 수 있어요.",
+                "Change a value before requesting approval.",
+              )}
+            </p>
+          )}
         </form>
         {proposal && (
           <div className="proposal-review" role="status">
