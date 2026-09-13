@@ -70,3 +70,9 @@ R4 로컬 승인 대기 달성은 원래 SPEC의 실제 RFQ 발송·견적 회�
 - unattended-flow의 간헐 실패 원인은 버그가 아닌 공유 Jungle Scout per-second rate window에 의한 `provider_unavailable` 재예약이었다.
 - verifier가 명시적 deferred 상태를 확인한 뒤 격리 테스트 시계만 전진시켜 scheduler 재개를 검증하도록 수정했다.
 - 수정 후 unattended-flow 5회 연속 PASS, integrated PASS, typecheck PASS. 실제 provider 호출과 external action은 계속 0이다.
+
+## 최신 체크포인트 — 2026-09-13 ASIDE 실제 CSV 연결
+
+- 기록된 Opportunity Finder 조건을 ASIDE에 적용해 라이브 결과 226개·표시 100행을 확인하고 CSV를 다운로드했다.
+- Forge `/research`에서 10025 bytes 원본을 `user_declared`로 가져와 후보 100개를 생성했다. 기존 후보는 보존됐다.
+- CSV에 category 열이 없으므로 Home & Kitchen 발굴 결과를 Kitchen & Dining으로 자동 승격하지 않고 후보별 분류 확인 대기를 유지한다.
