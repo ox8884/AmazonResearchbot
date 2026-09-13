@@ -62,3 +62,5 @@ R4 로컬 승인 대기 달성은 원래 SPEC의 실제 RFQ 발송·견적 회�
 - unattended-ui는 KO/EN 승인 라벨·시장 위험·독립 보류·pending RFQ 2건·external_actions 0을 확인했고, contrast는 AA·44px control·14px type·8px spacing을 확인했다.
 - 현재 검증은 로컬 인수 증거이며 실제 유료 API·외부 메일/공급처·Oracle/Cloudflare/R2·제3자 사용성 인수를 완료한 것으로 합산하지 않는다.
 - 상세 실행 증거: .omo/evidence/overnight-start-2026-09-13.md.
+
+- candidate-view verifier도 PASS했다. 필수 근거는 unknown으로 남고, 명시적 false는 보존되며, 최신 평가·input revision·잘못된 후보 ID 처리가 강제된다.
