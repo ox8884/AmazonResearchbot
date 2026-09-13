@@ -64,3 +64,9 @@ R4 로컬 승인 대기 달성은 원래 SPEC의 실제 RFQ 발송·견적 회�
 - 상세 실행 증거: .omo/evidence/overnight-start-2026-09-13.md.
 
 - candidate-view verifier도 PASS했다. 필수 근거는 unknown으로 남고, 명시적 false는 보존되며, 최신 평가·input revision·잘못된 후보 ID 처리가 강제된다.
+
+## 최신 체크포인트 — 2026-09-13 반복 안정성
+
+- unattended-flow의 간헐 실패 원인은 버그가 아닌 공유 Jungle Scout per-second rate window에 의한 `provider_unavailable` 재예약이었다.
+- verifier가 명시적 deferred 상태를 확인한 뒤 격리 테스트 시계만 전진시켜 scheduler 재개를 검증하도록 수정했다.
+- 수정 후 unattended-flow 5회 연속 PASS, integrated PASS, typecheck PASS. 실제 provider 호출과 external action은 계속 0이다.

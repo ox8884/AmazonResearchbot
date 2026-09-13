@@ -97,7 +97,14 @@ try{
    slots:catalogAsins.map((asin,index)=>({position:index+1,asin,title:'Synthetic utensil '+index,productUrl:'https://www.amazon.com/dp/'+asin,imageUrl:null,adStatus:'not_marked',priceTexts:['$29.00'],sourceText:'Synthetic utensil '+index+' $29.00'}))};
   assert.equal((await deviceCall('/api/bridge/tasks/'+marketClaim.taskId+'/results',{taskHash:marketClaim.taskHash,observation})).status,201);
   await advanceCandidate(test.pool,transport,{candidateId:target.id,stage:'api_validation',inputVersion:target.input_version},{transport:{kind:'disabled'},encryptionKey:key});
-  const selected=(await test.call('/api/candidates/'+target.id+'/representative')).body;
+  let selected=(await test.call('/api/candidates/'+target.id+'/representative')).body;
+  if(selected.selectedAsin===null){
+   const state=(await test.pool.query("SELECT blocked_reason FROM candidates WHERE id=$1",[target.id])).rows[0]?.blocked_reason;
+   assert.equal(state,'provider_unavailable','A rate-limited candidate must be explicitly deferred before scheduler resume');
+   await test.pool.query("UPDATE api_rate_windows SET window_started_at=clock_timestamp()-interval '61 seconds' WHERE account_scope='local'");
+   await advanceCandidate(test.pool,transport,{candidateId:target.id,stage:'api_validation',inputVersion:target.input_version},{transport:{kind:'disabled'},encryptionKey:key});
+   selected=(await test.call('/api/candidates/'+target.id+'/representative')).body;
+  }
   assert.equal(selected.selectedAsin,catalogAsins[5]);
   await advertise(['amazon_package']);
   const queuedPackage=await queueAmazonPackage(test.pool,{deviceId:enrolled.body.id,candidateId:target.id},signing);
