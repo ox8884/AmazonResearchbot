@@ -54,3 +54,11 @@ R4 로컬 승인 대기 달성은 원래 SPEC의 실제 RFQ 발송·견적 회�
 차별화 원문과 실제 변경 사양의 의미 연결, 제공자 자료의 귀속/누락, 공급처 사양 일치, 재시작·재전송 시 발견될 연결 결함 때문에 오차가 크다.
 
 개별 검사 통과, 테스트 수, 코드량으로 전체 완료율을 계산하지 않는다. 각 R 항목은 실제 산출물·사용 동작·검증 근거가 생긴 뒤 갱신한다.
+
+## 최신 체크포인트 — 2026-09-13 로컬 계약 검증
+
+- 필수 6개 진입점이 현재 소스에서 외부 전송 없이 fixture/simulator로 다시 PASS했다: pagination-next, api-validation, unattended-flow, unattended-ui, contrast, order-api.
+- unattended-flow는 CSV 20행·독립 보류·2후보 파이프·RFQ pending 4건·재전송 0·캐시 재사용·external_actions 0·real provider calls 0을 확인했다.
+- unattended-ui는 KO/EN 승인 라벨·시장 위험·독립 보류·pending RFQ 2건·external_actions 0을 확인했고, contrast는 AA·44px control·14px type·8px spacing을 확인했다.
+- 현재 검증은 로컬 인수 증거이며 실제 유료 API·외부 메일/공급처·Oracle/Cloudflare/R2·제3자 사용성 인수를 완료한 것으로 합산하지 않는다.
+- 상세 실행 증거: .omo/evidence/overnight-start-2026-09-13.md.
