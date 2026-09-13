@@ -2,7 +2,7 @@ export function amazonMarketScript(query,marker){
  async function collect(query,marker){
   let page,result;
   try{
-   page=await openTab('https://www.amazon.com/');
+   page=await openTab('https://www.amazon.com/s?k='+encodeURIComponent(query).replace(/%20/g,'+'));
    await snapshot(page,{interactive:true,selector:'[role="search"]'});
    const input=page.getByRole('searchbox',{name:'Search Amazon',exact:true});
    const fallback=page.locator('#twotabsearchtextbox');
@@ -10,23 +10,16 @@ export function amazonMarketScript(query,marker){
    if(inputCount!==1 && fallbackCount!==1)throw Error('AMAZON_SEARCHBOX_UNAVAILABLE');
    const searchInput=inputCount===1?input:fallback;
    await searchInput.waitFor({state:'visible',timeout:10000});
-   await searchInput.fill(query);
-   const go=page.getByRole('button',{name:'Go',exact:true});
-   const fallbackGo=page.locator('#nav-search-submit-button');
-   const goCount=await go.count(),fallbackGoCount=await fallbackGo.count();
-   if(goCount!==1 && fallbackGoCount!==1)throw Error('AMAZON_SEARCH_BUTTON_UNAVAILABLE');
-   await (goCount===1?go:fallbackGo).click();
-   await snapshot(page,{interactive:true,selector:'[role="search"]'});
    const root=page.locator('.s-main-slot');
    await root.waitFor({state:'visible',timeout:25000});
+   await page.locator('[data-component-type="s-result-info-bar"]').waitFor({state:'visible',timeout:25000});
    if(await searchInput.evaluate(el=>el.value)!==query)throw Error('QUERY_CHANGED');
    const sortBox=page.getByRole('combobox',{name:'Sort by:',exact:true});
    const sort=await sortBox.count()?await sortBox.evaluate(el=>el.value):'relevanceblender';
    if(sort!=='relevanceblender')throw Error('SORT_CHANGED');
-   const headings=await page.locator('h1,h2,[role="heading"]').evaluateAll(els=>els.map(el=>el.innerText.trim().replace(/\s+/g,' ')).filter(text=>/^1[-–]\d+\s+of\b/.test(text)));
-   const ranges=[...new Set(headings)].filter(text=>text.includes(query));
-   if(ranges.length!==1)throw Error('FIRST_PAGE_RANGE_UNCONFIRMED');
-   const rangeText=ranges[0],rangeEnd=Number(/^1[-–](\d+)\s/.exec(rangeText)?.[1]);
+   const rangeText=(await page.locator('[data-component-type="s-result-info-bar"]').innerText()).split(/\r?\n/)[0].trim().replace(/\s+/g,' ');
+   if(!/^1[-–]\d+\s+of\b/.test(rangeText)||!rangeText.includes(query))throw Error('FIRST_PAGE_RANGE_UNCONFIRMED');
+   const rangeEnd=Number(/^1[-–](\d+)\s/.exec(rangeText)?.[1]);
    if(!Number.isSafeInteger(rangeEnd)||rangeEnd<1||rangeEnd>200)throw Error('FIRST_PAGE_RANGE_UNCONFIRMED');
    const capture=()=>root.evaluate(root=>[...root.querySelectorAll(':scope > [data-component-type="s-search-result"]')]
     .filter(card=>card.getClientRects().length>0&&getComputedStyle(card).visibility==='visible')
