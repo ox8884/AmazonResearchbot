@@ -52,6 +52,10 @@ export function evidenceText(text: string, language = "ko") {
     .trim();
 }
 export function unknownLabel(value: string, language: string) {
+  if(value==='PACKAGED_MEASUREMENTS_UNCONFIRMED')return language==='ko'?'Amazon 페이지에서 포장 치수와 포장 중량을 함께 확인하지 못했어요':'Amazon did not confirm both package dimensions and package weight';
+  if(value==='PACKAGE_DIMENSIONS_UNKNOWN')return language==='ko'?'포장 치수(Package Dimensions)가 없어 Standard를 판정하지 않아요':'Package dimensions are missing, so Standard size is not assessed';
+  if(value==='PACKAGE_WEIGHT_UNKNOWN')return language==='ko'?'포장 중량(Package Weight)이 없어 Standard를 판정하지 않아요':'Package weight is missing, so Standard size is not assessed';
+  if(value==='REPRESENTATIVE_ASIN_REQUIRED')return language==='ko'?'실제 소싱할 대표 ASIN을 먼저 선택해야 해요':'Choose the representative ASIN before assessing size';
   if(value==='MARKET_LEADER_UNCONFIRMED')return language==='ko'?'단독 매출 1위를 확인할 수 없습니다':'A single revenue leader is not confirmed';
   if(value==='LEADER_PRICE_AMBIGUOUS')return language==='ko'?'1위 상품군의 가격이 서로 다릅니다':'Prices within the leading family differ';
   if(value==='PARENT_SALES_UNCONFIRMED')return language==='ko'?'부모 상품군의 매출 근거가 미확인입니다':'Parent-family sales are not confirmed';

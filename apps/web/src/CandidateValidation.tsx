@@ -1,9 +1,10 @@
 import {NICHE_RULE_LABELS,type CandidateValidationView} from '../../../packages/domain/src/validation-view.ts';
 import type {Evidence} from '../../../packages/domain/src/evidence.ts';
 import type {RuleId} from '../../../packages/domain/src/niche.ts';
+import {unknownLabel} from './evidence.ts';
 import {Icon,useLocale} from './ui.tsx';
 function valueText(value:Evidence<string|number|boolean>,language:string):string {
-  if(value.kind==='unknown')return language==='ko'?'미확인':'Unknown';
+  if(value.kind==='unknown')return unknownLabel(value.reason??'미확인',language);
   const displayed=typeof value.value==='boolean'?(value.value?(language==='ko'?'예':'Yes'):(language==='ko'?'아니요':'No')):String(value.value);
   const kind=value.kind==='measured'?(language==='ko'?'측정':'Measured'):value.kind==='estimate'?(language==='ko'?'추정':'Estimate'):(language==='ko'?'견적':'Quote');
   return `${displayed} · ${kind}`;
