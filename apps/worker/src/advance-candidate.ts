@@ -7,6 +7,7 @@ import type { Pool } from "@forge-ops/db";
 import { evaluateNiche, readNicheEvidence, type StoredEvidence, type SettingsSnapshot, type Stage } from "@forge-ops/domain";
 import type { JsTransport } from "@forge-ops/integrations/jungle-scout/transport";
 import { PgBoss } from "pg-boss";
+import {consumeBrowserValidation} from './browser-validation.ts';
 
 export type AdvanceJob = { candidateId: string; stage: string; inputVersion: number };
 
@@ -118,10 +119,7 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
   if (stageAfter === "api_validation" && settings && settingsVersion !== undefined && keyword !== undefined) {
     const market=ai?await readMarketSource(pool,data.candidateId,ai.encryptionKey):null;
     const firstPageSource=market?.state==='captured'&&market.inputVersion===data.inputVersion&&market.settingsVersion===settingsVersion?market:null;
-    await consumeOfficialValidation(
-      pool,
-      transport,
-      {
+    const context={
         candidateId: data.candidateId,
         inputVersion: data.inputVersion,
         keyword,
@@ -129,7 +127,12 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
         snapshot: settings,
         accountScope: "local",
         ...(firstPageSource?{firstPageSource}:{}),
-      },
+      };
+    const browserResult=ai?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
+    if(browserResult==='not_ready')await consumeOfficialValidation(
+      pool,
+      transport,
+      context,
       (retryAt) => scheduleDeferredAdvance(pool, { ...data, stage: "api_validation" }, retryAt),
     );
   }

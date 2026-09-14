@@ -69,6 +69,7 @@ if (scenario === "jungle-scout") {
   await runTs("scripts/verify-historical-data-task.mjs");
   await runTs("scripts/verify-category-trends-task.mjs");
   await runTs("scripts/verify-competitive-intelligence-task.mjs");
+  await runTs("scripts/verify-browser-validation.mjs");
   await runTs("scripts/verify-jungle-scout-research-view.mjs");
   await runTs("scripts/verify-browser-dispatch-cap.mjs");
   await runTs("scripts/verify-browser-task-ledger.mjs");
