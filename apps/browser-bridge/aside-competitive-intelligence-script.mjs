@@ -29,21 +29,10 @@ export function competitiveIntelligenceScript(query,marker){
     }
     const databasePageUrl=await destination();
     if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?database(?:[/?#].*)?$/.test(databasePageUrl))throw Error('SITE_CHANGED');
-    const marketplace=page.getByText('United States',{exact:true}).first();
+    const marketplace=page.getByRole('combobox',{name:'Select Marketplace',exact:true});
     await marketplace.waitFor({state:'visible',timeout:20_000});
-    const marketplaceState=await marketplace.evaluate(el=>{
-     for(let node=el;node&&node!==document.body;node=node.parentElement){
-      const combo=node.matches('[role="combobox"]')?node:node.querySelector('[role="combobox"]');
-      if(combo&&combo.contains(el)){
-       const value=(combo.getAttribute('aria-valuetext')||combo.innerText||combo.textContent||'').replace(/\s+/g,' ').trim();
-       return {found:true,selected:value==='United States',checked:false};
-      }
-      const control=node.matches('input[type="checkbox"],[role="checkbox"]')?node:node.querySelector('input[type="checkbox"],[role="checkbox"]');
-      if(control&&node.contains(el))return {found:true,selected:false,checked:control.checked===true||control.getAttribute('aria-checked')==='true'};
-     }
-     return {found:false,selected:false,checked:false};
-    });
-    if(!marketplaceState.found||(!marketplaceState.selected&&!marketplaceState.checked))throw Error('MARKETPLACE_NOT_US');
+    const marketplaceValue=await marketplace.evaluate(el=>(el.getAttribute('aria-valuetext')||el.innerText||el.textContent||'').replace(/\s+/g,' ').trim());
+    if(marketplaceValue!=='United States')throw Error('MARKETPLACE_NOT_US');
     const stateFor=label=>label.evaluate(el=>{
      for(let node=el;node&&node!==document.body;node=node.parentElement){
       const control=node.matches('input[type="checkbox"],[role="checkbox"]')?node:node.querySelector('input[type="checkbox"],[role="checkbox"]');

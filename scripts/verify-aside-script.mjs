@@ -214,23 +214,31 @@ console.log(JSON.stringify({scenario:'aside-package-script',result:'PASS',exactA
  const input={waitFor:async()=>{},fill:async value=>{filled=value;},evaluate:async()=>filled};
  const label=name=>({
   waitFor:async()=>{},
-   evaluate:async()=>name==='United States'?{found:true,selected:marketplaceSelected,checked:false}:{found:name==='Home & Kitchen'||name==='Standard',checked:name==='Home & Kitchen'?homeKitchen:standard},
+   evaluate:async()=>({found:name==='Home & Kitchen'||name==='Standard',checked:name==='Home & Kitchen'?homeKitchen:standard}),
   click:async()=>{if(name==='Home & Kitchen')homeKitchen=true;if(name==='Standard')standard=true;if(name==='100')limitApplied=true;},
   first(){return this;},
   last(){return this;},
  });
+ const unrelatedUnitedStates={first(){return this;},waitFor:async()=>{},evaluate:async callback=>callback({
+  matches:()=>true,querySelector:()=>null,getAttribute:attribute=>attribute==='aria-valuetext'?'United States':null,
+  innerText:'United States',textContent:'United States',contains:()=>true,parentElement:null,
+ })};
  const resultControl={evaluate:async callback=>callback({innerText:limitApplied?'100':'50',parentElement:{parentElement:{innerText:'Displaying 100 of 1'}}}),click:async()=>{},waitFor:async()=>{assert.equal(searched,true);}};
  const limitOption={click:async()=>{assert.equal(searched,true,'Result limit is selected after Search reveals the results header');limitApplied=true;}};
  const page={
   goto:async url=>assert.equal(url,'https://members.junglescout.com/#/database'),
  evaluate:async()=> 'https://members.junglescout.com/#/database',
-  locator:selector=>{if(selector==='[role="combobox"]')return {evaluateAll:async()=>true};assert.equal(selector,'[data-testid="multi-select-trigger"]');return {
+  locator:selector=>{assert.equal(selector,'[data-testid="multi-select-trigger"]');return {
    evaluateAll:async()=>0,
    nth:index=>{assert.equal(index,0);return resultControl;},
   };},
-  getByText:(name)=>label(name),
+  getByText:(name)=>name==='United States'?unrelatedUnitedStates:label(name),
   getByRole:(role,options)=>{
-   if(role==='link')return {waitFor:async()=>{},click:async()=>{}};
+    if(role==='link')return {waitFor:async()=>{},click:async()=>{}};
+    if(role==='combobox'){
+     assert.equal(options.name,'Select Marketplace');assert.equal(options.exact,true);
+     return {waitFor:async()=>{},evaluate:async callback=>callback({getAttribute:()=>null,innerText:marketplaceSelected?'United States':'Canada',textContent:marketplaceSelected?'United States':'Canada'})};
+    }
    if(role==='textbox')return {first:()=>input};
    if(role==='option'){assert.equal(options.name,'100');return limitOption;}
    if(role==='button'&&options.name==='Search')return {click:async()=>{searched=true;}};
@@ -256,7 +264,7 @@ console.log(JSON.stringify({scenario:'aside-package-script',result:'PASS',exactA
    console:{log:value=>output.push(value)},listBrowserTabs:async()=>[{targetId:'existing-jungle-scout',url:'https://members.junglescout.com/#/database'}],
    attachBrowserTab:async()=>page,openTab:async()=>{throw new Error('Existing authenticated tab must be reused');},closeTab:async()=>{},snapshot:async()=>({tree:'Synthetic Product Database table'}),
   },{timeout:1000});
-  assert.deepEqual(JSON.parse(output[1].slice('PRODUCT_DB:'.length)),{protocol:1,kind:'unavailable',reason:'MARKETPLACE_FILTER_UNCONFIRMED'},'An unrelated/global marketplace label cannot prove the selected marketplace');
+   assert.deepEqual(JSON.parse(output[1].slice('PRODUCT_DB:'.length)),{protocol:1,kind:'unavailable',reason:'MARKETPLACE_FILTER_UNCONFIRMED'},'An unrelated selected United States control cannot override a Canada Marketplace control');
 }
 console.log(JSON.stringify({scenario:'aside-product-database-script',result:'PASS',duplicateTextboxResolved:true,authenticatedTabReused:true,userTabPreserved:true}));
 

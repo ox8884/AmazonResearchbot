@@ -22,18 +22,23 @@ let currentUrl='https://members.junglescout.com/#/competitive-intelligence';
 let homeKitchen=true,standard=true,resultLimit='50',marketplaceSelected=true;
 const fakeInput={value:'',waitFor:async()=>{},fill:async value=>{fakeInput.value=value;},evaluate:async callback=>callback({value:fakeInput.value})};
 const fakeLabel=name=>({first(){return this;},waitFor:async()=>{},click:async()=>{if(name==='Home & Kitchen')homeKitchen=true;if(name==='Standard')standard=true;},evaluate:async callback=>callback({
- matches:selector=>name==='United States'&&selector==='[role="combobox"]',
- querySelector:()=>name==='United States'?null:{checked:name==='Home & Kitchen'?homeKitchen:standard,getAttribute:()=>null},
- getAttribute:attribute=>attribute==='aria-valuetext'&&name==='United States'&&marketplaceSelected?'United States':null,
- innerText:name==='United States'&&marketplaceSelected?'United States':'Canada',textContent:name,parentElement:null,contains:()=>true,
+ matches:()=>false,querySelector:()=>({checked:name==='Home & Kitchen'?homeKitchen:standard,getAttribute:()=>null}),parentElement:null,
 })});
+const unrelatedUnitedStates={first(){return this;},waitFor:async()=>{},evaluate:async callback=>callback({
+ matches:()=>true,querySelector:()=>null,getAttribute:attribute=>attribute==='aria-valuetext'?'United States':null,
+ innerText:'United States',textContent:'United States',contains:()=>true,parentElement:null,
+})};
 const fakeLimit={evaluate:async callback=>callback({innerText:resultLimit,parentElement:{parentElement:{innerText:`Displaying 100 of ${tableRows.length}`}}}),click:async()=>{},waitFor:async()=>{}};
 const fakePage={
  goto:async url=>{currentUrl=url;},
  evaluate:async()=>currentUrl,
- locator:selector=>selector==='body'?{waitFor:async()=>{},evaluate:async callback=>callback({innerText:gateText})}:selector==='[role="combobox"]'?{evaluateAll:async()=>true}:selector==='[data-testid="multi-select-trigger"]'?{evaluateAll:async()=>0,nth:index=>{assert.equal(index,0);return fakeLimit;}}:{},
- getByText:name=>fakeLabel(name),
- getByRole:(role,options={})=>{
+ locator:selector=>selector==='body'?{waitFor:async()=>{},evaluate:async callback=>callback({innerText:gateText})}:selector==='[data-testid="multi-select-trigger"]'?{evaluateAll:async()=>0,nth:index=>{assert.equal(index,0);return fakeLimit;}}:{},
+ getByText:name=>name==='United States'?unrelatedUnitedStates:fakeLabel(name),
+  getByRole:(role,options={})=>{
+   if(role==='combobox'){
+    assert.equal(options.name,'Select Marketplace');assert.equal(options.exact,true);
+    return {waitFor:async()=>{},evaluate:async callback=>callback({getAttribute:()=>null,innerText:marketplaceSelected?'United States':'Canada',textContent:marketplaceSelected?'United States':'Canada'})};
+   }
   if(role==='textbox')return {first:()=>fakeInput};
   if(role==='option'){assert.equal(options.name,'100');return {click:async()=>{resultLimit='100';}};}
   if(role==='button')return {waitFor:async()=>{},click:async()=>{}};
@@ -72,7 +77,7 @@ await vm.runInNewContext('(async()=>{'+competitiveIntelligenceScript('ice cream 
  console:{log:value=>generatedOutput.push(value)},listBrowserTabs:async()=>[{targetId:'existing-jungle-scout',url:'https://members.junglescout.com/#/dashboard'}],
  attachBrowserTab:async()=>fakePage,openTab:async()=>{throw new Error('Existing authenticated tab must be reused');},closeTab:async()=>{},snapshot:async()=>({tree:'Synthetic Product Database table'}),getComputedStyle:()=>({visibility:'visible'}),document:{body:{}},
 },{timeout:1000});
-assert.deepEqual(JSON.parse(generatedOutput[0].slice('CI:'.length)),{protocol:1,kind:'unavailable',reason:'MARKETPLACE_NOT_US'},'An unrelated United States control cannot prove the Product Database fallback marketplace');
+assert.deepEqual(JSON.parse(generatedOutput[0].slice('CI:'.length)),{protocol:1,kind:'unavailable',reason:'MARKETPLACE_NOT_US'},'An unrelated selected United States control cannot override a Canada Marketplace control');
 marketplaceSelected=true;
 tableRows=[fakeRow,tieRow];
 generatedOutput.length=0;
