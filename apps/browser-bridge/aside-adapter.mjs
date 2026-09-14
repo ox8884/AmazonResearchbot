@@ -13,6 +13,7 @@ import {productDatabaseScript} from './aside-product-database-script.mjs';
 import {keywordScoutScript} from './aside-keyword-scout-script.mjs';
 import {historicalDataScript} from './aside-historical-data-script.mjs';
 import {categoryTrendsScript} from './aside-category-trends-script.mjs';
+import {competitiveIntelligenceScript} from './aside-competitive-intelligence-script.mjs';
 import {parseAmazonMarketSource} from '../../packages/integrations/src/amazon/market-source.ts';
 import {parseVerifiedSearchExport} from '../../packages/integrations/src/jungle-scout/search-export.ts';
 import {browserObservationSchema} from '../../packages/domain/src/browser-observation.ts';
@@ -45,7 +46,7 @@ export function createAsideAdapter(configuration) {
  async function probe(){
   try{
    const result=await invoke(marker=>'console.log('+JSON.stringify(marker)+'+JSON.stringify({protocol:1,connected:Array.isArray(await listBrowserTabs())&&typeof openTab==="function"&&typeof snapshot==="function"}))');
-   return {browser:'aside',connected:result.connected===true,supportedTasks:result.connected===true?['supplier_search','supplier_detail','amazon_package','saved_search_export','amazon_search','product_database','keyword_scout','historical_data','category_trends']:[]};
+   return {browser:'aside',connected:result.connected===true,supportedTasks:result.connected===true?['supplier_search','supplier_detail','amazon_package','saved_search_export','amazon_search','product_database','keyword_scout','historical_data','category_trends','competitive_intelligence']:[]};
   }catch{return {browser:'aside',connected:false,supportedTasks:[]};}
  }
  async function collect(envelope){
@@ -56,12 +57,14 @@ export function createAsideAdapter(configuration) {
   const claim=ledger.claim(envelope);
   if(claim.kind!=='claimed')return claim;
   try{
-   const result=await invoke(marker=>task.request.kind==='category_trends'?categoryTrendsScript(task.request.query,marker):task.request.kind==='historical_data'?historicalDataScript(task.request.query,marker):task.request.kind==='keyword_scout'?keywordScoutScript(task.request.query,marker):task.request.kind==='product_database'?productDatabaseScript(task.request.query,marker):task.request.kind==='amazon_search'?amazonMarketScript(task.request.query,marker):task.request.kind==='saved_search_export'?savedSearchExportScript(task.request,marker):task.request.kind==='amazon_package'?amazonPackageScript(task.request.asin,marker):task.request.kind==='supplier_search'
+   const result=await invoke(marker=>task.request.kind==='competitive_intelligence'?competitiveIntelligenceScript(task.request.query,marker):task.request.kind==='category_trends'?categoryTrendsScript(task.request.query,marker):task.request.kind==='historical_data'?historicalDataScript(task.request.query,marker):task.request.kind==='keyword_scout'?keywordScoutScript(task.request.query,marker):task.request.kind==='product_database'?productDatabaseScript(task.request.query,marker):task.request.kind==='amazon_search'?amazonMarketScript(task.request.query,marker):task.request.kind==='saved_search_export'?savedSearchExportScript(task.request,marker):task.request.kind==='amazon_package'?amazonPackageScript(task.request.asin,marker):task.request.kind==='supplier_search'
     ?supplierSearchScript(task.request.query,marker):supplierDetailScript(task.request,marker));
    const parsed=browserObservationSchema.safeParse(result);
    if(!parsed.success)throw new Error('ASIDE_CAPTURE_INVALID');
    const observation=parsed.data;
-   if(task.request.kind==='category_trends'){
+   if(task.request.kind==='competitive_intelligence'){
+    if(observation.scope!=='jungle_scout_competitive_intelligence'||observation.query!==task.request.query)throw new Error('ASIDE_CAPTURE_INVALID');
+   }else if(task.request.kind==='category_trends'){
     if(observation.scope!=='jungle_scout_category_trends'||observation.query!==task.request.query)throw new Error('ASIDE_CAPTURE_INVALID');
    }else if(task.request.kind==='historical_data'){
     if(observation.scope!=='jungle_scout_historical_data'||observation.query!==task.request.query)throw new Error('ASIDE_CAPTURE_INVALID');

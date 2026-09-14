@@ -12,7 +12,7 @@ export type BrowserTaskRow=CandidateBrowserTaskRow|SearchBrowserTaskRow;
 export async function lockTaskSource(db:QueryConnection,task:CandidateBrowserTaskRow) {
  const request=browserTaskSchema.parse(JSON.parse(Buffer.from(task.envelope.payload,'base64url').toString('utf8'))).request;
  if(request.kind!==task.task_kind)return null;
- if(request.kind==='amazon_search'||request.kind==='product_database'||request.kind==='keyword_scout'||request.kind==='historical_data'||request.kind==='category_trends'){
+ if(request.kind==='amazon_search'||request.kind==='product_database'||request.kind==='keyword_scout'||request.kind==='historical_data'||request.kind==='category_trends'||request.kind==='competitive_intelligence'){
   const source=await lockMarketContext(db,task.candidate_id);
   if(!source||source.input_version!==task.input_version||source.settings_version!==task.settings_version||request.query!==source.market_query||request.candidateId!==source.id||request.inputVersion!==source.input_version||request.settingsVersion!==source.settings_version)return null;
   return {...source,sourceCapture:null,readKind:request.kind};

@@ -6,7 +6,7 @@ import { signBrowserTask } from "./browser-task-signer.ts";
 
 type Signing = { readonly origin: string; readonly privateKey: KeyObject };
 type Target = { readonly deviceId: string; readonly candidateId: string } & (
-  { readonly kind: "supplier_search" | "amazon_package" | "amazon_search" | "product_database" | "keyword_scout" | "historical_data" | "category_trends" } | { readonly kind: "supplier_detail"; readonly sourceCaptureId: string }
+  { readonly kind: "supplier_search" | "amazon_package" | "amazon_search" | "product_database" | "keyword_scout" | "historical_data" | "category_trends" | "competitive_intelligence" } | { readonly kind: "supplier_detail"; readonly sourceCaptureId: string }
 );
 async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
   const fingerprint = createHash("sha256").update(createPublicKey(signing.privateKey).export({ format: "der", type: "spki" })).digest("hex");
@@ -15,7 +15,7 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
     await db.query("BEGIN");
     await db.query("SELECT pg_advisory_xact_lock(hashtext('forge.settings'))");
     const device = await lockActiveBridgeDevice(db, target.deviceId);
-    const source = device ? (target.kind==='amazon_search'||target.kind==='product_database'||target.kind==='keyword_scout'||target.kind==='historical_data'||target.kind==='category_trends')?await lockMarketContext(db,target.candidateId):target.kind === 'amazon_package' ? await lockPackageContext(db,target.candidateId) : await lockSourcingContext(db, target.candidateId) : null;
+    const source = device ? (target.kind==='amazon_search'||target.kind==='product_database'||target.kind==='keyword_scout'||target.kind==='historical_data'||target.kind==='category_trends'||target.kind==='competitive_intelligence')?await lockMarketContext(db,target.candidateId):target.kind === 'amazon_package' ? await lockPackageContext(db,target.candidateId) : await lockSourcingContext(db, target.candidateId) : null;
     if (!device || !source) { await db.query("COMMIT"); return { kind: "not_ready" as const }; }
     const captured = target.kind === "supplier_detail" && source.spec_id !== null ? await readSupplierSearchSource(db, target.sourceCaptureId, source) : null;
     if (target.kind === "supplier_detail" && (!captured || !alibabaCompanyKey(captured.company_url) || !alibabaProductKey(captured.product_url))) {
@@ -29,7 +29,9 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
     if (prior) { await db.query("COMMIT"); return { kind: "existing" as const, taskId: prior.id }; }
     const now = new Date(), id = randomUUID(), expiresAt = new Date(now.getTime() + 300000).toISOString();
     const scope = { candidateId: source.id, inputVersion: source.input_version, settingsVersion: source.settings_version };
-    const request: BrowserReadTask["request"] = target.kind==='category_trends' && 'market_query' in source
+    const request: BrowserReadTask["request"] = target.kind==='competitive_intelligence' && 'market_query' in source
+      ? {kind:'competitive_intelligence',...scope,query:source.market_query}
+      : target.kind==='category_trends' && 'market_query' in source
       ? {kind:'category_trends',...scope,query:source.market_query}
       : target.kind==='historical_data' && 'market_query' in source
       ? {kind:'historical_data',...scope,query:source.market_query}
@@ -75,4 +77,7 @@ export function queueHistoricalData(pool:Pool,target:{readonly deviceId:string;r
 }
 export function queueCategoryTrends(pool:Pool,target:{readonly deviceId:string;readonly candidateId:string},signing:Signing){
  return queueBrowserRead(pool,{...target,kind:'category_trends'},signing);
+}
+export function queueCompetitiveIntelligence(pool:Pool,target:{readonly deviceId:string;readonly candidateId:string},signing:Signing){
+ return queueBrowserRead(pool,{...target,kind:'competitive_intelligence'},signing);
 }

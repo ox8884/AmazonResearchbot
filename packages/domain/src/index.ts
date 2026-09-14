@@ -56,6 +56,7 @@ export * from "./product-database.ts";
 export * from "./keyword-scout.ts";
 export * from "./historical-data.ts";
 export * from "./category-trends.ts";
+export * from "./competitive-intelligence.ts";
 export * from "./market-concentration.ts";
 export * from "./market-risk-view.ts";
 export * from './order-risk-review.ts';
