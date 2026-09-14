@@ -4,6 +4,7 @@ import {MarketSource} from './MarketSource.tsx';
 import {ProductSource} from './ProductSource.tsx';
 import {MarketRisk} from './MarketRisk.tsx';
 import {AdditionalMarketObservations} from './AdditionalMarketObservations.tsx';
+import {JungleScoutResearch} from './JungleScoutResearch.tsx';
 import { candidateApprovalPath } from "./candidate-links.ts";
 import { CandidateValidation } from "./CandidateValidation.tsx";
 import { useQuery } from "@tanstack/react-query";
@@ -79,6 +80,7 @@ export function Detail() {
         <OfficialEvidence items={q.data.evidence.filter(e=>e.field.startsWith("api_"))}/>
       </section>
       <MarketRisk view={q.data.validation}/>
+      <JungleScoutResearch candidateId={c.id}/>
       <AdditionalMarketObservations items={q.data.evidence}/>
       <RepresentativeProduct key={c.id} candidateId={c.id} evidence={q.data.evidence} />
       <ProductSource key={'product-'+c.id} candidateId={c.id}/>

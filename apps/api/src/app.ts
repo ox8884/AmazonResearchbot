@@ -2,6 +2,7 @@ import { registerBrowserCapabilityRoutes } from "./browser-capability-routes.ts"
 import { registerRepresentativeRoutes } from "./representative-routes.ts";
 import {registerMarketSourceRoutes} from './market-source-routes.ts';
 import {registerProductSourceRoutes} from './product-source-routes.ts';
+import {registerJungleScoutResearchRoutes} from './jungle-scout-research-routes.ts';
 import { registerImportPreviewRoutes } from './import-preview-routes.ts';
 import { ImportInputError, readImportUpload } from './import-input.ts';
 import { registerBrowserTaskRoutes } from "./browser-task-routes.ts";
@@ -155,6 +156,7 @@ export async function buildApp(env: ApiEnv, pool: Pool, options: { aiTransport?:
   registerRepresentativeRoutes(app,pool,boss,encKey);
   registerMarketSourceRoutes(app,pool,encKey);
   registerProductSourceRoutes(app,pool,encKey);
+  registerJungleScoutResearchRoutes(app,pool,encKey);
   registerImportPreviewRoutes(app);
   registerBridgeDeviceRoutes(app,pool,{auth,webOrigin:env.webOrigin});
   registerBrowserCapabilityRoutes(app,pool,env.webOrigin);
