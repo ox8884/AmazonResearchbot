@@ -55,5 +55,12 @@ try{
  assert.equal((await test.pool.query('SELECT stage,blocked_reason FROM candidates WHERE id=$1',[partial.id])).rows[0].blocked_reason,'evidence');
  const partialEvidence=(await test.pool.query("SELECT field,kind,reason FROM evidence WHERE candidate_id=$1 AND field IN ('review_700_count','review_2000_count','monthly_revenue_competitors','top_price') ORDER BY field",[partial.id])).rows;
  assert.ok(partialEvidence.every(row=>row.kind==='unknown'));
- console.log(JSON.stringify({scenario:'browser-canonical-validation',result:'PASS',completePopulationEvaluated:true,partialPopulationHeld:true,unknownsPreserved:true,encryptedReceiptBound:true,developerApiCalls:0,externalActions:0}));
+ const pendingQuery='browser validation pending '+test.runId;
+ const pendingId=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",[pendingQuery])).rows[0].id;
+ await test.pool.query("INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,expires_at,task_kind) VALUES(gen_random_uuid(),$1,$2,NULL,1,$3,'{}'::jsonb,repeat('e',64),now()+interval '5 minutes','product_database')",[deviceId,pendingId,settings.version]);
+ let prematureOfficialCalls=0;
+ await advanceCandidate(test.pool,{kind:'ready',send:async()=>{prematureOfficialCalls++;throw new Error('Official transport must not run while browser research is pending');}},{candidateId:pendingId,stage:'api_validation',inputVersion:1},ai);
+ assert.equal(prematureOfficialCalls,0);
+ assert.equal((await test.pool.query('SELECT stage FROM candidates WHERE id=$1',[pendingId])).rows[0].stage,'api_validation');
+ console.log(JSON.stringify({scenario:'browser-canonical-validation',result:'PASS',completePopulationEvaluated:true,partialPopulationHeld:true,pendingBrowserAvoidsOfficialFallback:true,unknownsPreserved:true,encryptedReceiptBound:true,developerApiCalls:0,externalActions:0}));
 }finally{await test.close();}

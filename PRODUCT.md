@@ -84,7 +84,7 @@ Jay. Forge Kitchen 브랜드의 주방용품 Amazon 판매자. 개발자가 아�
 
 | 연동 | 지금 | 근거 | 막힌 이유 / 다음 |
 |---|---|---|---|
-| Jungle Scout 웹 도구·CSV | ASIDE 읽기 전용 수집·로컬 저장 확인 | 2026-09-14 실제 ASIDE 관측과 암호화 receipt: `.omo/evidence/jungle-scout-web-automation-2026-09-14.md` | 후보별 분류·대표 ASIN·규격의 최종 판단은 각 근거가 확인될 때까지 대기 |
+| Jungle Scout 웹 도구·CSV | ASIDE 읽기 전용 수집·로컬 저장 확인 | `pnpm verify:live:jungle-scout`와 현재 checkout의 2026-09-14 로컬 evidence | 후보별 분류·대표 ASIN·규격의 최종 판단은 각 근거가 확인될 때까지 대기 |
 | Jungle Scout 공식 API 5종 | 설계만, 호출 0 | OpenAPI·문서 확인 | 키·권한·일일 상한 미승인. cap 0 |
 | Alibaba 공급처 수집·연락 | 대기 | 공식 바이어 전송 API 미확인 | 허용된 실제 브라우저 + 건별 승인 |
 | 업무 메일 보내기/받기 | 대기 | 계정·범위 미승인 | 로컬 Mailpit만 개발 대체 |

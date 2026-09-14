@@ -101,6 +101,7 @@ R4 로컬 승인 대기 달성은 원래 SPEC의 실제 RFQ 발송·견적 회�
 
 - Historical Data는 Keyword Scout의 30일 지표 2개만 관측했다. 정확한 날짜 범위와 대표 ASIN별 가격·판매·순위 시계열은 미확인이다.
 - Category Trends는 Kitchen & Dining의 날짜별 상품 관측만 확인했다. 수요·계절성·성장 요약 신호는 제공 화면에서 확인하지 못했다.
-- Amazon 상세 페이지 별도 live package 검증에서 카테고리 breadcrumb·BSR·구성·수량·평점·리뷰 집계 6개 사실을 확인했다. 패키지 치수는 미관측이라 Standard 규격은 `PACKAGED_MEASUREMENTS_UNCONFIRMED`로 유지한다.
+- Amazon 상세 페이지 별도 synthetic-candidate live PDP QA에서 ASIN에 결합된 카테고리 breadcrumb·BSR·구성·수량·평점·리뷰 집계 6개 사실을 확인했다. 운영 후보의 대표 상품 근거로 합산하지 않으며, 패키지 치수는 미관측이라 Standard 규격은 `PACKAGED_MEASUREMENTS_UNCONFIRMED`로 유지한다.
 - Competitive Intelligence는 Brand Owner 업그레이드 게이트를 보존하고 Product Database fallback을 비교 근거로 표시했다. Upgrade/Create Segment는 실행하지 않았다.
 - 반복 가능한 live verifier에서는 Product Database 16/16과 fallback 16/16을 확인했지만 단일 적격 대표 ASIN은 확정되지 않아 자동 대표를 `null`로 보존했다. 격리 판정 검증은 complete population만 수치 근거로 쓰고 partial population은 unknown/근거 대기로 유지한다.
+- 브라우저 6단계 중 하나라도 시작된 후보는 완료 전 공식 Developer API fallback을 실행하지 않는다. 전용 verifier가 pending browser task 상태의 wire call 0을 확인한다.

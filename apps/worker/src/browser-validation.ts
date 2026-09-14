@@ -4,7 +4,7 @@ import type {Pool} from '@forge-ops/db';
 import {applyApiValidationDecision,loadCanonicalNicheEvidence,type ApiValidationContext} from './api-validation-store.ts';
 
 const requiredTasks=['product_database','keyword_scout','historical_data','category_trends','competitive_intelligence','amazon_package'] as const;
-type BrowserValidationResult='pass'|'reject'|'hold'|'stale'|'not_ready';
+type BrowserValidationResult='pass'|'reject'|'hold'|'stale'|'pending'|'not_ready';
 type Receipt={id:string;body_ciphertext:string;body_sha256:string};
 
 function exactCategory(value:string|null|undefined):boolean{
@@ -22,10 +22,13 @@ function money(value:string|null|undefined):number|null{
 }
 
 export async function consumeBrowserValidation(pool:Pool,context:ApiValidationContext,encryptionKey:Buffer):Promise<BrowserValidationResult>{
- const ready=(await pool.query<{count:number}>(`SELECT count(DISTINCT task_kind)::int AS count FROM browser_tasks
-  WHERE candidate_id=$1 AND input_version=$2 AND settings_version=$3 AND state='completed' AND task_kind=ANY($4::text[])`,
-  [context.candidateId,context.inputVersion,context.settingsVersion,requiredTasks])).rows[0]?.count??0;
- if(ready!==requiredTasks.length)return 'not_ready';
+ const counts=(await pool.query<{started:number;completed:number}>(`SELECT
+   count(*) FILTER (WHERE task_kind='product_database')::int AS started,
+   count(DISTINCT task_kind) FILTER (WHERE state='completed')::int AS completed
+  FROM browser_tasks WHERE candidate_id=$1 AND input_version=$2 AND settings_version=$3
+   AND task_kind=ANY($4::text[])`,
+  [context.candidateId,context.inputVersion,context.settingsVersion,requiredTasks])).rows[0];
+ if((counts?.completed??0)!==requiredTasks.length)return (counts?.started??0)>0?'pending':'not_ready';
  const receipt=(await pool.query<Receipt>(`SELECT r.id,r.body_ciphertext,r.body_sha256 FROM browser_tasks t
   JOIN browser_task_results r ON r.id=t.result_id WHERE t.candidate_id=$1 AND t.input_version=$2 AND t.settings_version=$3
    AND t.task_kind='product_database' AND t.state='completed' ORDER BY t.created_at DESC,t.id DESC LIMIT 1`,
