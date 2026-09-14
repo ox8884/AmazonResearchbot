@@ -48,6 +48,10 @@ try{
  const sourcePath='/api/candidates/'+candidateId+'/product-source';
  assert.equal((await test.call(sourcePath)).body.state,'not_collected');
  const signing={origin,privateKey:keys.privateKey};
+ const browserIncompleteId=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",['Package browser prerequisite '+test.runId])).rows[0].id;
+ await test.pool.query("INSERT INTO candidate_events(candidate_id,stage,input_version,detail) VALUES($1,'api_validation',1,$2::jsonb)",[browserIncompleteId,JSON.stringify({representativeAsin:asin})]);
+ await test.pool.query("INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,expires_at,task_kind) VALUES(gen_random_uuid(),$1,$2,NULL,1,(SELECT max(version) FROM settings_versions),'{}'::jsonb,repeat('b',64),now()+interval '5 minutes','product_database')",[deviceId,browserIncompleteId]);
+ assert.equal((await producer.queueAmazonPackage(test.pool,{deviceId,candidateId:browserIncompleteId},signing)).kind,'not_ready','A started browser research pipeline must complete Competitive Intelligence before package capture');
  const foreignId=await candidate('foreign');
  await test.pool.query("UPDATE candidates SET marketplace='ca' WHERE id=$1",[foreignId]);
  assert.equal((await producer.queueAmazonPackage(test.pool,{deviceId,candidateId:foreignId},signing)).kind,'not_ready','US package policy cannot bind a foreign-market candidate');

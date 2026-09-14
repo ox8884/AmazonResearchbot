@@ -13,7 +13,6 @@ const researchPrerequisite = {
   historical_data: "keyword_scout",
   category_trends: "historical_data",
   competitive_intelligence: "category_trends",
-  amazon_package: "competitive_intelligence",
 } as const;
 async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
   const fingerprint = createHash("sha256").update(createPublicKey(signing.privateKey).export({ format: "der", type: "spki" })).digest("hex");
@@ -28,9 +27,18 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
     if (target.kind === "supplier_detail" && (!captured || !alibabaCompanyKey(captured.company_url) || !alibabaProductKey(captured.product_url))) {
       await db.query("COMMIT"); return { kind: "not_ready" as const };
     }
-    const prerequisite = target.kind in researchPrerequisite
+    let prerequisite: Target["kind"] | null = target.kind in researchPrerequisite
       ? researchPrerequisite[target.kind as keyof typeof researchPrerequisite]
       : null;
+    if (target.kind === "amazon_package") {
+      const browserPipeline = await db.query(
+        `SELECT 1 FROM browser_tasks
+         WHERE candidate_id=$1 AND task_kind='product_database'
+           AND input_version=$2 AND settings_version=$3 LIMIT 1`,
+        [source.id, source.input_version, source.settings_version],
+      );
+      if (browserPipeline.rowCount) prerequisite = "competitive_intelligence";
+    }
     if (prerequisite) {
       const ready = await db.query(
         `SELECT 1 FROM browser_tasks
