@@ -84,20 +84,20 @@ Jay. Forge Kitchen 브랜드의 주방용품 Amazon 판매자. 개발자가 아�
 
 | 연동 | 지금 | 근거 | 막힌 이유 / 다음 |
 |---|---|---|---|
-| Jungle Scout 저장 검색·CSV | 대기 | 로그인 웹이 필요 | 이 세션에 브라우저 제어 도구 없음. 쿠키 복사 안 함 |
+| Jungle Scout 웹 도구·CSV | ASIDE 읽기 전용 수집·로컬 저장 확인 | 2026-09-14 실제 ASIDE 관측과 암호화 receipt: `.omo/evidence/jungle-scout-web-automation-2026-09-14.md` | 후보별 분류·대표 ASIN·규격의 최종 판단은 각 근거가 확인될 때까지 대기 |
 | Jungle Scout 공식 API 5종 | 설계만, 호출 0 | OpenAPI·문서 확인 | 키·권한·일일 상한 미승인. cap 0 |
 | Alibaba 공급처 수집·연락 | 대기 | 공식 바이어 전송 API 미확인 | 허용된 실제 브라우저 + 건별 승인 |
 | 업무 메일 보내기/받기 | 대기 | 계정·범위 미승인 | 로컬 Mailpit만 개발 대체 |
 | OpenAI 호환 AI | 설계만, 기본 비활성 | 화면 등록·승인 후 | 테스트 1건도 비용 승인 전 차단 |
 | ChatGPT·Grok 구독 로그인 | 사용 불가 | 본 앱 허가 근거 없음 | fail-closed. 코어와 분리 |
-| BrowserOS neo | 대기 | 공식 연결 미제공 | 없으면 수동 CSV |
+| ASIDE 브라우저 연결 | 로컬 연결·서명 작업·5개 Jungle Scout 읽기 단계 확인 | 연결 패널과 2026-09-14 ASIDE acceptance 증거 | 사이트 로그인·연결 상태는 별도 준비/복구 단계이며, 유료 API·외부 전송을 허가하지 않음 |
 | Cloudflare 화면 배포 | 설계만 | Workers Static Assets 선택 | 배포 승인 전 생성 안 함 |
 | Oracle 워커·새 DB | 설계만 | 구버전 호스트 기록만 참고 | 설치 전 read-only preflight + 배포 승인 |
 | 암호화 백업 저장소 | 미생성 | 외부 보관 필요 | 버킷·비용은 배포 승인에 포함 |
 
 ## 승인 범위 — 지금 하는 것 / 안 하는 것
 
-지금 허용: M0 문서와 정적 시안. 디자인 승인 후 로컬 애플리케이션 구현. 합성 데이터 검증.
+지금 허용: 로컬 애플리케이션 구현, ASIDE의 읽기 전용 브라우저 관측, 합성·격리 데이터 검증. 실제 유료 API 호출·외부 메일/업체 연락·Oracle/Cloudflare/R2 배포·데이터 삭제는 별도 승인 없이는 실행하지 않는다.
 
 항상 사전 승인: 유료 API, 이메일·업체 연락, Oracle/Cloudflare/R2 배포, 데이터 삭제, 기존 데이터 이관, 공유 호스트 재부팅.
 

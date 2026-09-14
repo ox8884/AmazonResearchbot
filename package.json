@@ -10,6 +10,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:hidden": "node scripts/dev-hidden.mjs",
     "verify:local": "node scripts/verify-local.mjs",
+    "verify:live:jungle-scout": "node scripts/verify-jungle-scout-live.mjs",
     "migrate": "tsx scripts/migrate.ts",
     "typecheck": "tsc --noEmit -p apps/edge/tsconfig.json && pnpm -r typecheck",
     "backup:local": "tsx scripts/backup-local.mjs backup",

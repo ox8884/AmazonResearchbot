@@ -65,20 +65,20 @@ export function SiteShortcuts() {
           <strong>Keyword Scout</strong>
           <p className="muted">{t("검색량·키워드 확장·추세를 확인", "Review search volume, keyword expansion, and trends")}</p>
         </div>
-        <a className="btn btn-secondary" href="https://members.junglescout.com/#/keyword-scout" target="_blank" rel="noopener noreferrer">
+        <a className="btn btn-secondary" href="https://members.junglescout.com/#/keyword" target="_blank" rel="noopener noreferrer">
           {t("Keyword Scout 열기", "Open Keyword Scout")}
         </a>
       </div>
       <div className="connection-row">
-        <div><strong>Historical Data</strong><p className="muted">{t("기간별 검색 수요와 계절성을 확인", "Review historical demand and seasonality")}</p></div>
-        <a className="btn btn-secondary" href="https://members.junglescout.com/#/historical-keyword-data" target="_blank" rel="noopener noreferrer">{t("Historical Data 열기", "Open Historical Data")}</a>
+        <div><strong>Historical Data</strong><p className="muted">{t("별도 화면 없이 Keyword Scout의 30일 지표를 확인", "Review Keyword Scout's 30-day metrics; no separate screen is exposed")}</p></div>
+        <a className="btn btn-secondary" href="https://members.junglescout.com/#/keyword" target="_blank" rel="noopener noreferrer">{t("Historical Data 열기", "Open Historical Data")}</a>
       </div>
       <div className="connection-row">
-        <div><strong>Category Trends</strong><p className="muted">{t("카테고리 성장과 변동을 확인", "Review category growth and movement")}</p></div>
+        <div><strong>Category Trends</strong><p className="muted">{t("날짜별 상품 순위·가격·리뷰를 확인", "Review dated product rank, price, and review observations")}</p></div>
         <a className="btn btn-secondary" href="https://members.junglescout.com/#/category-trends" target="_blank" rel="noopener noreferrer">{t("Category Trends 열기", "Open Category Trends")}</a>
       </div>
       <div className="connection-row">
-        <div><strong>Competitive Intelligence</strong><p className="muted">{t("경쟁 상품과 브랜드 분포를 확인", "Review competitor and brand distribution")}</p></div>
+        <div><strong>Competitive Intelligence</strong><p className="muted">{t("현재 계정의 권한 게이트와 경쟁 근거를 확인", "Review the current entitlement gate and competitor evidence")}</p></div>
         <a className="btn btn-secondary" href="https://members.junglescout.com/#/competitive-intelligence" target="_blank" rel="noopener noreferrer">{t("Competitive Intelligence 열기", "Open Competitive Intelligence")}</a>
       </div>
       <div className="connection-row">

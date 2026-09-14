@@ -2,15 +2,15 @@
 
 **Jay의 “다음작업해보자”, “계속해” 요청으로 재개.** 상세 이력과 다음 단계는 .omo/plans/grounded-differentiation.md. 전체 SPEC 미완료 상태이며 목표를 완료 처리하지 않는다.
 
-2026-09-09. 기준: 계약서-SPEC.md, PRODUCT.md, Jay 승인 DESIGN.md 및 최신 사용자 결정.
+2026-09-14. 기준: 계약서-SPEC.md, PRODUCT.md, Jay 승인 DESIGN.md 및 최신 사용자 결정.
 개별 검증 통과를 전체 인수 완료로 합산하지 않는다. 유료 API·외부 전송·배포·기존 데이터 삭제 금지 유지.
 
 ## 완료 판정 범위
 
 | SPEC | 상태 | 확인한 동작과 남은 경계 |
 |---|---|---|
-| 1. 후보 파이프라인 | 통합 검증 필요 | CSV20 후보 생성·중복 방지·출처·재실행 검증 존재. 동일 후보의 전체 연결 증거는 없음. |
-| 2. JS 웹/CSV | 완료: 기록된 로컬 수집 흐름 | ASIDE 실제 검색·50행 다운로드·서명·암호화 import 증거: .omo/evidence/saved-search-export/verification.md. 전체 후속 흐름은 R4. |
+| 1. 후보 파이프라인 | 로컬·격리 연결 검증 | CSV20 후보 생성·중복 방지·출처·재실행과 5개 ASIDE 연구 단계의 격리 acceptance 연결을 확인했다. 20개 후보 전체가 소싱·견적까지 간 것은 아니다. |
+| 2. JS 웹/CSV | ASIDE 실브라우저·로컬 수집 확인 | Opportunity Finder CSV와 Product Database·Keyword Scout·Historical Data·Category Trends·Competitive Intelligence의 signed capture 및 암호화 receipt를 확인했다. 후보별 후속 판단은 각 근거가 확인될 때까지 보류한다. |
 | 3. 공식 API | 완료: 로컬 구현 검증 / 실제 제공자 통합 검증 필요 | 5 endpoint·예산·캐시·pagination·공통30일·family 집계·재시작 검증. .omo/evidence/order-market-api-validation.log의 9개 로컬 시나리오. 실제 유료 호출은 금지로 미검증. |
 | 4. 소싱·견적·판단 | 통합 검증 필요 | 사양별 비교·계산·승인·최신 시장 조건·현금 예약 검증 존재. 차별화 사양부터 같은 후보의 흐름은 R2/R4. 실제 연락·회신은 R6. |
 | 5. Oracle 24시간 운영 | 통합 검증 필요 | 실행 권한 방어·배포 템플릿 검증은 존재. production-authority/verification.json은 템플릿 미설치 상태. 실제 Oracle/Cloudflare/R2·재부팅·장애 복구 인수는 미완료. |
@@ -81,7 +81,7 @@ R4 로컬 승인 대기 달성은 원래 SPEC의 실제 RFQ 발송·견적 회�
 - Product Database, Keyword Scout, Historical Data, Category Trends, Competitive Intelligence signed ASIDE tasks implemented with encrypted receipts, duplicate/stale protection, and dedicated verifiers.
 - Candidate detail now exposes per-tool task status, safe captured results, provenance, source URL, observedAt, and explicit unavailable/uncollected states; raw snapshots remain server-side.
 - Verification: all five dedicated verifiers PASS; pnpm typecheck PASS; web build PASS; integrated scenario repeated 5 times PASS; saved-searches/evidence/contrast/orders PASS; external_actions=0 and paid provider calls=0.
-- Real logged-in ASIDE capture remains Jay-owned final manual gate.
+- 2026-09-13 시점에는 실브라우저 capture가 남아 있었지만, 2026-09-14 Jay ASIDE live acceptance에서 5개 단계를 실제 확인했다.
 - Live browser DOM checkpoint: authenticated Jungle Scout Catalyst exposes Product Database at #/database, Keyword Scout at #/keyword, and Category Trends at #/category-trends; adapters were aligned to these routes and fail closed when source controls/results are absent.
 
 
@@ -96,3 +96,11 @@ R4 로컬 승인 대기 달성은 원래 SPEC의 실제 RFQ 발송·견적 회�
 - 격리 acceptance DB에서 5단계 signed task → claim → ASIDE capture → encrypted result → candidate research API를 연결해 모두 captured임을 확인했다. Developer API, 외부 LLM, 공급처/메일, 배포 호출은 0.
 - cap 0에서는 새 웹 작업 claim/dispatch가 0이고 기존 큐를 삭제하지 않는다. 양수 cap은 당일 완료·진행 작업을 포함해 제한하며, 브라우저 실패는 30초/2분/5분 backoff 후 재개한다.
 - 로컬 Jungle Scout 자동화 범위는 구현·실브라우저 인수를 통과했다. 전체 SPEC는 비개발자 사용성, 외부 메일/공급처 승인 인수, Oracle/Cloudflare/R2 배포가 남아 있으므로 완료로 합산하지 않는다.
+
+### Jungle Scout live acceptance에서 확인하지 않은 값
+
+- Historical Data는 Keyword Scout의 30일 지표 2개만 관측했다. 정확한 날짜 범위와 대표 ASIN별 가격·판매·순위 시계열은 미확인이다.
+- Category Trends는 Kitchen & Dining의 날짜별 상품 관측만 확인했다. 수요·계절성·성장 요약 신호는 제공 화면에서 확인하지 못했다.
+- Amazon 상세 페이지 별도 live package 검증에서 카테고리 breadcrumb·BSR·구성·수량·평점·리뷰 집계 6개 사실을 확인했다. 패키지 치수는 미관측이라 Standard 규격은 `PACKAGED_MEASUREMENTS_UNCONFIRMED`로 유지한다.
+- Competitive Intelligence는 Brand Owner 업그레이드 게이트를 보존하고 Product Database fallback을 비교 근거로 표시했다. Upgrade/Create Segment는 실행하지 않았다.
+- 반복 가능한 live verifier에서는 Product Database 16/16과 fallback 16/16을 확인했지만 단일 적격 대표 ASIN은 확정되지 않아 자동 대표를 `null`로 보존했다. 격리 판정 검증은 complete population만 수치 근거로 쓰고 partial population은 unknown/근거 대기로 유지한다.

@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {openAcceptance} from './support/acceptance.mjs';
-import {consumeBrowserValidation} from '../apps/worker/src/browser-validation.ts';
+import {advanceCandidate} from '../apps/worker/src/advance-candidate.ts';
+import {denyTransport} from '../packages/integrations/src/jungle-scout/transport.ts';
 import {encryptSecret} from '../packages/security/src/secrets.ts';
 import {exactPayloadHash} from '../packages/security/src/approval-hash.ts';
 
@@ -41,8 +42,8 @@ try{
   return {id,query};
  }
  const complete=await candidate('complete');
- const context={candidateId:complete.id,keyword:complete.query,inputVersion:1,settingsVersion:settings.version,snapshot:settings.snapshot,accountScope:'local'};
- assert.equal(await consumeBrowserValidation(test.pool,context,key),'pass');
+ const ai={transport:{kind:'disabled'},encryptionKey:key};
+ await advanceCandidate(test.pool,denyTransport(),{candidateId:complete.id,stage:'api_validation',inputVersion:1},ai);
  assert.equal((await test.pool.query('SELECT stage FROM candidates WHERE id=$1',[complete.id])).rows[0].stage,'sourcing');
  const evidence=(await test.pool.query("SELECT field,kind,value_numeric::text,value_text,reason,source_id FROM evidence WHERE candidate_id=$1 AND field IN ('review_700_count','review_2000_count','monthly_revenue_competitors','top_price') ORDER BY field",[complete.id])).rows;
  assert.deepEqual(evidence.map(row=>[row.field,row.kind,row.value_numeric??row.value_text]),[
@@ -50,8 +51,7 @@ try{
  ]);
  assert.ok(evidence.every(row=>row.source_id.startsWith('browser-task-result:')));
  const partial=await candidate('partial','partial');
- const partialContext={...context,candidateId:partial.id,keyword:partial.query};
- assert.equal(await consumeBrowserValidation(test.pool,partialContext,key),'hold');
+ await advanceCandidate(test.pool,denyTransport(),{candidateId:partial.id,stage:'api_validation',inputVersion:1},ai);
  assert.equal((await test.pool.query('SELECT stage,blocked_reason FROM candidates WHERE id=$1',[partial.id])).rows[0].blocked_reason,'evidence');
  const partialEvidence=(await test.pool.query("SELECT field,kind,reason FROM evidence WHERE candidate_id=$1 AND field IN ('review_700_count','review_2000_count','monthly_revenue_competitors','top_price') ORDER BY field",[partial.id])).rows;
  assert.ok(partialEvidence.every(row=>row.kind==='unknown'));
