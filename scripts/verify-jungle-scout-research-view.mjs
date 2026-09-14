@@ -46,22 +46,23 @@ try {
   assert.equal(empty.status, 200);
   assert.equal(empty.body.research.every(item => item.state === 'not_collected'), true, 'Absent browser tasks remain explicitly uncollected');
   const queues = [queueProductDatabase, queueKeywordScout, queueHistoricalData, queueCategoryTrends, queueCompetitiveIntelligence];
-  for (const queue of queues) {
-    const queued = await queue(test.pool, { deviceId, candidateId: candidate.id }, { origin, privateKey: keys.privateKey });
-    assert.equal(queued.kind, 'queued');
-  }
   const observations = {
     product_database: { protocol: 1, kind: 'captured', scope: 'jungle_scout_product_database', query, sourcePageUrl: 'https://members.junglescout.com/#/database', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_PRODUCT', records: [{ asin: 'B0JV000001', title: 'Synthetic product', sourceText: 'B0JV000001 Synthetic product' }] },
-    keyword_scout: { protocol: 1, kind: 'captured', scope: 'jungle_scout_keyword_scout', query, sourcePageUrl: 'https://members.junglescout.com/keyword-scout', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_KEYWORD', metrics: [{ label: 'Search Volume', value: '2,400', sourceText: 'Search Volume 2,400' }], relatedKeywords: [{ keyword: 'synthetic related keyword', sourceText: 'synthetic related keyword' }], asinRelations: [{ asin: 'B0JV000001', sourceText: 'B0JV000001' }] },
+    keyword_scout: { protocol: 1, kind: 'captured', scope: 'jungle_scout_keyword_scout', query, sourcePageUrl: 'https://members.junglescout.com/#/keyword', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_KEYWORD', metrics: [{ label: 'Search Volume', value: '2,400', sourceText: 'Search Volume 2,400' }], relatedKeywords: [{ keyword: 'synthetic related keyword', sourceText: 'synthetic related keyword' }], asinRelations: [{ asin: 'B0JV000001', sourceText: 'B0JV000001' }] },
     historical_data: { protocol: 1, kind: 'captured', scope: 'jungle_scout_historical_data', query, sourcePageUrl: 'https://members.junglescout.com/historical-data', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_HISTORY', dateRange: { label: 'Jan 2026', start: '2026-01-01T00:00:00.000Z', end: '2026-01-31T00:00:00.000Z' }, series: [{ metric: 'Search Volume', periodLabel: 'Jan 2026', value: '2,400', sourceText: 'Search Volume Jan 2026 2,400' }] },
     category_trends: { protocol: 1, kind: 'captured', scope: 'jungle_scout_category_trends', query, sourcePageUrl: 'https://members.junglescout.com/category-trends', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_CATEGORY', categories: [{ category: 'Kitchen & Dining', sourceText: 'Kitchen & Dining' }], kitchenDiningConfirmation: 'confirmed', signals: [{ label: 'Growth', value: '12%', sourceText: 'Growth 12%' }] },
-    competitive_intelligence: { protocol: 1, kind: 'captured', scope: 'jungle_scout_competitive_intelligence', query, sourcePageUrl: 'https://members.junglescout.com/competitive-intelligence', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_COMPETITIVE', representativeAsin: 'B0JV000001', competitors: [{ asin: 'B0JV000001', brand: 'Synthetic Brand', price: '$25.00', reviews: '120', sales: null, revenue: null, sourceText: 'B0JV000001 Synthetic Brand $25.00 120' }] },
+    competitive_intelligence: { protocol: 1, kind: 'captured', scope: 'jungle_scout_competitive_intelligence', query, sourcePageUrl: 'https://members.junglescout.com/#/competitive-intelligence', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_COMPETITIVE', representativeAsin: 'B0JV000001', competitors: [{ asin: 'B0JV000001', brand: 'Synthetic Brand', price: '$25.00', reviews: '120', sales: null, revenue: null, sourceText: 'B0JV000001 Synthetic Brand $25.00 120' }] },
   };
   for (let index = 0; index < queues.length; index += 1) {
+    const queue = queues[index];
+    const queued = await queue(test.pool, { deviceId, candidateId: candidate.id }, { origin, privateKey: keys.privateKey });
+    assert.equal(queued.kind, 'queued');
     const claim = await bridge('/api/bridge/tasks/claim', {});
     assert.equal(claim.body.kind, 'task');
     const kind = JSON.parse(Buffer.from(claim.body.envelope.payload, 'base64url').toString('utf8')).request.kind;
-    const accepted = await bridge('/api/bridge/tasks/' + claim.body.taskId + '/results', { taskHash: claim.body.taskHash, observation: observations[kind] });
+    assert.equal(kind, ['product_database', 'keyword_scout', 'historical_data', 'category_trends', 'competitive_intelligence'][index]);
+    const observation = { ...observations[kind], observedAt: new Date().toISOString() };
+    const accepted = await bridge('/api/bridge/tasks/' + claim.body.taskId + '/results', { taskHash: claim.body.taskHash, observation });
     assert.equal(accepted.status, 201);
   }
   const view = await test.call('/api/candidates/' + candidate.id + '/jungle-scout-research');
