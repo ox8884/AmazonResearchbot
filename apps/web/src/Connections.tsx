@@ -70,6 +70,18 @@ export function SiteShortcuts() {
         </a>
       </div>
       <div className="connection-row">
+        <div><strong>Historical Data</strong><p className="muted">{t("기간별 검색 수요와 계절성을 확인", "Review historical demand and seasonality")}</p></div>
+        <a className="btn btn-secondary" href="https://members.junglescout.com/#/historical-keyword-data" target="_blank" rel="noopener noreferrer">{t("Historical Data 열기", "Open Historical Data")}</a>
+      </div>
+      <div className="connection-row">
+        <div><strong>Category Trends</strong><p className="muted">{t("카테고리 성장과 변동을 확인", "Review category growth and movement")}</p></div>
+        <a className="btn btn-secondary" href="https://members.junglescout.com/#/category-trends" target="_blank" rel="noopener noreferrer">{t("Category Trends 열기", "Open Category Trends")}</a>
+      </div>
+      <div className="connection-row">
+        <div><strong>Competitive Intelligence</strong><p className="muted">{t("경쟁 상품과 브랜드 분포를 확인", "Review competitor and brand distribution")}</p></div>
+        <a className="btn btn-secondary" href="https://members.junglescout.com/#/competitive-intelligence" target="_blank" rel="noopener noreferrer">{t("Competitive Intelligence 열기", "Open Competitive Intelligence")}</a>
+      </div>
+      <div className="connection-row">
         <div>
           <strong>Alibaba</strong>
           <p className="muted">
