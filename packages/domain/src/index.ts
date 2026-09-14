@@ -52,6 +52,7 @@ export * from "./amazon-package.ts";
 export * from "./csv-import.ts";
 export * from "./search-export.ts";
 export * from "./amazon-market.ts";
+export * from "./product-database.ts";
 export * from "./market-concentration.ts";
 export * from "./market-risk-view.ts";
 export * from './order-risk-review.ts';

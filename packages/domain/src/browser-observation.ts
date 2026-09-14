@@ -4,6 +4,7 @@ import { supplierCaptureSchema } from "./supplier-capture.ts";
 import { amazonPackageObservationSchema } from './amazon-package.ts';
 import { searchExportObservationSchema } from './search-export.ts';
 import {amazonMarketObservationSchema} from './amazon-market.ts';
+import {productDatabaseObservationSchema} from './product-database.ts';
 const urls=supplierCaptureSchema.shape;
 export const supplierSearchObservationSchema=z.object({
  protocol:z.literal(1),kind:z.literal("captured"),scope:z.literal("first_results_page"),
@@ -17,4 +18,4 @@ export const supplierSearchObservationSchema=z.object({
  }).strict().refine(row=>row.pageText.includes(row.companyName)&&row.pageText.includes(row.productName),{message:"Source text must contain the observed names"})).min(1).max(200),
 }).strict().refine(value=>value.visibleCards>=value.records.length,{message:"Invalid visible record count"});
 
-export const browserObservationSchema=z.union([supplierSearchObservationSchema,supplierDetailObservationSchema,amazonPackageObservationSchema,searchExportObservationSchema,amazonMarketObservationSchema]);
+export const browserObservationSchema=z.union([supplierSearchObservationSchema,supplierDetailObservationSchema,amazonPackageObservationSchema,searchExportObservationSchema,amazonMarketObservationSchema,productDatabaseObservationSchema]);

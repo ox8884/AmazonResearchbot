@@ -43,6 +43,13 @@ export const browserTaskSchema = z.object({
       category: z.literal("Kitchen & Dining"),
       filters: savedSearchFilters,
     }).strict(),
+    z.object({
+      kind: z.literal("product_database"),
+      candidateId: uuid,
+      inputVersion: z.number().int().positive(),
+      settingsVersion: z.number().int().positive(),
+      query: z.string().trim().min(1).max(500),
+    }).strict(),
   ]),
 }).strict().refine(task => {
   const issued = Date.parse(task.issuedAt), expires = Date.parse(task.expiresAt);

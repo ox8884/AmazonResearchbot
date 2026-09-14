@@ -9,6 +9,7 @@ import {supplierDetailScript} from './aside-detail-script.mjs';
 import {amazonPackageScript} from './aside-package-script.mjs';
 import {savedSearchExportScript} from './aside-search-script.mjs';
 import {amazonMarketScript} from './aside-market-script.mjs';
+import {productDatabaseScript} from './aside-product-database-script.mjs';
 import {parseAmazonMarketSource} from '../../packages/integrations/src/amazon/market-source.ts';
 import {parseVerifiedSearchExport} from '../../packages/integrations/src/jungle-scout/search-export.ts';
 import {browserObservationSchema} from '../../packages/domain/src/browser-observation.ts';
@@ -41,7 +42,7 @@ export function createAsideAdapter(configuration) {
  async function probe(){
   try{
    const result=await invoke(marker=>'console.log('+JSON.stringify(marker)+'+JSON.stringify({protocol:1,connected:Array.isArray(await listBrowserTabs())&&typeof openTab==="function"&&typeof snapshot==="function"}))');
-   return {browser:'aside',connected:result.connected===true,supportedTasks:result.connected===true?['supplier_search','supplier_detail','amazon_package','saved_search_export','amazon_search']:[]};
+   return {browser:'aside',connected:result.connected===true,supportedTasks:result.connected===true?['supplier_search','supplier_detail','amazon_package','saved_search_export','amazon_search','product_database']:[]};
   }catch{return {browser:'aside',connected:false,supportedTasks:[]};}
  }
  async function collect(envelope){
@@ -52,12 +53,14 @@ export function createAsideAdapter(configuration) {
   const claim=ledger.claim(envelope);
   if(claim.kind!=='claimed')return claim;
   try{
-   const result=await invoke(marker=>task.request.kind==='amazon_search'?amazonMarketScript(task.request.query,marker):task.request.kind==='saved_search_export'?savedSearchExportScript(task.request,marker):task.request.kind==='amazon_package'?amazonPackageScript(task.request.asin,marker):task.request.kind==='supplier_search'
+   const result=await invoke(marker=>task.request.kind==='product_database'?productDatabaseScript(task.request.query,marker):task.request.kind==='amazon_search'?amazonMarketScript(task.request.query,marker):task.request.kind==='saved_search_export'?savedSearchExportScript(task.request,marker):task.request.kind==='amazon_package'?amazonPackageScript(task.request.asin,marker):task.request.kind==='supplier_search'
     ?supplierSearchScript(task.request.query,marker):supplierDetailScript(task.request,marker));
    const parsed=browserObservationSchema.safeParse(result);
    if(!parsed.success)throw new Error('ASIDE_CAPTURE_INVALID');
    const observation=parsed.data;
-   if(task.request.kind==='amazon_search'){
+   if(task.request.kind==='product_database'){
+    if(observation.scope!=='jungle_scout_product_database'||observation.query!==task.request.query)throw new Error('ASIDE_CAPTURE_INVALID');
+   }else if(task.request.kind==='amazon_search'){
     if(!parseAmazonMarketSource(observation,task.request.query))throw new Error('ASIDE_CAPTURE_INVALID');
    }else if(task.request.kind==='saved_search_export'){
     if(!await parseVerifiedSearchExport(observation,task.request))throw new Error('ASIDE_CAPTURE_INVALID');
