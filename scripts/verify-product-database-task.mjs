@@ -12,7 +12,7 @@ import {INITIAL_SETTINGS} from '../packages/domain/src/settings.ts';
 
 // Given a screen row with all displayed product fields and an unavailable weight.
 const productRecord={asin:'B0PD000001',title:'Synthetic kitchen organizer',brand:'Synthetic Brand',categoryPath:'Kitchen & Dining > Storage',bsr:'1,234',unitsSoldMonthly:'450',revenueMonthly:'$11,250',price:'$25.00',reviews:'120',starRating:'4.6',sellers:'3',dimensions:'10 x 6 x 4 in',weight:null,sourceText:'B0PD000001 Synthetic kitchen organizer Synthetic Brand Kitchen & Dining > Storage 1,234 450 $11,250 $25.00 120 4.6 3 10 x 6 x 4 in'};
-const productFixture={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query:'synthetic',marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100,sourcePageUrl:'https://members.junglescout.com/#/database',observedAt:'2026-09-14T00:00:00.000Z',snapshot:productRecord.sourceText,records:[productRecord]};
+const productFixture={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query:'synthetic',marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100,displayedCount:1,totalCount:1,coverage:'complete',sourcePageUrl:'https://members.junglescout.com/#/database',observedAt:'2026-09-14T00:00:00.000Z',snapshot:productRecord.sourceText,records:[productRecord]};
 // When parsing screen-backed fields, then values and unknowns are preserved.
 assert.deepEqual(productDatabaseObservationSchema.parse(productFixture),productFixture);
 for(const field of ['brand','categoryPath','bsr','unitsSoldMonthly','revenueMonthly','price','reviews','starRating','sellers','dimensions','weight']){
@@ -21,6 +21,7 @@ for(const field of ['brand','categoryPath','bsr','unitsSoldMonthly','revenueMont
 const legacyRecord={asin:productRecord.asin,title:productRecord.title,sourceText:productRecord.sourceText};
 assert.deepEqual(productDatabaseObservationSchema.parse({...productFixture,records:[legacyRecord]}).records,[legacyRecord],'Legacy observations retain their exact payload shape');
 assert.deepEqual(selectBrowserProductLeader(productFixture),{kind:'selected',asin:productRecord.asin,revenueText:productRecord.revenueMonthly},'A unique observed revenue leader selects its ASIN');
+assert.deepEqual(selectBrowserProductLeader({...productFixture,coverage:'partial',totalCount:2}),{kind:'pending',reason:'RESULT_COVERAGE_UNCONFIRMED'},'A partial result cannot select a market leader');
 assert.equal(selectBrowserProductLeader({...productFixture,records:[productRecord,{...productRecord,asin:'B0PD000002'}]}).kind,'pending','A revenue tie stays pending');
 assert.equal(selectBrowserProductLeader({...productFixture,records:[{...productRecord,revenueMonthly:null}]}).kind,'pending','An unknown revenue stays pending');
 assert.deepEqual(selectBrowserProductLeader({...productFixture,records:[{...productRecord,revenueMonthly:'$11,250 / $5,625'}]}),{kind:'pending',reason:'MONTHLY_REVENUE_AMBIGUOUS'},'Mixed revenue strings stay pending');

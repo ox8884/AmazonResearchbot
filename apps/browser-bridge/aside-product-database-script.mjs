@@ -13,11 +13,9 @@ export function productDatabaseScript(query,marker){
    stage='FILTERS';
    const marketplace=page.getByText('United States',{exact:true}).first();
    await marketplace.waitFor({state:'visible',timeout:20_000});
-   let marketplaceCombobox=null;
-   try{marketplaceCombobox=page.getByRole('combobox',{name:/marketplace/i}).first();}catch{}
-   if(marketplaceCombobox&&typeof marketplaceCombobox.count==='function'&&await marketplaceCombobox.count()){
-    if((await marketplaceCombobox.evaluate(el=>(el.innerText||'').trim()))!=='United States')throw Error('MARKETPLACE_NOT_US');
-   }else{
+   let marketplaceSelected=false;
+   try{marketplaceSelected=await page.locator('[role="combobox"]').evaluateAll(controls=>controls.some(control=>control.getClientRects().length>0&&(control.innerText||'').trim()==='United States'));}catch{}
+   if(!marketplaceSelected){
     const stateForMarketplace=await marketplace.evaluate(el=>{
      for(let node=el;node&&node!==document.body;node=node.parentElement){
       const control=node.matches('input[type="checkbox"],[role="checkbox"]')?node:node.querySelector('input[type="checkbox"],[role="checkbox"]');
@@ -81,10 +79,15 @@ export function productDatabaseScript(query,marker){
     }]:[];
    }));
    if(!records.length||records.length>200||new Set(records.map(record=>record.asin)).size!==records.length)throw Error('RESULT_SCOPE_UNCONFIRMED');
+   const resultScopeText=await resultLimit.evaluate(el=>(el.parentElement?.parentElement?.innerText||'').replace(/\s+/g,' ').trim());
+   const totalText=/\bof\s+([\d,]+)\b/i.exec(resultScopeText)?.[1]??null;
+   const totalCount=totalText===null?null:Number(totalText.replace(/,/g,''));
+   if(!Number.isSafeInteger(totalCount)||totalCount<records.length)throw Error('RESULT_COUNT_UNCONFIRMED');
+   const displayedCount=records.length,coverage=displayedCount===totalCount?'complete':'partial';
    const queryTokens=query.toLowerCase().match(/[a-z0-9]+/g)?.filter(token=>token.length>1)??[];
    if(queryTokens.length&&!records.some(record=>queryTokens.every(token=>record.sourceText.toLowerCase().includes(token))))throw Error('RESULT_QUERY_UNCONFIRMED');
    if(await input.evaluate(el=>el.value)!==query||await destination()!==sourcePageUrl)throw Error('QUERY_CHANGED');
-   result={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100,sourcePageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,records};
+   result={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100,displayedCount,totalCount,coverage,sourcePageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,records};
   }catch(error){
    const reason=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:'PRODUCT_DATABASE_'+stage+'_UNCONFIRMED';
    result={protocol:1,kind:'unavailable',reason};

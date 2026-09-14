@@ -135,7 +135,11 @@ function Result({ item }: { readonly item: CapturedResearch }) {
   switch (item.kind) {
     case 'product_database': {
       const rows = records(item.result.records);
-      return <details className="jungle-scout-results"><summary>{t(`확인한 상품 ${rows.length}개`, `View ${rows.length} observed products`)}</summary><ProductRecords rows={rows} /></details>;
+      const complete = item.result.coverage === 'complete';
+      return <details className="jungle-scout-results"><summary>{t(`확인한 상품 ${rows.length}개`, `View ${rows.length} observed products`)}</summary>
+        <p className="muted">{t('조회 범위', 'Result coverage')}: {complete ? t(`전체 ${valueText(item.result.totalCount, '미확인')}건`, `All ${valueText(item.result.totalCount, 'unknown')} results`) : t('전체 범위 미확인', 'Full result coverage unknown')}</p>
+        <ProductRecords rows={rows} />
+      </details>;
     }
     case 'keyword_scout': {
       const keywordRows = records(item.result.keywordRecords);
@@ -178,6 +182,7 @@ function Result({ item }: { readonly item: CapturedResearch }) {
         {upgradeRequired ? <p className="banner">{t('현재 구독에서는 Competitive Intelligence 실데이터가 잠겨 있어 Product Database 전체 조회 결과로 비교했습니다.', 'Competitive Intelligence data is locked on the current subscription, so this comparison uses the full Product Database result.')}</p> : null}
         <ObservedFields fields={[
           { label: t('비교 근거', 'Comparison basis'), value: item.result.comparisonBasis === 'product_database' ? 'Product Database' : 'Competitive Intelligence' },
+          { label: t('조회 범위', 'Result coverage'), value: item.result.coverage === 'complete' ? t(`전체 ${valueText(item.result.totalCount, '미확인')}건`, `All ${valueText(item.result.totalCount, 'unknown')} results`) : t('전체 범위 미확인', 'Full result coverage unknown') },
           { label: t('현재 플랜', 'Current plan'), value: entitlement?.currentPlan },
           { label: t('필요 플랜', 'Required plan'), value: entitlement?.requiredPlan },
         ]} />

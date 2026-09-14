@@ -2,6 +2,7 @@ import type { ProductDatabaseObservation } from "./product-database.ts";
 
 export const browserLeaderPendingReasons = [
   "PRODUCT_DATABASE_EMPTY",
+  "RESULT_COVERAGE_UNCONFIRMED",
   "CATEGORY_UNCONFIRMED",
   "MONTHLY_REVENUE_UNCONFIRMED",
   "MONTHLY_REVENUE_AMBIGUOUS",
@@ -69,5 +70,8 @@ function selectByRevenue(records: readonly ProductRecord[]): BrowserProductLeade
 }
 
 export function selectBrowserProductLeader(observation: ProductDatabaseObservation): BrowserProductLeader {
+  if (observation.coverage !== "complete" || observation.displayedCount !== observation.records.length || observation.totalCount !== observation.records.length) {
+    return { kind: "pending", reason: "RESULT_COVERAGE_UNCONFIRMED" };
+  }
   return selectByRevenue(observation.records);
 }

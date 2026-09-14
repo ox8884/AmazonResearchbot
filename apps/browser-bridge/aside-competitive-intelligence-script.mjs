@@ -23,6 +23,8 @@ export function competitiveIntelligenceScript(query,marker){
     await page.goto('https://members.junglescout.com/#/database');
     const databasePageUrl=await destination();
     if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?database(?:[/?#].*)?$/.test(databasePageUrl))throw Error('SITE_CHANGED');
+    const marketplaceSelected=await page.locator('[role="combobox"]').evaluateAll(controls=>controls.some(control=>control.getClientRects().length>0&&(control.innerText||'').trim()==='United States'));
+    if(!marketplaceSelected)throw Error('MARKETPLACE_NOT_US');
     const stateFor=label=>label.evaluate(el=>{
      for(let node=el;node&&node!==document.body;node=node.parentElement){
       const control=node.matches('input[type="checkbox"],[role="checkbox"]')?node:node.querySelector('input[type="checkbox"],[role="checkbox"]');
@@ -69,15 +71,22 @@ export function competitiveIntelligenceScript(query,marker){
      return asin?[{asin,brand:observed(2),categoryPath:observed(3),price:observed(7),reviews:observed(8),sales:observed(5),revenue:observed(6),sourceText}]:[];
     }));
     if(await input.evaluate(element=>element.value)!==query||await destination()!==databasePageUrl)throw Error('QUERY_CHANGED');
+    const resultScopeText=await resultLimit.evaluate(el=>(el.parentElement?.parentElement?.innerText||'').replace(/\s+/g,' ').trim());
+    const totalText=/\bof\s+([\d,]+)\b/i.exec(resultScopeText)?.[1]??null;
+    const totalCount=totalText===null?null:Number(totalText.replace(/,/g,''));
+    if(!Number.isSafeInteger(totalCount)||totalCount<records.length)throw Error('RESULT_COUNT_UNCONFIRMED');
+    const displayedCount=records.length,coverage=displayedCount===totalCount?'complete':'partial';
     const queryTokens=query.toLowerCase().match(/[a-z0-9]+/g)?.filter(token=>token.length>1)??[];
     if(records.length>200||new Set(records.map(record=>record.asin)).size!==records.length||
        (queryTokens.length&&!records.some(record=>queryTokens.every(token=>record.sourceText.toLowerCase().includes(token)))))throw Error('RESULT_SCOPE_UNCONFIRMED');
     const numericRevenue=value=>{if(typeof value!=='string'||!/^\$\s*\d[\d,]*(?:\.\d{1,2})?$/.test(value.trim()))return null;const parsed=Number(value.replace(/[$,\s]/g,''));return Number.isFinite(parsed)?parsed:null;};
-    const ranked=records.filter(record=>record.categoryPath?.includes('Kitchen & Dining')).map(record=>({record,revenue:numericRevenue(record.revenue)})).filter(entry=>entry.revenue!==null).sort((left,right)=>right.revenue-left.revenue);
+    const confirmsKitchenDining=value=>typeof value==='string'&&value.split(/\s*>\s*/).some(segment=>segment.trim().toLowerCase()==='kitchen & dining');
+    const ranked=records.filter(record=>confirmsKitchenDining(record.categoryPath)).map(record=>({record,revenue:numericRevenue(record.revenue)})).filter(entry=>entry.revenue!==null).sort((left,right)=>right.revenue-left.revenue);
     const best=ranked[0];
     const tied=best?ranked.filter(entry=>entry.revenue===best.revenue):[];
-    const representativeAsin=best&&tied.length===1?best.record.asin:null;
-    result={protocol:1,kind:'captured',scope:'jungle_scout_competitive_intelligence',query,sourcePageUrl:databasePageUrl,observedAt:new Date().toISOString(),snapshot:JSON.stringify({competitiveIntelligence:gateSnapshot.tree,productDatabase:databaseSnapshot.tree}),representativeAsin,representativeSelection:best?(tied.length===1?'unique_revenue_leader':'ambiguous_revenue_leader'):'insufficient_revenue_data',comparisonBasis:'product_database',entitlement:{...entitlement,sourcePageUrl},competitors:records};
+    const representativeAsin=coverage==='complete'&&best&&tied.length===1?best.record.asin:null;
+    const representativeSelection=coverage!=='complete'?'insufficient_revenue_data':best?(tied.length===1?'unique_revenue_leader':'ambiguous_revenue_leader'):'insufficient_revenue_data';
+    result={protocol:1,kind:'captured',scope:'jungle_scout_competitive_intelligence',query,sourcePageUrl:databasePageUrl,observedAt:new Date().toISOString(),snapshot:JSON.stringify({competitiveIntelligence:gateSnapshot.tree,productDatabase:databaseSnapshot.tree}),representativeAsin,representativeSelection,comparisonBasis:'product_database',displayedCount,totalCount,coverage,entitlement:{...entitlement,sourcePageUrl},competitors:records};
    }else{
     stage='QUERY';
     const input=page.getByRole('textbox').first();

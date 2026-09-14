@@ -219,12 +219,12 @@ console.log(JSON.stringify({scenario:'aside-package-script',result:'PASS',exactA
   first(){return this;},
   last(){return this;},
  });
- const resultControl={evaluate:async()=>limitApplied?'100':'50',click:async()=>{},waitFor:async()=>{assert.equal(searched,true);}};
+ const resultControl={evaluate:async callback=>callback({innerText:limitApplied?'100':'50',parentElement:{parentElement:{innerText:'Displaying 100 of 1'}}}),click:async()=>{},waitFor:async()=>{assert.equal(searched,true);}};
  const limitOption={click:async()=>{assert.equal(searched,true,'Result limit is selected after Search reveals the results header');limitApplied=true;}};
  const page={
   goto:async url=>assert.equal(url,'https://members.junglescout.com/#/database'),
  evaluate:async()=> 'https://members.junglescout.com/#/database',
-  locator:selector=>{assert.equal(selector,'[data-testid="multi-select-trigger"]');return {
+  locator:selector=>{if(selector==='[role="combobox"]')return {evaluateAll:async()=>true};assert.equal(selector,'[data-testid="multi-select-trigger"]');return {
    evaluateAll:async()=>0,
    nth:index=>{assert.equal(index,0);return resultControl;},
   };},

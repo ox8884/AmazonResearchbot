@@ -55,7 +55,7 @@ function projectResult(kind: JungleScoutTaskKind, raw: unknown, query: string): 
   switch (kind) {
     case 'product_database':
       if (observation.scope !== 'jungle_scout_product_database') return null;
-      return { state: 'captured', sourcePageUrl: observation.sourcePageUrl, observedAt: observation.observedAt, result: { records: observation.records.map(({ asin, title, brand = null, categoryPath = null, bsr = null, unitsSoldMonthly = null, revenueMonthly = null, price = null, reviews = null, starRating = null, sellers = null, dimensions = null, weight = null }) => ({ asin, title, brand, categoryPath, bsr, unitsSoldMonthly, revenueMonthly, price, reviews, starRating, sellers, dimensions, weight })) } };
+      return { state: 'captured', sourcePageUrl: observation.sourcePageUrl, observedAt: observation.observedAt, result: { displayedCount: observation.displayedCount ?? null, totalCount: observation.totalCount ?? null, coverage: observation.coverage ?? null, records: observation.records.map(({ asin, title, brand = null, categoryPath = null, bsr = null, unitsSoldMonthly = null, revenueMonthly = null, price = null, reviews = null, starRating = null, sellers = null, dimensions = null, weight = null }) => ({ asin, title, brand, categoryPath, bsr, unitsSoldMonthly, revenueMonthly, price, reviews, starRating, sellers, dimensions, weight })) } };
     case 'keyword_scout':
       if (observation.scope !== 'jungle_scout_keyword_scout') return null;
       return { state: 'captured', sourcePageUrl: observation.sourcePageUrl, observedAt: observation.observedAt, result: {
@@ -85,6 +85,9 @@ function projectResult(kind: JungleScoutTaskKind, raw: unknown, query: string): 
         representativeAsin: observation.representativeAsin,
         representativeSelection: observation.representativeSelection ?? null,
         comparisonBasis: observation.comparisonBasis ?? 'competitive_intelligence',
+        displayedCount: observation.displayedCount ?? null,
+        totalCount: observation.totalCount ?? null,
+        coverage: observation.coverage ?? null,
         entitlement: observation.entitlement ? {
           status: observation.entitlement.status,
           currentPlan: observation.entitlement.currentPlan,

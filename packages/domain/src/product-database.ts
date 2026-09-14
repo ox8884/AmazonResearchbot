@@ -13,6 +13,9 @@ export const productDatabaseObservationSchema = z.object({
   discoveryCategory: z.literal("Home & Kitchen").optional(),
   productTier: z.literal("Standard").optional(),
   resultLimit: z.literal(100).optional(),
+  displayedCount: z.number().int().positive().max(200).optional(),
+  totalCount: z.number().int().positive().max(1_000_000).optional(),
+  coverage: z.enum(["complete", "partial"]).optional(),
   sourcePageUrl: z.string().url().max(4096).regex(/^https:\/\/members\.junglescout\.com\/(?:#\/)?database(?:[/?#].*)?$/),
   observedAt: z.string().datetime({ offset: true }),
   snapshot: z.string().min(1).max(1_000_000),
@@ -35,6 +38,12 @@ export const productDatabaseObservationSchema = z.object({
     value === null || value === undefined || sourceText.includes(value)), {
     message: "Product Database source text must contain every reported field",
   })).min(1).max(200),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if (value.coverage === undefined && value.displayedCount === undefined && value.totalCount === undefined) return;
+  if (value.displayedCount !== value.records.length || value.totalCount === undefined || value.coverage === undefined
+    || (value.coverage === "complete") !== (value.displayedCount === value.totalCount)) {
+    context.addIssue({ code: "custom", message: "Product Database coverage must match the observed result count" });
+  }
+});
 
 export type ProductDatabaseObservation = z.infer<typeof productDatabaseObservationSchema>;

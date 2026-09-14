@@ -22,11 +22,11 @@ let currentUrl='https://members.junglescout.com/#/competitive-intelligence';
 let homeKitchen=true,standard=true,resultLimit='50';
 const fakeInput={value:'',waitFor:async()=>{},fill:async value=>{fakeInput.value=value;},evaluate:async callback=>callback({value:fakeInput.value})};
 const fakeLabel=name=>({first(){return this;},waitFor:async()=>{},click:async()=>{if(name==='Home & Kitchen')homeKitchen=true;if(name==='Standard')standard=true;},evaluate:async callback=>callback({matches:()=>false,querySelector:()=>({checked:name==='Home & Kitchen'?homeKitchen:standard,getAttribute:()=>null}),parentElement:null})});
-const fakeLimit={evaluate:async callback=>callback({innerText:resultLimit}),click:async()=>{},waitFor:async()=>{}};
+const fakeLimit={evaluate:async callback=>callback({innerText:resultLimit,parentElement:{parentElement:{innerText:`Displaying 100 of ${tableRows.length}`}}}),click:async()=>{},waitFor:async()=>{}};
 const fakePage={
  goto:async url=>{currentUrl=url;},
  evaluate:async()=>currentUrl,
- locator:selector=>selector==='body'?{waitFor:async()=>{},evaluate:async callback=>callback({innerText:gateText})}:selector==='[data-testid="multi-select-trigger"]'?{evaluateAll:async()=>0,nth:index=>{assert.equal(index,0);return fakeLimit;}}:{},
+ locator:selector=>selector==='body'?{waitFor:async()=>{},evaluate:async callback=>callback({innerText:gateText})}:selector==='[role="combobox"]'?{evaluateAll:async()=>true}:selector==='[data-testid="multi-select-trigger"]'?{evaluateAll:async()=>0,nth:index=>{assert.equal(index,0);return fakeLimit;}}:{},
  getByText:name=>fakeLabel(name),
  getByRole:(role,options={})=>{
   if(role==='textbox')return {first:()=>fakeInput};
@@ -54,6 +54,9 @@ assert.equal(generatedResult.entitlement.status,'upgrade_required');
 assert.equal(generatedResult.entitlement.currentPlan,null);
 assert.equal(generatedResult.entitlement.requiredPlan,'Brand Owner');
 assert.equal(generatedResult.competitors.length,1);
+assert.equal(generatedResult.displayedCount,1);
+assert.equal(generatedResult.totalCount,1);
+assert.equal(generatedResult.coverage,'complete');
 assert.equal(generatedResult.representativeAsin,'B0CI000001');
 assert.equal(generatedResult.sourcePageUrl,'https://members.junglescout.com/#/database');
 assert.equal(competitiveIntelligenceObservationSchema.safeParse(generatedResult).success,true);
@@ -67,7 +70,7 @@ await vm.runInNewContext('(async()=>{'+competitiveIntelligenceScript('ice cream 
 const tiedResult=JSON.parse(generatedOutput[0].slice('CI:'.length));
 assert.equal(tiedResult.representativeAsin,null,'A tied Product Database leader remains unselected');
 assert.equal(tiedResult.representativeSelection,'ambiguous_revenue_leader');
-const emptyUpgradeFallback={...generatedResult,representativeAsin:null,representativeSelection:'insufficient_revenue_data',competitors:[]};
+const emptyUpgradeFallback={...generatedResult,representativeAsin:null,representativeSelection:'insufficient_revenue_data',displayedCount:0,totalCount:0,coverage:'complete',competitors:[]};
 assert.equal(competitiveIntelligenceObservationSchema.safeParse(emptyUpgradeFallback).success,true,'An upgrade-gated fallback may retain an empty Product Database comparison');
 assert.equal(competitiveIntelligenceObservationSchema.safeParse({...generatedResult,representativeAsin:null}).success,false,'A unique leader cannot omit its observed representative ASIN');
 
@@ -120,7 +123,7 @@ try{
  const request=JSON.parse(Buffer.from(claim.envelope.payload,'base64url')).request;
  assert.equal(request.kind,'competitive_intelligence');
  assert.equal(request.query,query);
- const observation={protocol:1,kind:'captured',scope:'jungle_scout_competitive_intelligence',query,sourcePageUrl:'https://members.junglescout.com/#/database',observedAt:new Date().toISOString(),snapshot:'Synthetic Competitive Intelligence result',representativeAsin:'B0CI000001',representativeSelection:'unique_revenue_leader',comparisonBasis:'product_database',entitlement:{status:'upgrade_required',currentPlan:'$470/yr',requiredPlan:'$1,548/yr',sourcePageUrl:'https://members.junglescout.com/#/competitive-intelligence',sourceText:'Access Competitive Intelligence and more by upgrading now Your Plan $470/yr Brand Owner Plan $1,548/yr'},competitors:[{asin:'B0CI000001',brand:'Synthetic Brand',price:'$25.00',reviews:'120',sales:'450',revenue:'$11,250',sourceText:'B0CI000001 Synthetic Brand $25.00 120 450 $11,250'}]};
+ const observation={protocol:1,kind:'captured',scope:'jungle_scout_competitive_intelligence',query,sourcePageUrl:'https://members.junglescout.com/#/database',observedAt:new Date().toISOString(),snapshot:'Synthetic Competitive Intelligence result',representativeAsin:'B0CI000001',representativeSelection:'unique_revenue_leader',comparisonBasis:'product_database',displayedCount:1,totalCount:1,coverage:'complete',entitlement:{status:'upgrade_required',currentPlan:'$470/yr',requiredPlan:'$1,548/yr',sourcePageUrl:'https://members.junglescout.com/#/competitive-intelligence',sourceText:'Access Competitive Intelligence and more by upgrading now Your Plan $470/yr Brand Owner Plan $1,548/yr'},competitors:[{asin:'B0CI000001',brand:'Synthetic Brand',price:'$25.00',reviews:'120',sales:'450',revenue:'$11,250',sourceText:'B0CI000001 Synthetic Brand $25.00 120 450 $11,250'}]};
  const submit=value=>call('/api/bridge/tasks/'+claim.taskId+'/results',{taskHash:claim.taskHash,observation:value});
  const accepted=await submit(observation);
  assert.equal(accepted.status,201);

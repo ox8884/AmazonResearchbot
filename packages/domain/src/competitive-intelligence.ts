@@ -48,6 +48,9 @@ export const competitiveIntelligenceObservationSchema = z.object({
   representativeAsin: asin.nullable(),
   representativeSelection: z.enum(["unique_revenue_leader", "ambiguous_revenue_leader", "insufficient_revenue_data"]).optional(),
   comparisonBasis: z.enum(["competitive_intelligence", "product_database"]).optional(),
+  displayedCount: z.number().int().nonnegative().max(200).optional(),
+  totalCount: z.number().int().nonnegative().max(1_000_000).optional(),
+  coverage: z.enum(["complete", "partial"]).optional(),
   entitlement: entitlementSchema.optional(),
   competitors: z.array(competitorSchema).max(200),
 }).strict().refine(value => value.representativeAsin === null || value.competitors.some(record => record.asin === value.representativeAsin), {
@@ -61,6 +64,10 @@ export const competitiveIntelligenceObservationSchema = z.object({
 }).refine(value => value.representativeSelection === undefined
   || (value.representativeSelection === "unique_revenue_leader" ? value.representativeAsin !== null : value.representativeAsin === null), {
   message: "Representative selection status must agree with the observed representative ASIN",
+}).refine(value => value.comparisonBasis !== "product_database" || value.coverage === undefined
+  || (value.displayedCount === value.competitors.length && value.totalCount !== undefined
+    && (value.coverage === "complete") === (value.displayedCount === value.totalCount)), {
+  message: "Product Database fallback coverage must match the observed result count",
 });
 
 export type CompetitiveIntelligenceObservation = z.infer<typeof competitiveIntelligenceObservationSchema>;
