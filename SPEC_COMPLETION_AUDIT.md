@@ -82,3 +82,5 @@ R4 로컬 승인 대기 달성은 원래 SPEC의 실제 RFQ 발송·견적 회�
 - Candidate detail now exposes per-tool task status, safe captured results, provenance, source URL, observedAt, and explicit unavailable/uncollected states; raw snapshots remain server-side.
 - Verification: all five dedicated verifiers PASS; pnpm typecheck PASS; web build PASS; integrated scenario repeated 5 times PASS; saved-searches/evidence/contrast/orders PASS; external_actions=0 and paid provider calls=0.
 - Real logged-in ASIDE capture remains Jay-owned final manual gate.
+- Live browser DOM checkpoint: authenticated Jungle Scout Catalyst exposes Product Database at #/database, Keyword Scout at #/keyword, and Category Trends at #/category-trends; adapters were aligned to these routes and fail closed when source controls/results are absent.
+
