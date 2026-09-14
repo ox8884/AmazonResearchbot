@@ -141,21 +141,20 @@ let browserClient = null;
 let browserSupervisorStopped = false;
 let browserSupervisor = Promise.resolve();
 let browserRetryResolve = null;
-let browserClientStarting = null;
+let browserStopResolve = null;
+const browserStop = new Promise((resolve) => {
+  browserStopResolve = resolve;
+});
 async function startBrowserClient() {
   const pending = startOptionalBrowserClient({ root, source: process.env });
-  browserClientStarting = pending;
-  try {
-    const client = await pending;
-    if (browserSupervisorStopped) {
-      client?.child.kill("SIGTERM");
-      return null;
-    }
-    browserClient = client;
-    return client;
-  } finally {
-    if (browserClientStarting === pending) browserClientStarting = null;
+  const client = await Promise.race([pending, browserStop]);
+  if (browserSupervisorStopped) {
+    if (client) client.child.kill("SIGTERM");
+    else void pending.then((started) => started?.child.kill("SIGTERM"), () => {});
+    return null;
   }
+  browserClient = client;
+  return client;
 }
 function waitForBrowserRetry(ms) {
   return new Promise((resolve) => {
@@ -191,6 +190,7 @@ console.log("웹 http://localhost:5173  API http://localhost:3001  Mailpit http:
 
 function shutdown() {
   browserSupervisorStopped = true;
+  browserStopResolve?.(null);
   browserRetryResolve?.();
   browserClient?.child.kill("SIGTERM");
   for (const child of children) child.kill("SIGTERM");
