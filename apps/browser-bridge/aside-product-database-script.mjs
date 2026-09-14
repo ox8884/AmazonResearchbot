@@ -3,7 +3,9 @@ export function productDatabaseScript(query,marker){
   let page,result;
   try{
    page=await openTab('https://members.junglescout.com/');
-   await page.getByRole('link',{name:'Product Database',exact:true}).click();
+   const productLink=page.getByRole('link',{name:'Product Database',exact:true});
+   await productLink.waitFor({state:'visible',timeout:20_000});
+   await productLink.click();
    const destination=()=>page.evaluate(()=>location.href);
    const sourcePageUrl=await destination();
    if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?database(?:[/?#].*)?$/.test(sourcePageUrl))throw Error('SITE_CHANGED');

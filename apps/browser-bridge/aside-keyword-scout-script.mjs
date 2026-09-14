@@ -3,7 +3,9 @@ export function keywordScoutScript(query,marker){
   let page,result;
   try{
    page=await openTab('https://members.junglescout.com/');
-   await page.getByText('Keyword Scout',{exact:true}).click();
+   const keywordLink=page.getByText('Keyword Scout',{exact:true});
+   await keywordLink.waitFor({state:'visible',timeout:20_000});
+   await keywordLink.click();
    const destination=()=>page.evaluate(()=>location.href);
    const sourcePageUrl=await destination();
    if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?keyword(?:[/?#].*)?$/.test(sourcePageUrl))throw Error('SITE_CHANGED');
