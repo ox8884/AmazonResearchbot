@@ -28,6 +28,7 @@ try{
  const search=(await test.call('/api/saved-searches',{name:'Synthetic search export',filters:{}})).body;
  const run=(await test.call('/api/saved-searches/'+search.id+'/run',{})).body.run;
  assert.equal(run.mode,'browser');
+ await test.pool.query("INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) SELECT version+1,now(),'search-export-cap-fixture',jsonb_set(snapshot,'{jsDailyWireCap}','10'::jsonb) FROM settings_versions ORDER BY version DESC LIMIT 1");
  assert.equal((await dispatchBrowserWork(test.pool,signing)).queued,1);
  const claim=(await call('/api/bridge/tasks/claim',{})).body;
  const task=JSON.parse(Buffer.from(claim.envelope.payload,'base64url'));

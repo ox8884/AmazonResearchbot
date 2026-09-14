@@ -4,7 +4,7 @@ import {once} from 'node:events';
 import {openAcceptance} from './support/acceptance.mjs';
 import {browserSigningFixture} from './support/browser-signing-fixture.mjs';
 import {publishBrowserSigningIdentity} from '../apps/worker/src/browser-signing-key.ts';
-import {queueCategoryTrends} from '../apps/worker/src/browser-task-producer.ts';
+import {queueCategoryTrends,queueHistoricalData,queueKeywordScout,queueProductDatabase} from '../apps/worker/src/browser-task-producer.ts';
 import {decryptSecret} from '../packages/security/src/secrets.ts';
 import {categoryTrendsObservationSchema} from '../packages/domain/src/category-trends.ts';
 
@@ -29,9 +29,28 @@ try{
   const response=await fetch(origin+url,{method:body===undefined?'GET':'POST',headers:{origin,authorization:'Bearer '+enrolled.body.credential,...(body===undefined?{}:{'content-type':'application/json'})},...(body===undefined?{}:{body:JSON.stringify(body)}),redirect:'error',signal:AbortSignal.timeout(10_000)});
   return {status:response.status,body:await response.json()};
  };
- assert.equal((await call('/api/bridge/capabilities',{connected:true,supportedTasks:['category_trends'],keyFingerprint:identity.fingerprint})).status,200);
+ assert.equal((await call('/api/bridge/capabilities',{connected:true,supportedTasks:['product_database','keyword_scout','historical_data','category_trends'],keyFingerprint:identity.fingerprint})).status,200);
  const query='synthetic category trends '+test.runId;
- const candidate=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",[query])).rows[0];
+ await test.pool.query("INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) SELECT version+1,now(),'category-trends-fixture',snapshot || '{\"jsDailyWireCap\":100}'::jsonb FROM settings_versions ORDER BY version DESC LIMIT 1");
+  const candidate=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",[query])).rows[0];
+  const productTask=await queueProductDatabase(test.pool,{deviceId,candidateId:candidate.id},{origin,privateKey:keys.privateKey});
+  assert.equal(productTask.kind,'queued');
+  const productClaim=(await call('/api/bridge/tasks/claim',{})).body;
+  assert.equal(productClaim.kind,'task',JSON.stringify(productClaim));
+  const productObservation={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100,sourcePageUrl:'https://members.junglescout.com/#/database',observedAt:new Date().toISOString(),snapshot:'Synthetic prerequisite',records:[{asin:'B0QA000001',title:'Synthetic kitchen product',sourceText:'B0QA000001 Synthetic kitchen product'}]};
+  assert.equal((await call('/api/bridge/tasks/'+productClaim.taskId+'/results',{taskHash:productClaim.taskHash,observation:productObservation})).status,201);
+  const keywordTask=await queueKeywordScout(test.pool,{deviceId,candidateId:candidate.id},{origin,privateKey:keys.privateKey});
+  assert.equal(keywordTask.kind,'queued');
+  const keywordClaim=(await call('/api/bridge/tasks/claim',{})).body;
+  assert.equal(keywordClaim.kind,'task',JSON.stringify(keywordClaim));
+  const keywordObservation={protocol:1,kind:'captured',scope:'jungle_scout_keyword_scout',query,sourcePageUrl:'https://members.junglescout.com/#/keyword',observedAt:new Date().toISOString(),snapshot:'Synthetic prerequisite',metrics:[],relatedKeywords:[],asinRelations:[],keywordRecords:[{keyword:query,sourceText:query}]};
+  assert.equal((await call('/api/bridge/tasks/'+keywordClaim.taskId+'/results',{taskHash:keywordClaim.taskHash,observation:keywordObservation})).status,201);
+  const prerequisite=await queueHistoricalData(test.pool,{deviceId,candidateId:candidate.id},{origin,privateKey:keys.privateKey});
+  assert.equal(prerequisite.kind,'queued');
+  const historicalClaim=(await call('/api/bridge/tasks/claim',{})).body;
+  assert.equal(historicalClaim.kind,'task',JSON.stringify(historicalClaim));
+  const historicalObservation={protocol:1,kind:'captured',scope:'jungle_scout_historical_data',query,sourcePageUrl:'https://members.junglescout.com/#/keyword',observedAt:new Date().toISOString(),snapshot:'Synthetic prerequisite',dateRange:null,series:[{metric:'Search Trend 30 Day',periodLabel:'30 Day',value:'12%',sourceText:'Search Trend 30 Day 30 Day '+query+' 12%'}]};
+  assert.equal((await call('/api/bridge/tasks/'+historicalClaim.taskId+'/results',{taskHash:historicalClaim.taskHash,observation:historicalObservation})).status,201);
  const queued=await queueCategoryTrends(test.pool,{deviceId,candidateId:candidate.id},{origin,privateKey:keys.privateKey});
  assert.equal(queued.kind,'queued');
  const claim=(await call('/api/bridge/tasks/claim',{})).body;
@@ -39,7 +58,7 @@ try{
  const request=JSON.parse(Buffer.from(claim.envelope.payload,'base64url')).request;
  assert.equal(request.kind,'category_trends');
  assert.equal(request.query,query);
- const observation={protocol:1,kind:'captured',scope:'jungle_scout_category_trends',query,sourcePageUrl:'https://members.junglescout.com/category-trends',observedAt:new Date().toISOString(),snapshot:'Synthetic Category Trends result',categories:[{category:'Kitchen & Dining',sourceText:'Category Kitchen & Dining'}],kitchenDiningConfirmation:'confirmed',signals:[{label:'Growth',value:'12%',sourceText:'Growth 12%'}]};
+ const observation={protocol:1,kind:'captured',scope:'jungle_scout_category_trends',query,sourcePageUrl:'https://members.junglescout.com/#/category-trends',observedAt:new Date().toISOString(),snapshot:'Synthetic Category Trends result',categories:[{category:'Kitchen & Dining',sourceText:'Category Kitchen & Dining'}],kitchenDiningConfirmation:'confirmed',signals:[{label:'Growth',value:'12%',sourceText:'Growth 12%'}],products:[{asin:'B0QA000001',rank:'1',productName:'Synthetic kitchen product',rating:'4.6',reviews:'120',price:'$25.00',dateLabel:'Sep 13',sourceText:'Sep 13 B0QA000001#1 Synthetic kitchen product 4.6(120)|$25.00'}],dateColumns:[{dateLabel:'Sep 13',sourceText:'Sep 13 B0QA000001#1 Synthetic kitchen product 4.6(120)|$25.00',products:[{asin:'B0QA000001',rank:'1',productName:'Synthetic kitchen product',rating:'4.6',reviews:'120',price:'$25.00',dateLabel:'Sep 13',sourceText:'Sep 13 B0QA000001#1 Synthetic kitchen product 4.6(120)|$25.00'}]}]};
  const submit=value=>call('/api/bridge/tasks/'+claim.taskId+'/results',{taskHash:claim.taskHash,observation:value});
  const accepted=await submit(observation);
  assert.equal(accepted.status,201);
@@ -50,5 +69,6 @@ try{
  assert.deepEqual(JSON.parse(decryptSecret(stored.body_ciphertext,Buffer.from(test.encryptionKeyHex,'hex'),'browser-task-result:'+accepted.body.receiptId)),observation);
  const unconfirmed={...observation,categories:[{category:'Home & Kitchen',sourceText:'Category Home & Kitchen'}],kitchenDiningConfirmation:'confirmed'};
  assert.equal(categoryTrendsObservationSchema.safeParse(unconfirmed).success,false,'Home & Kitchen must never confirm Kitchen & Dining');
+ assert.equal(categoryTrendsObservationSchema.safeParse(observation).success,true,'Category Trends preserves dated ranked product cards');
  console.log(JSON.stringify({scenario:'signed_category_trends_aside_task',result:'PASS',signedTask:true,claimed:true,encryptedReceipt:true,homeKitchenDoesNotConfirmKitchenDining:true,paidApiCalls:0,externalActions:0}));
 }finally{await test.close();}

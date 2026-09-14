@@ -56,7 +56,7 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
       : target.kind==='keyword_scout' && 'market_query' in source
       ? {kind:'keyword_scout',...scope,query:source.market_query}
       : target.kind==='product_database' && 'market_query' in source
-      ? {kind:'product_database',...scope,query:source.market_query}
+      ? {kind:'product_database',...scope,query:source.market_query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100}
       : 'market_query' in source
       ? {kind:'amazon_search',...scope,query:source.market_query}
       : source.spec_id === null

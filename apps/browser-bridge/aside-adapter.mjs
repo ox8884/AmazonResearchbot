@@ -59,6 +59,9 @@ export function createAsideAdapter(configuration) {
   try{
    const result=await invoke(marker=>task.request.kind==='competitive_intelligence'?competitiveIntelligenceScript(task.request.query,marker):task.request.kind==='category_trends'?categoryTrendsScript(task.request.query,marker):task.request.kind==='historical_data'?historicalDataScript(task.request.query,marker):task.request.kind==='keyword_scout'?keywordScoutScript(task.request.query,marker):task.request.kind==='product_database'?productDatabaseScript(task.request.query,marker):task.request.kind==='amazon_search'?amazonMarketScript(task.request.query,marker):task.request.kind==='saved_search_export'?savedSearchExportScript(task.request,marker):task.request.kind==='amazon_package'?amazonPackageScript(task.request.asin,marker):task.request.kind==='supplier_search'
     ?supplierSearchScript(task.request.query,marker):supplierDetailScript(task.request,marker));
+   if(result?.kind==='unavailable'&&typeof result.reason==='string'&&/^[A-Z0-9_]+$/.test(result.reason)){
+    return {kind:'pending_reconciliation',taskId:claim.taskId,taskHash:claim.taskHash,reason:result.reason};
+   }
    const parsed=browserObservationSchema.safeParse(result);
    if(!parsed.success)throw new Error('ASIDE_CAPTURE_INVALID');
    const observation=parsed.data;

@@ -2,7 +2,7 @@ import type { PgBoss } from "pg-boss";
 import { JOB_ADVANCE, txAdapter } from "./queue.ts";
 import { randomUUID } from "node:crypto";
 import { lockActiveBridgeDevice, type Pool } from "@forge-ops/db";
-import { browserObservationSchema, browserTaskSchema, supplierCaptureSchema, supplierDetailCapture, parseAmazonPackageMeasurements, assessStandardSize, STANDARD_SIZE_POLICY, type SupplierCapture } from "@forge-ops/domain";
+import { browserObservationSchema, browserTaskSchema, supplierCaptureSchema, supplierDetailCapture, parseAmazonPackageMeasurements, assessStandardSize, STANDARD_SIZE_POLICY, selectBrowserProductLeader, type SupplierCapture } from "@forge-ops/domain";
 import { insertSupplierCapture, alibabaCompanyKey, alibabaProductKey } from "@forge-ops/integrations/sourcing/capture";
 import { encryptSecret, exactPayloadHash } from "@forge-ops/security";
 import { lockTaskSource, type BrowserTaskRow } from "./browser-task-store.ts";
@@ -54,7 +54,25 @@ export async function acceptBrowserTaskResult(pool:Pool,input:{
   }else if(request.kind==='keyword_scout'){
    if(source.readKind!=='keyword_scout'||observation.scope!=='jungle_scout_keyword_scout'||observation.query!==request.query){await db.query('COMMIT');return {kind:'invalid' as const};}
   }else if(request.kind==='product_database'){
-   if(source.readKind!=='product_database'||observation.scope!=='jungle_scout_product_database'||observation.query!==request.query){await db.query('COMMIT');return {kind:'invalid' as const};}
+   if(source.readKind!=='product_database'||observation.scope!=='jungle_scout_product_database'||observation.query!==request.query||
+      observation.marketplace!==request.marketplace||observation.category!==request.category||
+      observation.discoveryCategory!==request.discoveryCategory||observation.productTier!==request.productTier||
+      observation.resultLimit!==request.resultLimit){await db.query('COMMIT');return {kind:'invalid' as const};}
+   const current=(await db.query<{asin:string|null}>(`SELECT detail->>'representativeAsin' AS asin
+    FROM candidate_events WHERE candidate_id=$1 AND stage='api_validation' AND input_version=$2
+    LIMIT 1`,[task.candidate_id,task.input_version])).rows[0];
+   if(!current?.asin){
+    const leader=selectBrowserProductLeader(observation);
+    if(leader.kind==='selected'){
+     await db.query(`INSERT INTO candidate_events(candidate_id,stage,input_version,detail)
+      VALUES($1,'api_validation',$2,$3::jsonb)
+      ON CONFLICT(candidate_id,stage,input_version) DO UPDATE
+      SET detail=candidate_events.detail || EXCLUDED.detail
+      WHERE COALESCE(candidate_events.detail->>'representativeAsin','')=''
+      `,[task.candidate_id,task.input_version,JSON.stringify({representativeAsin:leader.asin,selectionMethod:'browser_product_database_revenue',selectionRevenue:leader.revenueText,selectionSourceId:'browser-task-result:'+receiptId})]);
+     await db.query("INSERT INTO audit_events(actor,action,target) SELECT owner_user_id,'representative_asin_auto_selected',$2 FROM bridge_devices WHERE id=$1",[input.deviceId,task.candidate_id]);
+    }
+   }
   }else if(request.kind==='amazon_search'){
    if(source.readKind!=='amazon_search'||!parseAmazonMarketSource(observation,request.query)){await db.query('COMMIT');return {kind:'invalid' as const};}
   }else if(request.kind==='amazon_package'){

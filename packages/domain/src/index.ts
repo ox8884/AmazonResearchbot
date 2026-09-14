@@ -53,6 +53,7 @@ export * from "./csv-import.ts";
 export * from "./search-export.ts";
 export * from "./amazon-market.ts";
 export * from "./product-database.ts";
+export * from "./product-database-leader.ts";
 export * from "./keyword-scout.ts";
 export * from "./historical-data.ts";
 export * from "./category-trends.ts";

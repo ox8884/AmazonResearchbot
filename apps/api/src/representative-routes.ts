@@ -4,6 +4,8 @@ import type { PgBoss } from "pg-boss";
 import { z } from "zod";
 import { JOB_ADVANCE, txAdapter } from "./queue.ts";
 import {readMarketSource} from './market-source-store.ts';
+import { productDatabaseObservationSchema } from '@forge-ops/domain';
+import { decryptSecret, exactPayloadHash } from '@forge-ops/security';
 
 const paramsSchema = z.object({ id: z.uuid() });
 const selectionSchema = z.object({
@@ -37,10 +39,26 @@ async function readRepresentative(db: Pick<Pool, "query">, id: string,key:Buffer
   const market=await readMarketSource(db,id,key);
   const observed=market.state==='captured'&&market.inputVersion===view.inputVersion&&market.settingsVersion===view.settingsVersion
     ?market.observation.slots.flatMap(slot=>slot.adStatus==='not_marked'&&slot.asin&&slot.title?[{asin:slot.asin,title:slot.title}]:[]):[];
+  const productReceipt=(await db.query<{receipt_id:string;body_ciphertext:string;body_sha256:string;query:string}>(`
+    SELECT r.id AS receipt_id,r.body_ciphertext,r.body_sha256,c.normalized_keyword AS query
+    FROM browser_tasks t JOIN browser_task_results r ON r.id=t.result_id JOIN candidates c ON c.id=t.candidate_id
+    WHERE t.candidate_id=$1 AND t.task_kind='product_database' AND t.state='completed'
+      AND t.input_version=$2 AND t.settings_version=$3
+    ORDER BY t.created_at DESC,t.id DESC LIMIT 1`,[id,view.inputVersion,view.settingsVersion])).rows[0];
+  let productDatabase:readonly {readonly asin:string;readonly title:string}[]=[];
+  if(productReceipt){
+    try{
+      const raw:unknown=JSON.parse(decryptSecret(productReceipt.body_ciphertext,key,'browser-task-result:'+productReceipt.receipt_id).toString('utf8'));
+      const parsed=productDatabaseObservationSchema.safeParse(raw);
+      if(exactPayloadHash(raw)===productReceipt.body_sha256&&parsed.success&&parsed.data.query===productReceipt.query){
+        productDatabase=parsed.data.records.flatMap(record=>record.categoryPath?.includes('Kitchen & Dining')?[{asin:record.asin,title:record.title}]:[]);
+      }
+    }catch(error){if(!(error instanceof Error))throw error;}
+  }
   const names=new Map<string,Set<string>>();
-  for(const row of observed){const values=names.get(row.asin)??new Set<string>();values.add(row.title);names.set(row.asin,values);}
+  for(const row of [...observed,...productDatabase]){const values=names.get(row.asin)??new Set<string>();values.add(row.title);names.set(row.asin,values);}
   const titles=Object.fromEntries([...names].flatMap(([asin,values])=>values.size===1?[[asin,[...values][0]??'']]:[]));
-  return {inputVersion:view.inputVersion,selectedAsin:view.selectedAsin,editable:view.editable,availableAsins:[...new Set([...view.availableAsins,...observed.map(row=>row.asin)])].sort(),titles};
+  return {inputVersion:view.inputVersion,selectedAsin:view.selectedAsin,editable:view.editable,availableAsins:[...new Set([...view.availableAsins,...observed.map(row=>row.asin),...productDatabase.map(row=>row.asin)])].sort(),titles};
 }
 
 export function registerRepresentativeRoutes(app: FastifyInstance, pool: Pool, boss: PgBoss,key:Buffer) {

@@ -90,7 +90,7 @@ try {
  const upgraded=openBrowserTaskLedger({...config,directory:legacyDirectory});
  try{assert.deepEqual(upgraded.inspect(task.id),{state:'completed',taskId:task.id,taskHash:claimed.taskHash,receiptId});}
  finally{upgraded.close();}
- const policy=openBrowserTaskLedger({...config,directory:path.join(directory,'policy')});
+  let policy=openBrowserTaskLedger({...config,directory:path.join(directory,'policy')});
  try{
   const conflictTask={...task,id:randomUUID()},conflictClaim=policy.claim(signBrowserTask(conflictTask,privateKey));
   policy.stage({...conflictClaim,observation},credential);
@@ -115,20 +115,63 @@ try {
   assert.equal(missing.reconciled[0].kind,'conflict');
   assert.equal(policy.pending().some(row=>row.taskId===missingTask.id),false);
   assert.deepEqual(policy.staged(missingTask.id,credential),observation);
+  const retryTask={...task,id:randomUUID()},retryEnvelope=signBrowserTask(retryTask,privateKey),retryHash=createHash('sha256').update(retryEnvelope.payload).digest('hex');
+  const retryClock={value:Date.now()};
+  const retryDelivery={kind:'task',taskId:retryTask.id,taskHash:retryHash,envelope:retryEnvelope};
+  let retryClaims=0,retryCollections=0,retryCanClaim=true;
+  const retryClient={
+   readTask:async()=>({taskId:retryTask.id,taskHash:retryHash,state:'delivered',receiptId:null,resultHash:null,expiresAt:new Date(retryClock.value+240000).toISOString()}),
+   claimTask:async()=>{retryClaims++;return retryDelivery;},
+  };
+  const retryAdapterFor=(retryLedger)=>({collect:async()=>{retryCollections++;retryLedger.claim(retryEnvelope);return {kind:'pending_reconciliation',taskId:retryTask.id,taskHash:retryHash,reason:'ASIDE_SITE_OR_LAYOUT_UNAVAILABLE'};}});
+  const retryAdapter=retryAdapterFor(policy);
+  const retryCycle=createRecoveryCycle({client:retryClient,adapter:retryAdapter,ledger:policy,deviceId:config.deviceId,readCredential:async()=>credential,canClaim:async()=>retryCanClaim,now:()=>retryClock.value});
+  assert.equal((await retryCycle()).kind,'retry_wait','An unavailable capture must schedule a persisted backoff');
+  assert.equal(retryClaims,1);
+  assert.equal(retryCollections,1);
+  assert.equal(policy.retryable().some(item=>item.taskId===retryTask.id),false,'Deferred task must not be immediately retryable');
+  assert.equal(policy.retryWaiting().taskId,retryTask.id,'Retry schedule must survive in the local ledger');
+  assert.equal((await retryCycle()).kind,'retry_wait','Backoff must suppress the next claim cycle');
+  assert.equal(retryClaims,1);
+  retryClock.value+=30000;
+  assert.equal((await retryCycle()).kind,'retry_wait','Due retry must execute once and schedule the next backoff');
+  assert.equal(retryClaims,2);
+  assert.equal(retryCollections,2,'A due retry may perform one browser collection');
+  policy.close();
+  policy=openBrowserTaskLedger({...config,directory:path.join(directory,'policy')});
+  assert.equal(policy.retryWaiting().taskId,retryTask.id,'Retry schedule must survive a process restart');
+  retryCanClaim=false;
+  assert.equal((await createRecoveryCycle({client:retryClient,adapter:retryAdapterFor(policy),ledger:policy,deviceId:config.deviceId,readCredential:async()=>credential,canClaim:async()=>retryCanClaim,now:()=>retryClock.value} )()).kind,'retry_wait');
+  retryClock.value+=120000;
+  retryCanClaim=true;
+  assert.equal((await createRecoveryCycle({client:retryClient,adapter:retryAdapterFor(policy),ledger:policy,deviceId:config.deviceId,readCredential:async()=>credential,canClaim:async()=>retryCanClaim,now:()=>retryClock.value} )()).kind,'retry_wait');
+  assert.equal(retryClaims,3,'Reconnection must resume the deferred task');
+  assert.equal(retryCollections,3);
+  policy.close();
+  const offlineLedger=openBrowserTaskLedger({...config,directory:path.join(directory,'offline')});
   const offlineClient={claimTask:async()=>{throw new Error('Offline client must not claim work');}};
-  const offlineCycle=createRecoveryCycle({client:offlineClient,adapter:noBrowser,ledger:policy,deviceId:config.deviceId,readCredential:async()=>credential,canClaim:async()=>false});
+  const offlineCycle=createRecoveryCycle({client:offlineClient,adapter:noBrowser,ledger:offlineLedger,deviceId:config.deviceId,readCredential:async()=>credential,canClaim:async()=>false});
   assert.equal((await offlineCycle()).kind,'unavailable');
   let probeStopped=false;
-  const stoppedProbe=createRecoveryCycle({client:offlineClient,adapter:noBrowser,ledger:policy,deviceId:config.deviceId,readCredential:async()=>credential,shouldStop:()=>probeStopped,canClaim:async()=>{probeStopped=true;return true;}});
+  const stoppedProbe=createRecoveryCycle({client:offlineClient,adapter:noBrowser,ledger:offlineLedger,deviceId:config.deviceId,readCredential:async()=>credential,shouldStop:()=>probeStopped,canClaim:async()=>{probeStopped=true;return true;}});
   assert.equal((await stoppedProbe()).kind,'stopping');
   let stop=false,releaseClaim,claimStarted;
   const entered=new Promise(resolve=>{claimStarted=resolve;});
   const delayedClaim=new Promise(resolve=>{releaseClaim=resolve;});
-  const stoppingCycle=createRecoveryCycle({client:{claimTask:async()=>{claimStarted();return delayedClaim;}},adapter:noBrowser,ledger:policy,deviceId:config.deviceId,readCredential:async()=>credential,shouldStop:()=>stop});
+  const stoppingCycle=createRecoveryCycle({client:{claimTask:async()=>{claimStarted();return delayedClaim;}},adapter:noBrowser,ledger:offlineLedger,deviceId:config.deviceId,readCredential:async()=>credential,shouldStop:()=>stop});
   const inFlight=stoppingCycle();await entered;stop=true;
   releaseClaim({kind:'task',taskId:task.id,taskHash:claimed.taskHash,envelope});
   assert.equal((await inFlight).kind,'stopping','Stop during claim must not start a browser action');
- }finally{policy.close();}
+  const reasonTask={...task,id:randomUUID()},reasonEnvelope=signBrowserTask(reasonTask,privateKey);
+  const reasonHash=createHash('sha256').update(reasonEnvelope.payload).digest('hex');
+  const reasonResult=await createRecoveryCycle({
+   client:{claimTask:async()=>({kind:'task',taskId:reasonTask.id,taskHash:reasonHash,envelope:reasonEnvelope})},
+   adapter:{collect:async()=>({kind:'pending_reconciliation',taskId:reasonTask.id,taskHash:reasonHash,reason:'PRODUCT_DATABASE_NAVIGATION_UNCONFIRMED'})},
+   ledger:offlineLedger,deviceId:config.deviceId,readCredential:async()=>credential,
+  })();
+  assert.equal(reasonResult.reason,'PRODUCT_DATABASE_NAVIGATION_UNCONFIRMED','Safe browser failure reason must reach the bridge operator');
+  offlineLedger.close();
+  }finally{policy.close();}
 
 
 

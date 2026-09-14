@@ -29,7 +29,7 @@ export async function queueSearchExport(pool:Pool,target:{deviceId:string;runId:
  }catch(error){await db.query('ROLLBACK');throw error;}finally{db.release();}
 }
 
-export async function dispatchSearchExports(pool:Pool,signing:Signing){
+export async function dispatchSearchExports(pool:Pool,signing:Signing,limit=10){
  const targets=(await pool.query<{run_id:string;device_id:string}>(`
   SELECT DISTINCT ON(r.id) r.id AS run_id,d.id AS device_id FROM saved_search_runs r
   JOIN bridge_devices d ON d.owner_user_id=r.created_by JOIN "user" u ON u.id=d.owner_user_id
@@ -38,7 +38,7 @@ export async function dispatchSearchExports(pool:Pool,signing:Signing){
     AND 'saved_search_export'=ANY(d.reported_tasks)
     AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.search_run_id=r.id AND
       (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-  ORDER BY r.id,d.reported_at DESC,d.id LIMIT 10`,[signing.fingerprint])).rows;
+  ORDER BY r.id,d.reported_at DESC,d.id LIMIT $2`,[signing.fingerprint,Math.max(0,Math.min(10,limit))])).rows;
  let queued=0;
  for(const target of targets)if((await queueSearchExport(pool,{deviceId:target.device_id,runId:target.run_id},signing)).kind==='queued')queued++;
  return {queued,deviceReady:targets.length>0};

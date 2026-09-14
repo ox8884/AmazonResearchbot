@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-export function createRecoveryCycle({client,adapter,ledger,deviceId,readCredential,shouldStop=()=>false,canClaim=async()=>true}) {
+export function createRecoveryCycle({client,adapter,ledger,deviceId,readCredential,shouldStop=()=>false,canClaim=async()=>true,now=()=>Date.now()}) {
  let running=false;
  async function reconcile(item){
   let server;
@@ -16,7 +16,10 @@ export function createRecoveryCycle({client,adapter,ledger,deviceId,readCredenti
    if(item.bodyHash&&server.resultHash!==item.bodyHash){ledger.settle({...item,state:'conflict'});return {kind:'conflict',taskId:item.taskId};}
    ledger.complete({...item,receiptId:server.receiptId});return {kind:'completed',taskId:item.taskId};
   }
-  if(Date.parse(server.expiresAt)<=Date.now())return {kind:'pending_expiry',taskId:item.taskId};
+  if(Date.parse(server.expiresAt)<=now()){
+   if(!item.bodyHash){ledger.settle({...item,state:'cancelled'});return {kind:'cancelled',taskId:item.taskId};}
+   return {kind:'pending_expiry',taskId:item.taskId};
+  }
   if(!item.bodyHash)return {kind:'pending_reconciliation',taskId:item.taskId};
   const observation=ledger.staged(item.taskId,await readCredential());
   if(!observation)throw new Error('STAGED_RESULT_MISSING');
@@ -40,11 +43,13 @@ export function createRecoveryCycle({client,adapter,ledger,deviceId,readCredenti
     if(shouldStop())return {kind:'stopping',reconciled};
     reconciled.push(await reconcile(item));
    }
-   for(const item of (ledger.retryable?.() ?? [])){
-    if(shouldStop())return {kind:'stopping',reconciled};
-    ledger.settle({...item,state:'cancelled'});
-    reconciled.push({kind:'retryable_reset',taskId:item.taskId});
-   }
+  const retryable=ledger.retryable?.(new Date(now())) ?? [];
+  for(const item of retryable){
+   if(shouldStop())return {kind:'stopping',reconciled};
+   reconciled.push(await reconcile(item));
+  }
+  const retryWait=ledger.retryWaiting?.(new Date(now()));
+  if(retryWait)return {kind:'retry_wait',taskId:retryWait.taskId,retryAt:retryWait.nextAttemptAt,reconciled};
    if(shouldStop())return {kind:'stopping',reconciled};
    if(!await canClaim())return {kind:'unavailable',reconciled};
    if(shouldStop())return {kind:'stopping',reconciled};
@@ -58,9 +63,18 @@ export function createRecoveryCycle({client,adapter,ledger,deviceId,readCredenti
     task=JSON.parse(Buffer.from(payload,'base64url').toString('utf8'));
    }catch{throw new Error('SERVER_TASK_HASH_CONFLICT');}
    if(task.id!==delivery.taskId||task.deviceId!==deviceId)throw new Error('SERVER_TASK_HASH_CONFLICT');
+   const retry=retryable.find(item=>item.taskId===delivery.taskId&&item.taskHash===delivery.taskHash);
+   if(retry)ledger.retry(retry,new Date(now()));
    const outcome=await adapter.collect(delivery.envelope);
    if(outcome.taskId!==delivery.taskId||(outcome.taskHash&&outcome.taskHash!==delivery.taskHash))throw new Error('SERVER_TASK_HASH_CONFLICT');
-   if(outcome.kind!=='captured')return {kind:outcome.kind,taskId:delivery.taskId,reconciled};
+   if(outcome.kind!=='captured'){
+    const local=ledger.inspect?.(delivery.taskId);
+    if(outcome.kind==='pending_reconciliation'&&local?.state==='started'&&local.taskHash===delivery.taskHash){
+     const retry=ledger.defer({taskId:delivery.taskId,taskHash:delivery.taskHash},new Date(now()));
+     return {kind:'retry_wait',taskId:delivery.taskId,retryAt:retry.nextAttemptAt,reconciled,...(typeof outcome.reason==='string'&&/^[A-Z0-9_]+$/.test(outcome.reason)?{reason:outcome.reason}:{})};
+    }
+    return {kind:outcome.kind,taskId:delivery.taskId,reconciled,...(typeof outcome.reason==='string'&&/^[A-Z0-9_]+$/.test(outcome.reason)?{reason:outcome.reason}:{})};
+   }
    const staged=ledger.stage({taskId:outcome.taskId,taskHash:outcome.taskHash,observation:outcome.observation},await readCredential());
    const result=await reconcile(staged);
    return {...result,reconciled};

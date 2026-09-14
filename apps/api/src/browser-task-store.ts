@@ -9,6 +9,24 @@ type TaskBase = {
 export type CandidateBrowserTaskRow=TaskBase&{search_run_id:null;candidate_id:string;source_capture_id:string|null;spec_id:string|null;input_version:number;settings_version:number};
 export type SearchBrowserTaskRow=TaskBase&{search_run_id:string;candidate_id:null;source_capture_id:null;spec_id:null;input_version:null;settings_version:null};
 export type BrowserTaskRow=CandidateBrowserTaskRow|SearchBrowserTaskRow;
+const jungleScoutBrowserTaskKinds = [
+ 'saved_search_export',
+ 'product_database',
+ 'keyword_scout',
+ 'historical_data',
+ 'category_trends',
+ 'competitive_intelligence',
+] as const;
+
+async function readJungleScoutBrowserBudget(db:QueryConnection):Promise<number>{
+ const setting=(await db.query<{cap:number|null}>("SELECT (snapshot->>'jsDailyWireCap')::int AS cap FROM settings_versions ORDER BY version DESC LIMIT 1")).rows[0];
+ const cap=setting?.cap??0;
+ if(!Number.isSafeInteger(cap)||cap<=0)return 0;
+ const used=(await db.query<{used:number}>(`SELECT count(*)::int AS used FROM browser_tasks
+  WHERE task_kind=ANY($1::text[]) AND state IN ('delivered','completed')
+   AND created_at>=date_trunc('day',clock_timestamp())`,[jungleScoutBrowserTaskKinds])).rows[0]?.used??0;
+ return Math.max(0,cap-used);
+}
 export async function lockTaskSource(db:QueryConnection,task:CandidateBrowserTaskRow) {
  const request=browserTaskSchema.parse(JSON.parse(Buffer.from(task.envelope.payload,'base64url').toString('utf8'))).request;
  if(request.kind!==task.task_kind)return null;
@@ -35,9 +53,11 @@ export async function claimBrowserTask(pool:Pool,deviceId:string) {
   await db.query("SELECT pg_advisory_xact_lock(hashtext('forge.settings'))");
   if(!await lockActiveBridgeDevice(db,deviceId)){await db.query("COMMIT");return {kind:"rejected" as const};}
   await db.query("UPDATE browser_tasks SET state='cancelled' WHERE device_id=$1 AND state IN ('queued','delivered') AND expires_at<=clock_timestamp()",[deviceId]);
+  const researchRemaining=await readJungleScoutBrowserBudget(db);
   for(let checked=0;checked<20;checked++){
    const row=(await db.query<BrowserTaskRow>(`SELECT t.* FROM browser_tasks t
     WHERE t.device_id=$1 AND t.state IN ('queued','delivered')
+     AND (t.task_kind <> ALL($2::text[]) OR $3::boolean)
     ORDER BY (t.state='queued') DESC,
      (SELECT max(prior.delivered_at) FROM browser_tasks prior
       WHERE prior.task_kind=t.task_kind
@@ -47,7 +67,7 @@ export async function claimBrowserTask(pool:Pool,deviceId:string) {
        AND prior.source_capture_id IS NOT DISTINCT FROM t.source_capture_id
        AND prior.input_version IS NOT DISTINCT FROM t.input_version
        AND prior.settings_version IS NOT DISTINCT FROM t.settings_version) ASC NULLS FIRST,
-     t.created_at,t.id LIMIT 1 FOR UPDATE OF t`,[deviceId])).rows[0];
+     t.created_at,t.id LIMIT 1 FOR UPDATE OF t`,[deviceId,jungleScoutBrowserTaskKinds,researchRemaining>0])).rows[0];
    if(!row){await db.query("COMMIT");return {kind:"idle" as const};}
    const source=row.search_run_id!==null?await lockSearchTaskSource(db,row):await lockTaskSource(db,row);
    if(!source){await db.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1",[row.id]);continue;}

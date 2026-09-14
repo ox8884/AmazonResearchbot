@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const keyword = z.string().trim().min(1).max(500);
+const observedValue = z.string().trim().min(1).max(2_000).nullable().optional();
 
 export const keywordScoutObservationSchema = z.object({
   protocol: z.literal(1),
@@ -10,6 +11,20 @@ export const keywordScoutObservationSchema = z.object({
   sourcePageUrl: z.string().url().max(4096).regex(/^https:\/\/members\.junglescout\.com\/(?:#\/)?keyword(?:[/?#].*)?$/),
   observedAt: z.string().datetime({ offset: true }),
   snapshot: z.string().min(1).max(1_000_000),
+  keywordRecords: z.array(z.object({
+    keyword,
+    searchTrend30Day: observedValue,
+    exactSearchVolume30Day: observedValue,
+    category: observedValue,
+    ppcBidExact: observedValue,
+    ppcBidBroad: observedValue,
+    easeToRank: observedValue,
+    relevancyScore: observedValue,
+    sourceText: z.string().min(1).max(30_000),
+  }).strict().refine(({ sourceText, ...fields }) => Object.values(fields).every(value =>
+    value === null || value === undefined || sourceText.includes(value)), {
+    message: "Keyword Scout source text must contain every reported row field",
+  })).max(200).optional(),
   metrics: z.array(z.object({
     label: z.string().trim().min(1).max(200),
     value: z.string().trim().min(1).max(2_000),

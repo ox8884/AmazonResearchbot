@@ -1,44 +1,72 @@
 export function categoryTrendsScript(query,marker){
  async function collect(query,marker){
-  let page,result;
+  function extractCategorySnapshot(tree){
+   const lines=String(tree||'').split(/\r?\n/);
+   const decode=line=>{const offset=line.indexOf('text: ');if(offset<0)return null;try{return JSON.parse(line.slice(offset+6).trim());}catch{return null;}};
+   const datePattern=/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2}(?:,\s*\d{4})?\b/g;
+   const dateLine=lines.find(line=>{const value=decode(line);return value!==null&&[...value.matchAll(datePattern)].length>=4;});
+   const dateLabels=dateLine?[...decode(dateLine).matchAll(datePattern)].map(match=>match[0]):[];
+   const categoryLine=lines.find(line=>{const value=decode(line);return value!==null&&value.trim()==='Kitchen & Dining';});
+   const categories=categoryLine?[{category:'Kitchen & Dining',sourceText:decode(categoryLine)}]:[];
+   const products=[];let group=-1,lastRank=null;
+   for(let index=0;index<lines.length;index+=1){
+    const first=decode(lines[index]);
+    const imageMatch=lines[index].match(/image\s+"([A-Z0-9]{10})"/);
+    const nextText=decode(lines[index+1]??'');
+    const match=first?.match(/^([A-Z0-9]{10})#(\d+)\s+(.+)$/)??(imageMatch&&nextText?.match(/^#(\d+)\s+(.+)$/)?[nextText,imageMatch[1],nextText.match(/^#(\d+)\s+(.+)$/)[1],nextText.match(/^#(\d+)\s+(.+)$/)[2]]:null);
+    if(!match)continue;
+    const asin=imageMatch?match[1]:match[1];
+    const rank=imageMatch?match[2]:match[2];
+    const productName=imageMatch?match[3]:match[3];
+    if(rank==='1'&&lastRank!==null)group+=1;
+    if(lastRank===null)group=0;
+    lastRank=rank;
+    let details=null;
+    for(let detailIndex=index+1;detailIndex<Math.min(index+12,lines.length);detailIndex+=1){
+     const value=decode(lines[detailIndex]);
+     if(!value)continue;
+     if(/^[A-Z0-9]{10}#\d+\s/.test(value))break;
+     if(/^\d+(?:\.\d+)?\([^)]*\)\|.+$/.test(value)){details=value;break;}
+    }
+    const detailMatch=details?.match(/^([0-9]+(?:\.[0-9]+)?)\(([^)]*)\)\|(.+)$/);
+    const rating=detailMatch?.[1]??null,reviews=detailMatch?.[2]??null,price=detailMatch?.[3]??null;
+    const dateLabel=dateLabels[group]??null;
+    const sourceText=[dateLabel,asin+'#'+rank,productName,details].filter(Boolean).join(' ');
+    products.push({asin,rank,productName,rating,reviews,price,dateLabel,sourceText});
+   }
+   const uniqueProducts=[...new Map(products.map(product=>[(product.dateLabel??'unknown')+'\n'+product.asin,product])).values()];
+   const dateColumns=dateLabels.map(dateLabel=>({dateLabel,sourceText:[dateLabel,...uniqueProducts.filter(product=>product.dateLabel===dateLabel).map(product=>product.sourceText)].join('\n'),products:uniqueProducts.filter(product=>product.dateLabel===dateLabel)})).filter(column=>column.products.length);
+   return {categories,kitchenDiningConfirmation:categories.length?'confirmed':'not_confirmed',products:uniqueProducts,dateColumns};
+  }
+  let page,result,owned=false,stage='OPEN';
   try{
-   page=await openTab('https://members.junglescout.com/');
-   await page.getByRole('link',{name:'Category Trends',exact:true}).click();
+   const existing=(await listBrowserTabs()).find(tab=>typeof tab.targetId==='string'&&typeof tab.url==='string'&&/^https:\/\/members\.junglescout\.com\//.test(tab.url));
+   if(existing)page=await attachBrowserTab(existing.targetId);
+   else {page=await openTab('https://members.junglescout.com/#/category-trends');owned=true;}
+   stage='NAVIGATION';
+   await page.goto('https://members.junglescout.com/#/category-trends');
    const destination=()=>page.evaluate(()=>location.href);
    const sourcePageUrl=await destination();
    if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?category-trends(?:[/?#].*)?$/.test(sourcePageUrl))throw Error('SITE_CHANGED');
+   stage='CATEGORY';
    const category=page.getByRole('combobox').nth(1);
    await category.waitFor({state:'visible',timeout:20_000});
    await category.click();
    const kitchenDining=page.getByText('Kitchen & Dining',{exact:true});
    await kitchenDining.waitFor({state:'visible',timeout:20_000});
    await kitchenDining.click();
-   const body=page.locator('body');
-   await body.waitFor({state:'visible',timeout:30_000});
+   stage='RESULT_SNAPSHOT';
    const snapshotResult=await snapshot(page,{selector:'body'});
-   const extracted=await body.evaluate(body=>{
-    const text=node=>node.innerText.replace(/\s+/g,' ').trim();
-    const categoryNames=['Kitchen & Dining','Home & Kitchen'];
-    const categories=[...body.querySelectorAll('tr,[role="row"],li,section,article,button,a')].flatMap(node=>{
-      const sourceText=text(node);if(!sourceText||sourceText.length>10000)return [];
-      const category=categoryNames.find(name=>sourceText.includes(name));
-      return category?[{category,sourceText}]:[];
-    });
-    const signals=[...body.querySelectorAll('tr,[role="row"],li,section,article')].flatMap(node=>{
-      const sourceText=text(node);if(!sourceText||sourceText.length>10000)return [];
-      const label=['Demand','Trend','Growth','Seasonality','Search Volume'].find(candidate=>new RegExp('\\b'+candidate.replace(/ /g,'\\s+')+'\\b','i').test(sourceText));
-      if(!label)return [];
-      const value=sourceText.replace(new RegExp('^.*?'+label.replace(/ /g,'\\s*')+'\\s*:?\\s*','i'),'').trim();
-      return value?[{label,value,sourceText}]:[];
-    });
-    const dedupe=(items,key)=>[...new Map(items.map(item=>[key(item),item])).values()];
-    const uniqueCategories=dedupe(categories,item=>item.category+'\n'+item.sourceText);
-    return {categories:uniqueCategories,kitchenDiningConfirmation:'not_confirmed',signals:dedupe(signals,item=>item.label+'\n'+item.value)};
-   });
+   stage='RESULT_EXTRACTION';
+   const extracted=extractCategorySnapshot(snapshotResult.tree);
+   if(!extracted.products.length||!extracted.dateColumns.length)throw Error('RESULT_SCOPE_UNCONFIRMED');
    if(await destination()!==sourcePageUrl)throw Error('SOURCE_CHANGED');
-   result={protocol:1,kind:'captured',scope:'jungle_scout_category_trends',query,sourcePageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,...extracted};
-  }catch{result={protocol:1,kind:'unavailable',reason:'CATEGORY_TRENDS_SOURCE_UNCONFIRMED'};}
-  finally{if(page)await closeTab(page);}
+   result={protocol:1,kind:'captured',scope:'jungle_scout_category_trends',query,sourcePageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,categories:extracted.categories,kitchenDiningConfirmation:extracted.kitchenDiningConfirmation,signals:[],products:extracted.products,dateColumns:extracted.dateColumns};
+  }catch(error){
+   const reason=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:'CATEGORY_TRENDS_'+stage+'_UNCONFIRMED';
+   result={protocol:1,kind:'unavailable',reason};
+  }
+  finally{if(page&&owned)await closeTab(page);}
   console.log(marker+JSON.stringify(result));
  }
  if(typeof query!=='string'||!query.trim()||query.length>500)throw Error('INVALID_CATEGORY_TRENDS_QUERY');

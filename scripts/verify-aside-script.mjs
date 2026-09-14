@@ -2,6 +2,9 @@ import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import {supplierSearchScript} from '../apps/browser-bridge/aside-supplier-script.mjs';
 import {amazonPackageScript} from '../apps/browser-bridge/aside-package-script.mjs';
+import {productDatabaseScript} from '../apps/browser-bridge/aside-product-database-script.mjs';
+import {categoryTrendsScript} from '../apps/browser-bridge/aside-category-trends-script.mjs';
+import {historicalDataScript} from '../apps/browser-bridge/aside-historical-data-script.mjs';
 const query="x'); globalThis.injected=true; //";
 let captured,closed=false;
 const fakePage={url:()=>'https://www.alibaba.com/',locator:()=>({
@@ -205,3 +208,69 @@ for(const options of [{asin:"x'); injected=true; //"},{url:'https://www.amazon.c
  {lateUrl:'https://www.amazon.com/dp/B0QA000002'},{rows:[['ASIN','B0QA000002']]},{waitFailure:true},{emptySnapshot:true}])assert.equal((await runPackage(options)).kind,'unavailable');
 await runPackage({closeFailure:true});
 console.log(JSON.stringify({scenario:'aside-package-script',result:'PASS',exactAsin:true,visibleRowsOnly:true,scopedSnapshot:true,requestIsData:true,cleanupBeforeEmission:true}));
+
+{
+ const output=[];let filled='',attached=false,closed=false,homeKitchen=false,standard=false,limitApplied=false,searched=false;
+ const input={waitFor:async()=>{},fill:async value=>{filled=value;},evaluate:async()=>filled};
+ const label=name=>({
+  waitFor:async()=>{},
+  evaluate:async()=>({found:name==='United States'||name==='Home & Kitchen'||name==='Standard',checked:name==='United States'||(name==='Home & Kitchen'?homeKitchen:standard)}),
+  click:async()=>{if(name==='Home & Kitchen')homeKitchen=true;if(name==='Standard')standard=true;if(name==='100')limitApplied=true;},
+  first(){return this;},
+  last(){return this;},
+ });
+ const resultControl={evaluate:async()=>limitApplied?'100':'50',click:async()=>{},waitFor:async()=>{assert.equal(searched,true);}};
+ const limitOption={click:async()=>{assert.equal(searched,true,'Result limit is selected after Search reveals the results header');limitApplied=true;}};
+ const page={
+  goto:async url=>assert.equal(url,'https://members.junglescout.com/#/database'),
+ evaluate:async()=> 'https://members.junglescout.com/#/database',
+  locator:selector=>{assert.equal(selector,'[data-testid="multi-select-trigger"]');return {
+   evaluateAll:async()=>0,
+   nth:index=>{assert.equal(index,0);return resultControl;},
+  };},
+  getByText:(name)=>label(name),
+  getByRole:(role,options)=>{
+   if(role==='link')return {waitFor:async()=>{},click:async()=>{}};
+   if(role==='textbox')return {first:()=>input};
+   if(role==='option'){assert.equal(options.name,'100');return limitOption;}
+   if(role==='button'&&options.name==='Search')return {click:async()=>{searched=true;}};
+   if(role==='table')return {waitFor:async()=>{},evaluate:async()=>[{asin:'B0QA000001',title:'Synthetic ice cream scoop kitchen tool',sourceText:'B0QA000001 Synthetic ice cream scoop kitchen tool'}]};
+   throw new Error('Unexpected role '+role);
+  },
+ };
+ await vm.runInNewContext('(async()=>{'+productDatabaseScript('ice cream scoop','PRODUCT_DB:')+'})()',{
+  console:{log:value=>output.push(value)},
+  listBrowserTabs:async()=>[{targetId:'existing-jungle-scout',url:'https://members.junglescout.com/#/category-trends'}],
+  attachBrowserTab:async targetId=>{assert.equal(targetId,'existing-jungle-scout');attached=true;return page;},
+  openTab:async()=>{throw new Error('Existing authenticated tab must be reused');},
+  closeTab:async()=>{closed=true;},snapshot:async()=>({tree:'Synthetic Product Database table'}),
+ },{timeout:1000});
+ assert.equal(output.length,1);
+ const result=JSON.parse(output[0].slice('PRODUCT_DB:'.length));
+ assert.equal(result.kind,'captured','The duplicate Include/Exclude textbox name must resolve to the Include field');
+ assert.equal(result.query,'ice cream scoop');
+ assert.equal(attached,true,'Reuse the existing authenticated Jungle Scout tab');
+ assert.equal(closed,false,'Do not close a tab owned by the user');
+}
+console.log(JSON.stringify({scenario:'aside-product-database-script',result:'PASS',duplicateTextboxResolved:true,authenticatedTabReused:true,userTabPreserved:true}));
+
+{
+ const output=[];let attached=false,closed=false,selectedCategory=false;
+ const productTree='- combobox [ref=e1]:\n  - text: "Kitchen & Dining"\n- button [ref=e2]:\n  - text: "Sep 13, 2026"\n- text: "Sep 10 Sep 11 Sep 12 Sep 13"\n- generic [ref=e3]:\n  - text: "B0QA000001#1 Synthetic kitchen product"\n  - text: "4.6(120)|$25.00"\n- generic [ref=e4]:\n  - text: "B0QA000002#2 Another kitchen product"\n  - text: "4.4(42)|$19.99"\n- generic [ref=e5]:\n  - text: "B0QA000001#1 Synthetic kitchen product"\n  - text: "4.6(121)|$25.00"';
+  const page={goto:async url=>assert.equal(url,'https://members.junglescout.com/#/category-trends'),evaluate:async()=> 'https://members.junglescout.com/#/category-trends',getByRole:role=>{assert.equal(role,'combobox');return {nth:index=>{assert.equal(index,1);return {waitFor:async()=>{},click:async()=>{}};}}},getByText:(value,options)=>{return {waitFor:async()=>{},click:async()=>{selectedCategory=true;}};}};
+ await vm.runInNewContext('(async()=>{'+categoryTrendsScript('synthetic category','CATEGORY:')+'})()',{console:{log:value=>output.push(value)},listBrowserTabs:async()=>[{targetId:'jungle-scout',url:'https://members.junglescout.com/#/keyword'}],attachBrowserTab:async id=>{attached=true;assert.equal(id,'jungle-scout');return page;},openTab:async()=>{throw Error('Authenticated tab must be reused');},closeTab:async()=>{closed=true;},snapshot:async()=>({tree:productTree})},{timeout:1000});
+ const result=JSON.parse(output[0].slice('CATEGORY:'.length));
+  assert.equal(result.kind,'captured',JSON.stringify(result));assert.equal(result.kitchenDiningConfirmation,'confirmed');assert.equal(result.products.length,3);assert.equal(result.dateColumns.length,2);assert.equal(result.products[0].asin,'B0QA000001');assert.equal(result.products[0].dateLabel,'Sep 10');assert.equal(selectedCategory,true);assert.equal(attached,true);assert.equal(closed,false);
+}
+console.log(JSON.stringify({scenario:'aside-category-trends-script',result:'PASS',datedCardsParsed:true,kitchenDiningConfirmed:true,authenticatedTabReused:true,userTabPreserved:true}));
+
+{
+ const output=[];let filled='',searched=false,closed=false;
+ const input={waitFor:async()=>{},fill:async value=>{filled=value;},evaluate:async()=>filled};
+ const table={waitFor:async()=>{},evaluate:async()=>({searchTrend:'12%',exactSearchVolume:'2,400',sourceText:'synthetic keyword 12% 2,400'})};
+  const page={goto:async url=>assert.equal(url,'https://members.junglescout.com/#/keyword'),evaluate:async()=> 'https://members.junglescout.com/#/keyword',getByRole:(role,options)=>{if(role==='textbox')return input;if(role==='table')return table;if(role==='button')return {click:async()=>{searched=true;}};throw Error('Unexpected role '+role);}};
+ await vm.runInNewContext('(async()=>{'+historicalDataScript('synthetic keyword','HISTORY:')+'})()',{console:{log:value=>output.push(value)},listBrowserTabs:async()=>[{targetId:'jungle-scout',url:'https://members.junglescout.com/#/category-trends'}],attachBrowserTab:async id=>{assert.equal(id,'jungle-scout');return page;},openTab:async()=>{throw Error('Authenticated tab must be reused');},closeTab:async()=>{closed=true;},snapshot:async()=>({tree:'- table "Keyword Results"'})},{timeout:1000});
+ const result=JSON.parse(output[0].slice('HISTORY:'.length));
+  assert.equal(result.kind,'captured',JSON.stringify(result));assert.equal(result.sourcePageUrl,'https://members.junglescout.com/#/keyword');assert.equal(result.dateRange,null);assert.deepEqual(result.series.map(point=>point.metric),['Search Trend 30 Day','Exact Search Volume 30 Day']);assert.equal(result.series[0].value,'12%');assert.equal(searched,true);assert.equal(closed,false);
+}
+console.log(JSON.stringify({scenario:'aside-historical-data-script',result:'PASS',keywordScoutSourceBacked:true,unknownDateRangePreserved:true,authenticatedTabReused:true,userTabPreserved:true}));

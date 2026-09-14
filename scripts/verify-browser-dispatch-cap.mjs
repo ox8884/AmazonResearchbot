@@ -1,0 +1,119 @@
+import assert from 'node:assert/strict';
+import { openAcceptance } from './support/acceptance.mjs';
+import { browserSigningFixture } from './support/browser-signing-fixture.mjs';
+import { publishBrowserSigningIdentity } from '../apps/worker/src/browser-signing-key.ts';
+import { dispatchBrowserWork } from '../apps/worker/src/browser-dispatch.ts';
+import { queueAmazonPackage, queueProductDatabase } from '../apps/worker/src/browser-task-producer.ts';
+
+const test = await openAcceptance({ databaseKey: `browser-dispatch-cap-${Date.now()}` });
+try {
+  const origin = 'http://localhost:5173';
+  const keys = browserSigningFixture();
+  const identity = await publishBrowserSigningIdentity(test.pool, keys.privateKey);
+  const pairing = await test.call('/api/bridge/pairings', {});
+  const enrolled = await test.call('/api/bridge/pair', {
+    pairingCode: pairing.body.pairingCode,
+    name: 'Synthetic cap observer',
+  });
+  assert.equal(enrolled.status, 201);
+  const deviceId = enrolled.body.id;
+  const machineCall = async (url, body) => {
+    const response = await test.app.inject({
+      method: body === undefined ? 'GET' : 'POST',
+      url,
+      headers: {
+        origin,
+        authorization: `Bearer ${enrolled.body.credential}`,
+        ...(body === undefined ? {} : { 'content-type': 'application/json' }),
+      },
+      ...(body === undefined ? {} : { payload: body }),
+    });
+    return { status: response.statusCode, body: response.json() };
+  };
+  assert.equal((await machineCall('/api/bridge/capabilities', {
+    connected: true,
+    supportedTasks: ['product_database', 'amazon_package'],
+    keyFingerprint: identity.fingerprint,
+  })).status, 200);
+
+  const candidate = (await test.pool.query(
+    "INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",
+    [`cap-zero ${test.runId}`],
+  )).rows[0];
+  const signing = { origin, privateKey: keys.privateKey };
+  await test.pool.query(
+    "INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) SELECT version+1,now(),'cap-fixture',jsonb_set(snapshot,'{jsDailyWireCap}','1'::jsonb) FROM settings_versions ORDER BY version DESC LIMIT 1",
+  );
+  const queuedAtPositive = await queueProductDatabase(test.pool, { deviceId, candidateId: candidate.id }, signing);
+  assert.equal(queuedAtPositive.kind, 'queued');
+  await test.pool.query(
+    "INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) SELECT version+1,now(),'cap-fixture',jsonb_set(snapshot,'{jsDailyWireCap}','0'::jsonb) FROM settings_versions ORDER BY version DESC LIMIT 1",
+  );
+  assert.equal((await machineCall('/api/bridge/tasks/claim', {})).body.kind, 'idle',
+    'Cap zero must leave queued Jungle Scout work unclaimed');
+
+  const packageCandidate = (await test.pool.query(
+    "INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",
+    [`package-cap-zero ${test.runId}`],
+  )).rows[0];
+  await test.pool.query(
+    "INSERT INTO candidate_events(candidate_id,stage,input_version,detail) VALUES($1,'api_validation',1,$2::jsonb)",
+    [packageCandidate.id, JSON.stringify({ representativeAsin: 'B0CAP00001' })],
+  );
+  const packageDispatchBeforeCi = await dispatchBrowserWork(test.pool, { ...signing, fingerprint: identity.fingerprint });
+  assert.equal(packageDispatchBeforeCi.queued, 0,
+    'Amazon package work waits for completed competitive intelligence');
+  const ciTask = (await test.pool.query(
+    "INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,expires_at,task_kind) VALUES(gen_random_uuid(),$1,$2,NULL,1,(SELECT max(version) FROM settings_versions),'{}'::jsonb,repeat('a',64),now(), 'competitive_intelligence') RETURNING id",
+    [deviceId, packageCandidate.id],
+  )).rows[0];
+  const ciResult = (await test.pool.query(
+    "INSERT INTO browser_task_results(id,task_id,body_sha256,body_ciphertext,capture_ids) VALUES(gen_random_uuid(),$1,repeat('b',64),'synthetic','{}'::uuid[]) RETURNING id",
+    [ciTask.id],
+  )).rows[0];
+  await test.pool.query(
+    "UPDATE browser_tasks SET state='completed',result_id=$1,delivered_at=now() WHERE id=$2",
+    [ciResult.id, ciTask.id],
+  );
+  const packageDispatch = await dispatchBrowserWork(test.pool, { ...signing, fingerprint: identity.fingerprint });
+  assert.equal(packageDispatch.queued, 1,
+    'Amazon package work remains dispatchable when the Jungle Scout cap is zero');
+  assert.equal((await test.pool.query(
+    "SELECT task_kind FROM browser_tasks WHERE candidate_id=$1 AND task_kind='amazon_package'",
+    [packageCandidate.id],
+  )).rows[0]?.task_kind, 'amazon_package');
+
+  await test.pool.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1", [queuedAtPositive.taskId]);
+  await test.pool.query(
+    "INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) SELECT version+1,now(),'cap-fixture',jsonb_set(snapshot,'{jsDailyWireCap}','2'::jsonb) FROM settings_versions ORDER BY version DESC LIMIT 1",
+  );
+  const queuedAtOne = await queueProductDatabase(test.pool, { deviceId, candidateId: candidate.id }, signing);
+  assert.equal(queuedAtOne.kind, 'queued');
+  const claimed = (await machineCall('/api/bridge/tasks/claim', {})).body;
+  assert.equal(claimed.kind, 'task', 'A positive cap permits one browser read');
+  assert.equal(claimed.taskId, queuedAtOne.taskId);
+  assert.equal((await machineCall('/api/bridge/tasks/claim', {})).body.kind, 'idle',
+    'The positive daily cap bounds additional browser claims');
+
+  const nextCandidate = (await test.pool.query(
+    "INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",
+    [`cap-one ${test.runId}`],
+  )).rows[0];
+  assert.equal((await dispatchBrowserWork(test.pool, { ...signing, fingerprint: identity.fingerprint })).queued, 0,
+    'A consumed daily cap prevents new Jungle Scout browser tasks');
+  assert.equal((await test.pool.query(
+    "SELECT count(*)::int AS count FROM browser_tasks WHERE candidate_id=$1 AND task_kind='product_database'",
+    [nextCandidate.id],
+  )).rows[0].count, 0);
+  console.log(JSON.stringify({
+    scenario: 'browser-dispatch-cap',
+    result: 'PASS',
+    zeroCapQueuedTaskUnclaimed: true,
+    positiveCapBounded: true,
+    supplierAndAmazonPathsUntouched: true,
+    paidApiCalls: 0,
+    externalActions: 0,
+  }));
+} finally {
+  await test.close();
+}

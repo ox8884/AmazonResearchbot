@@ -1,42 +1,56 @@
 export function historicalDataScript(query,marker){
  async function collect(query,marker){
-  let page,result;
+  let page,result,owned=false,stage='OPEN';
   try{
-   page=await openTab('https://members.junglescout.com/historical-data');
+   const existing=(await listBrowserTabs()).find(tab=>typeof tab.targetId==='string'&&typeof tab.url==='string'&&/^https:\/\/members\.junglescout\.com\//.test(tab.url));
+   if(existing)page=await attachBrowserTab(existing.targetId);
+   else {page=await openTab('https://members.junglescout.com/#/keyword');owned=true;}
+   stage='NAVIGATION';
+   await page.goto('https://members.junglescout.com/#/keyword');
    const destination=()=>page.evaluate(()=>location.href);
    const sourcePageUrl=await destination();
-   if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?historical-data(?:[/?#].*)?$/.test(sourcePageUrl))throw Error('SITE_CHANGED');
-   const input=page.getByRole('textbox',{name:/search|asin|keyword/i}).first();
+   if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?keyword(?:[/?#].*)?$/.test(sourcePageUrl))throw Error('SITE_CHANGED');
+   stage='QUERY';
+   const input=page.getByRole('textbox',{name:'Enter a Keyword or up to ten ASINs separated by commas',exact:true});
    await input.waitFor({state:'visible',timeout:20_000});
-   await input.fill(query);
-   if(await input.evaluate(el=>el.value)!==query)throw Error('QUERY_NOT_APPLIED');
-   await page.getByRole('button',{name:/search|apply/i}).first().click();
-   const body=page.locator('body');
-   await body.waitFor({state:'visible',timeout:30_000});
-   const snapshotResult=await snapshot(page,{selector:'body'});
-   const extracted=await body.evaluate(body=>{
-    const text=node=>node.innerText.replace(/\s+/g,' ').trim();
-    const bodyText=text(body);
-    const datePattern=/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2},?\s+\d{4}\b/g;
-    const dates=[...bodyText.matchAll(datePattern)].map(match=>match[0]);
-    const dateRange=dates.length>=2?{label:dates[0]+' – '+dates[dates.length-1],start:new Date(dates[0]).toISOString(),end:new Date(dates[dates.length-1]).toISOString()}:null;
-    const knownMetrics=['Price','Sales Rank','Units Sold','Sales','Search Volume'];
-    const series=[...body.querySelectorAll('tr,[role="row"],li,section,article')].flatMap(node=>{
-      const sourceText=text(node);if(!sourceText||sourceText.length>10000)return [];
-      const metric=knownMetrics.find(label=>new RegExp('\\b'+label.replace(/ /g,'\\s+')+'\\b','i').test(sourceText));
-      const periodLabel=[...sourceText.matchAll(datePattern)][0]?.[0];
-      if(!metric||!periodLabel)return [];
-      const remainder=sourceText.replace(new RegExp('^.*?'+metric.replace(/ /g,'\\s*')+'\\s*:?\\s*','i'),'').trim();
-      const value=remainder.replace(periodLabel,'').trim().split(/\s{2,}/)[0];
-      return value?[{metric,periodLabel,value,sourceText}]:[];
+   const existingQuery=await input.evaluate(element=>element.value);
+   let shouldSearch=existingQuery!==query;
+   if(shouldSearch){
+    await input.fill(query);
+    if(await input.evaluate(element=>element.value)!==query)throw Error('QUERY_NOT_APPLIED');
+   }
+   stage='RESULTS';
+   const table=page.getByRole('table',{name:'Keyword Results',exact:true});
+   try{await table.waitFor({state:'visible',timeout:10_000});}catch{if(!shouldSearch)throw Error('RESULT_SCOPE_UNCONFIRMED');}
+   if(shouldSearch){
+    await page.getByRole('button',{name:'Search',exact:true}).click();
+    await table.waitFor({state:'visible',timeout:30_000});
+   }
+   stage='RESULT_SNAPSHOT';
+   const snapshotResult=await snapshot(page,{selector:'[role="table"]'});
+   stage='RESULT_EXTRACTION';
+   const extracted=await table.evaluate((table,query)=>{
+    const rows=[...table.querySelectorAll('[role="row"]')].slice(1).flatMap(row=>{
+     if(row.getClientRects().length===0||getComputedStyle(row).visibility!=='visible')return [];
+     const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.replace(/\s+/g,' ').trim());
+     const keyword=cells[1]??'',sourceText=row.innerText.replace(/\s+/g,' ').trim();
+     return keyword.toLowerCase()===query.trim().toLowerCase()&&sourceText.includes(keyword)?[{searchTrend:cells[5]??null,exactSearchVolume:cells[6]??null,sourceText}]:[];
     });
-    const unique=[...new Map(series.map(point=>[point.metric+'\n'+point.periodLabel+'\n'+point.value,point])).values()];
-    return {dateRange,series:unique};
-   });
-   if(await input.evaluate(el=>el.value)!==query||await destination()!==sourcePageUrl)throw Error('QUERY_CHANGED');
-   result={protocol:1,kind:'captured',scope:'jungle_scout_historical_data',query,sourcePageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,...extracted};
-  }catch{result={protocol:1,kind:'unavailable',reason:'HISTORICAL_DATA_SOURCE_UNCONFIRMED'};}
-  finally{if(page)await closeTab(page);}
+    return rows[0]??null;
+   },query);
+   if(!extracted)throw Error('RESULT_SCOPE_UNCONFIRMED');
+   const observed=value=>value&&!/^(?:No Data|--|-)$/.test(value)?value:null;
+   const series=[];
+   if(observed(extracted.searchTrend)!==null)series.push({metric:'Search Trend 30 Day',periodLabel:'30 Day',value:observed(extracted.searchTrend),sourceText:'Search Trend 30 Day 30 Day '+extracted.sourceText});
+   if(observed(extracted.exactSearchVolume)!==null)series.push({metric:'Exact Search Volume 30 Day',periodLabel:'30 Day',value:observed(extracted.exactSearchVolume),sourceText:'Exact Search Volume 30 Day 30 Day '+extracted.sourceText});
+   if(!series.length)throw Error('RESULT_SCOPE_UNCONFIRMED');
+   if(await input.evaluate(element=>element.value)!==query||await destination()!==sourcePageUrl)throw Error('QUERY_CHANGED');
+   result={protocol:1,kind:'captured',scope:'jungle_scout_historical_data',query,sourcePageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,dateRange:null,series};
+  }catch(error){
+   const reason=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:'HISTORICAL_DATA_'+stage+'_UNCONFIRMED';
+   result={protocol:1,kind:'unavailable',reason};
+  }
+  finally{if(page&&owned)await closeTab(page);}
   console.log(marker+JSON.stringify(result));
  }
  if(typeof query!=='string'||!query.trim()||query.length>500)throw Error('INVALID_HISTORICAL_DATA_QUERY');

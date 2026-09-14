@@ -49,6 +49,11 @@ export const browserTaskSchema = z.object({
       inputVersion: z.number().int().positive(),
       settingsVersion: z.number().int().positive(),
       query: z.string().trim().min(1).max(500),
+      marketplace: z.literal("us"),
+      category: z.literal("Kitchen & Dining"),
+      discoveryCategory: z.literal("Home & Kitchen"),
+      productTier: z.literal("Standard"),
+      resultLimit: z.literal(100),
     }).strict(),
     z.object({
       kind: z.literal("keyword_scout"),

@@ -1,20 +1,56 @@
 export function productDatabaseScript(query,marker){
  async function collect(query,marker){
-  let page,result;
+  let page,result,owned=false,stage='OPEN';
   try{
-   page=await openTab('https://members.junglescout.com/');
-   const productLink=page.getByRole('link',{name:'Product Database',exact:true});
-   await productLink.waitFor({state:'visible',timeout:20_000});
-   await productLink.click();
+   const existing=(await listBrowserTabs()).find(tab=>typeof tab.targetId==='string'&&typeof tab.url==='string'&&/^https:\/\/members\.junglescout\.com\//.test(tab.url));
+   if(existing)page=await attachBrowserTab(existing.targetId);
+   else {page=await openTab('https://members.junglescout.com/#/database');owned=true;}
+   stage='NAVIGATION';
+   await page.goto('https://members.junglescout.com/#/database');
    const destination=()=>page.evaluate(()=>location.href);
    const sourcePageUrl=await destination();
    if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?database(?:[/?#].*)?$/.test(sourcePageUrl))throw Error('SITE_CHANGED');
-   const input=page.getByRole('textbox',{name:'Enter words and/or ASINs separated by commas',exact:true});
+   stage='FILTERS';
+   const marketplace=page.getByText('United States',{exact:true}).first();
+   await marketplace.waitFor({state:'visible',timeout:20_000});
+   const stateFor=label=>label.evaluate(el=>{
+    for(let node=el;node&&node!==document.body;node=node.parentElement){
+     const control=node.matches('input[type="checkbox"],[role="checkbox"]')?node:node.querySelector('input[type="checkbox"],[role="checkbox"]');
+     if(control)return {found:true,checked:control.checked===true||control.getAttribute('aria-checked')==='true'};
+    }
+    return {found:false,checked:false};
+   });
+   const ensureChecked=async(name,reason)=>{
+    const label=page.getByText(name,{exact:true}).first();
+    await label.waitFor({state:'visible',timeout:20_000});
+    let state=await stateFor(label);
+    if(!state.found)throw Error(reason);
+    if(!state.checked){await label.click();state=await stateFor(label);}
+    if(!state.checked)throw Error(reason);
+   };
+   await ensureChecked('Home & Kitchen','CATEGORY_FILTER_UNCONFIRMED');
+   await ensureChecked('Standard','PRODUCT_TIER_FILTER_UNCONFIRMED');
+   stage='QUERY';
+   const input=page.getByRole('textbox',{name:'Enter words and/or ASINs separated by commas',exact:true}).first();
    await input.waitFor({state:'visible',timeout:20_000});
    await input.fill(query);
    if(await input.evaluate(el=>el.value)!==query)throw Error('QUERY_NOT_APPLIED');
+   stage='RESULTS';
    await page.getByRole('button',{name:'Search',exact:true}).click();
    const table=page.getByRole('table',{name:'Product Database Table',exact:true});
+   await table.waitFor({state:'visible',timeout:30_000});
+   const limitTriggers=page.locator('[data-testid="multi-select-trigger"]');
+   const limitIndex=await limitTriggers.evaluateAll(triggers=>triggers.findIndex(trigger=>(trigger.parentElement?.parentElement?.innerText||'').includes('Displaying')));
+   if(limitIndex<0)throw Error('RESULT_LIMIT_CONTROL_UNCONFIRMED');
+   const resultLimit=limitTriggers.nth(limitIndex);
+   const currentLimit=(await resultLimit.evaluate(el=>(el.innerText||'').trim())).match(/^(?:25|50|100)/)?.[0]??null;
+   if(!currentLimit)throw Error('RESULT_LIMIT_CONTROL_UNCONFIRMED');
+   await resultLimit.waitFor({state:'visible',timeout:20_000});
+   if(await resultLimit.evaluate(el=>(el.innerText||'').trim())!=='100'){
+    await resultLimit.click();
+    await page.getByRole('option',{name:'100',exact:true}).click();
+   }
+   if(!/^100\b/.test((await resultLimit.evaluate(el=>(el.innerText||'').trim()))))throw Error('RESULT_LIMIT_UNCONFIRMED');
    await table.waitFor({state:'visible',timeout:30_000});
    const snapshotResult=await snapshot(page,{selector:'[role="table"]'});
    const records=await table.evaluate(table=>[...table.querySelectorAll('[role="row"]')].slice(1).flatMap(row=>{
@@ -23,13 +59,23 @@ export function productDatabaseScript(query,marker){
     const asin=/\b[A-Z0-9]{10}\b/.exec(sourceText)?.[0];
     const cells=[...row.querySelectorAll('[role="cell"]')].map(cell=>cell.innerText.replace(/\s+/g,' ').trim());
     const title=cells[1]?.replace(/\s*\b[A-Z0-9]{10}\b\s*$/,'').trim()??'';
-    return asin&&title&&sourceText.includes(asin)&&sourceText.includes(title)?[{asin,title,sourceText}]:[];
+    const observed=index=>!cells[index]||/^(?:No Data|--|-)$/.test(cells[index])?null:cells[index];
+    return asin&&title&&sourceText.includes(asin)&&sourceText.includes(title)?[{
+     asin,title,brand:observed(2),categoryPath:observed(3),bsr:observed(4),unitsSoldMonthly:observed(5),
+     revenueMonthly:observed(6),price:observed(7),reviews:observed(8),starRating:observed(9),sellers:observed(10),
+     dimensions:observed(13),weight:observed(14),sourceText,
+    }]:[];
    }));
    if(!records.length||records.length>200||new Set(records.map(record=>record.asin)).size!==records.length)throw Error('RESULT_SCOPE_UNCONFIRMED');
+   const queryTokens=query.toLowerCase().match(/[a-z0-9]+/g)?.filter(token=>token.length>1)??[];
+   if(queryTokens.length&&!records.some(record=>queryTokens.every(token=>record.sourceText.toLowerCase().includes(token))))throw Error('RESULT_QUERY_UNCONFIRMED');
    if(await input.evaluate(el=>el.value)!==query||await destination()!==sourcePageUrl)throw Error('QUERY_CHANGED');
-   result={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,sourcePageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,records};
-  }catch{result={protocol:1,kind:'unavailable',reason:'PRODUCT_DATABASE_SOURCE_UNCONFIRMED'};}
-  finally{if(page)await closeTab(page);}
+   result={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100,sourcePageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,records};
+  }catch(error){
+   const reason=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:'PRODUCT_DATABASE_'+stage+'_UNCONFIRMED';
+   result={protocol:1,kind:'unavailable',reason};
+  }
+  finally{if(page&&owned)await closeTab(page);}
   console.log(marker+JSON.stringify(result));
  }
  if(typeof query!=='string'||!query.trim()||query.length>500)throw Error('INVALID_PRODUCT_DATABASE_QUERY');
