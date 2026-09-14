@@ -2,6 +2,7 @@ import type {QueryConnection} from '@forge-ops/db';
 import type {PgBoss} from 'pg-boss';
 import {parseNumericCell,unknown,type Stage} from '@forge-ops/domain';
 import {SYNTHETIC_SCHEMA,type ParseResult} from '@forge-ops/integrations/jungle-scout/csv';
+import type { CsvMapping } from '@forge-ops/domain';
 import {encryptSecret} from '@forge-ops/security';
 import {JOB_ADVANCE,txAdapter,type AdvanceJob} from './queue.ts';
 import { z } from 'zod';
@@ -18,7 +19,14 @@ export async function importCsvWithinTransaction(client:QueryConnection,input:{f
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", ["import:"+marketplace+":"+parsed.sha256]);
       const prior = await client.query<{ id: string; mapping_matches:boolean }>("SELECT id,COALESCE(column_mapping,$4::jsonb)=$3::jsonb AS mapping_matches FROM imports WHERE sha256=$1 AND marketplace=$2", [parsed.sha256, marketplace,JSON.stringify(parsed.mapping),JSON.stringify(parsed.defaultMapping)]);
       if (prior.rows[0]) {
-        if(!prior.rows[0].mapping_matches)throw new ImportMappingConflict();
+        if(!prior.rows[0].mapping_matches){
+          const previous=(await client.query<{column_mapping:CsvMapping}>(`SELECT column_mapping FROM imports WHERE id=$1`,[prior.rows[0].id])).rows[0]?.column_mapping;
+          const canEnrich=previous!==undefined&&previous.keyword===parsed.mapping.keyword&&Object.entries(previous).every(([field,column])=>Object.hasOwn(parsed.mapping,field)&&parsed.mapping[field as keyof CsvMapping]===column);
+          if(!canEnrich)throw new ImportMappingConflict();
+          const enriched=await enrichImportedOpportunityEvidence(client,prior.rows[0].id,parsed,observedAt);
+          await client.query(`UPDATE imports SET column_mapping=$2::jsonb WHERE id=$1`,[prior.rows[0].id,JSON.stringify(parsed.mapping)]);
+          return {importId:prior.rows[0].id,reused:true,created:0,enriched};
+        }
         return {importId:prior.rows[0].id,reused:true,created:0};
       }
 
@@ -75,6 +83,15 @@ export async function importCsvWithinTransaction(client:QueryConnection,input:{f
           ["review_2000_count", row.values.review_2000_count, "review_2000_count" in row.values],
           ["top_price", row.values.top_price, "top_price" in row.values],
           ["monthly_revenue_competitors", row.values.monthly_revenue_competitors, "monthly_revenue_competitors" in row.values],
+          ["opportunity_niche_score", row.values.opportunity_niche_score, "opportunity_niche_score" in row.values],
+          ["opportunity_monthly_units", row.values.opportunity_monthly_units, "opportunity_monthly_units" in row.values],
+          ["opportunity_monthly_price", row.values.opportunity_monthly_price, "opportunity_monthly_price" in row.values],
+          ["opportunity_search_volume", row.values.opportunity_search_volume, "opportunity_search_volume" in row.values],
+          ["opportunity_search_trend_30d", row.values.opportunity_search_trend_30d, "opportunity_search_trend_30d" in row.values],
+          ["opportunity_search_trend_90d", row.values.opportunity_search_trend_90d, "opportunity_search_trend_90d" in row.values],
+          ["opportunity_competition", row.values.opportunity_competition, "opportunity_competition" in row.values],
+          ["opportunity_seasonality", row.values.opportunity_seasonality, "opportunity_seasonality" in row.values],
+          ["opportunity_last_updated", row.values.opportunity_last_updated, "opportunity_last_updated" in row.values],
         ] as const;
         for (const [field, value, present] of extra) {
           if (!present) continue;
@@ -111,6 +128,23 @@ export async function importCsvWithinTransaction(client:QueryConnection,input:{f
  return {importId,reused:false,created:created.length};
 }
 
+async function enrichImportedOpportunityEvidence(client:QueryConnection,importId:string,parsed:ParseResult,observedAt:string):Promise<number>{
+ const sourceRows=await client.query<{candidate_id:string;row_number:number}>(`SELECT cir.candidate_id,ir.row_number FROM candidate_import_rows cir JOIN import_rows ir ON ir.id=cir.import_row_id WHERE ir.import_id=$1 ORDER BY ir.row_number`,[importId]);
+ let enriched=0;
+ for(const linked of sourceRows.rows){
+  const row=parsed.rows.find(candidate=>candidate.rowNumber===linked.row_number);if(!row)continue;
+  const source=(await client.query<{source_id:string}>(`SELECT source_id FROM evidence WHERE candidate_id=$1 AND field='keyword' ORDER BY created_at DESC,id DESC LIMIT 1`,[linked.candidate_id])).rows[0]?.source_id;if(!source)continue;
+  for(const field of ['opportunity_niche_score','opportunity_monthly_units','opportunity_monthly_price','opportunity_search_volume','opportunity_search_trend_30d','opportunity_search_trend_90d','opportunity_competition','opportunity_seasonality','opportunity_last_updated'] as const){
+   const value=row.values[field];if(value===undefined)continue;
+   const existing=await client.query(`SELECT 1 FROM evidence WHERE candidate_id=$1 AND field=$2 AND source_id=$3 LIMIT 1`,[linked.candidate_id,field,source]);if(existing.rows.length)continue;
+   if(value.trim()==='')await client.query(`INSERT INTO evidence(candidate_id,field,kind,reason,source_id) VALUES($1,$2,'unknown','empty',$3)`,[linked.candidate_id,field,source]);
+   else await client.query(`INSERT INTO evidence(candidate_id,field,kind,value_text,source_id,observed_at) VALUES($1,$2,'measured',$3,$4,$5)`,[linked.candidate_id,field,value.trim(),source,observedAt]);
+   enriched++;
+  }
+ }
+ return enriched;
+}
+
 async function insertCellEvidence(
   client: { query: (text: string, values?: unknown[]) => Promise<unknown> },
   candidateId: string,
@@ -120,6 +154,21 @@ async function insertCellEvidence(
   raw: string | undefined,
 ): Promise<void> {
   const parsedCell = parseNumericCell(raw, sourceId, observedAt);
+  const isOpportunityObservation = field.startsWith('opportunity_');
+  if (isOpportunityObservation) {
+    if (raw === undefined || raw.trim() === '') {
+      await client.query(
+        `INSERT INTO evidence (candidate_id, field, kind, reason, source_id) VALUES ($1,$2,'unknown','empty',$3)`,
+        [candidateId, field, sourceId],
+      );
+      return;
+    }
+    await client.query(
+      `INSERT INTO evidence (candidate_id, field, kind, value_text, source_id, observed_at) VALUES ($1,$2,'measured',$3,$4,$5)`,
+      [candidateId, field, raw.trim(), sourceId, observedAt],
+    );
+    return;
+  }
   const isCount = ["reviews", "review_700_count", "review_2000_count", "monthly_revenue_competitors"].includes(field);
   const cell = isCount && parsedCell.kind !== "unknown" && (!Number.isSafeInteger(Number(parsedCell.value)) || Number(parsedCell.value) < 0)
     ? unknown("count_not_integer", sourceId) : parsedCell;

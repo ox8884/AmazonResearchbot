@@ -1,10 +1,13 @@
 import { z } from 'zod';
-export const CSV_FIELDS = ['keyword','reviews','review_700_count','review_2000_count','top_price','monthly_revenue_competitors','marketplace','representative_asin'] as const;
+export const CSV_FIELDS = ['keyword','reviews','review_700_count','review_2000_count','top_price','monthly_revenue_competitors','marketplace','representative_asin','opportunity_niche_score','opportunity_monthly_units','opportunity_monthly_price','opportunity_search_volume','opportunity_search_trend_30d','opportunity_search_trend_90d','opportunity_competition','opportunity_seasonality','opportunity_last_updated'] as const;
 export type CsvField = typeof CSV_FIELDS[number];
 const column = z.string().min(1).max(200).optional();
 export const csvMappingSchema = z.object({
   keyword:column,reviews:column,review_700_count:column,review_2000_count:column,
   top_price:column,monthly_revenue_competitors:column,marketplace:column,representative_asin:column,
+  opportunity_niche_score:column,opportunity_monthly_units:column,opportunity_monthly_price:column,
+  opportunity_search_volume:column,opportunity_search_trend_30d:column,opportunity_search_trend_90d:column,
+  opportunity_competition:column,opportunity_seasonality:column,opportunity_last_updated:column,
 }).strict().refine(value=>new Set(Object.values(value)).size===Object.values(value).length,{message:'Each source column may be used once'});
 export type CsvMapping = z.infer<typeof csvMappingSchema>;
 export type CsvPreview = {

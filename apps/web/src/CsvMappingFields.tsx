@@ -10,6 +10,15 @@ const fields: readonly { field: CsvField; ko: string; en: string }[] = [
   { field: "monthly_revenue_competitors", ko: "월매출 기준 충족 경쟁 상품 수", en: "Competitors meeting the monthly revenue threshold" },
   { field: "marketplace", ko: "판매 시장 (US)", en: "Marketplace (US)" },
   { field: "representative_asin", ko: "대표 ASIN", en: "Representative ASIN" },
+  { field: "opportunity_niche_score", ko: "Opportunity Niche Score", en: "Opportunity Niche Score" },
+  { field: "opportunity_monthly_units", ko: "월평균 판매량 관측", en: "Monthly units observed" },
+  { field: "opportunity_monthly_price", ko: "월평균 가격 관측 (USD)", en: "Monthly average price observed (USD)" },
+  { field: "opportunity_search_volume", ko: "30일 검색량 관측", en: "30-day search volume observed" },
+  { field: "opportunity_search_trend_30d", ko: "30일 검색 추세 관측", en: "30-day search trend observed" },
+  { field: "opportunity_search_trend_90d", ko: "90일 검색 추세 관측", en: "90-day search trend observed" },
+  { field: "opportunity_competition", ko: "경쟁 관측", en: "Competition observed" },
+  { field: "opportunity_seasonality", ko: "계절성 관측", en: "Seasonality observed" },
+  { field: "opportunity_last_updated", ko: "Opportunity 데이터 갱신일", en: "Opportunity data updated" },
 ];
 
 export function CsvMappingFields({ preview, mapping, busy, reviewed, onChange }: {

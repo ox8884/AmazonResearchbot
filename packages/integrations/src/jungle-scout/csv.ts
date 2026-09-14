@@ -58,8 +58,20 @@ export async function parseCsv(bytes: Buffer, selectedMapping?: CsvMapping): Pro
       headers=columns;
       const normalized = headers.map((header) => header.trim().toLowerCase());
       defaultMapping={};
+      const aliasesByField: Readonly<Record<string, readonly string[]>> = {
+        representative_asin: ['representativeasin','representative_asin'],
+        opportunity_niche_score: ['niche score'],
+        opportunity_monthly_units: ['units sold - monthly avg'],
+        opportunity_monthly_price: ['price - monthly avg'],
+        opportunity_search_volume: ['search volume - 30 day exact'],
+        opportunity_search_trend_30d: ['search trend - 30 day'],
+        opportunity_search_trend_90d: ['search trend - 90 day'],
+        opportunity_competition: ['competition'],
+        opportunity_seasonality: ['seasonality'],
+        opportunity_last_updated: ['last updated'],
+      };
       for(const field of CSV_FIELDS){
-        const aliases = field === 'representative_asin' ? ['representativeasin','representative_asin'] : [field];
+        const aliases = aliasesByField[field] ?? [field];
         const found=headers.find(h=>aliases.includes(h.trim().toLowerCase()));
         if(found!==undefined)defaultMapping[field]=found;
       }

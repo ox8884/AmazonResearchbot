@@ -28,6 +28,15 @@ const fieldNames: Readonly<Record<string, readonly [string, string]>> = {
     "월 매출 기준 경쟁 상품 수",
     "Competitors meeting monthly revenue criteria",
   ],
+  opportunity_niche_score: ['Opportunity Niche Score','Opportunity Niche Score'],
+  opportunity_monthly_units: ['월평균 판매량 관측','Monthly units observed'],
+  opportunity_monthly_price: ['월평균 가격 관측','Monthly average price observed'],
+  opportunity_search_volume: ['30일 검색량 관측','30-day search volume observed'],
+  opportunity_search_trend_30d: ['30일 검색 추세 관측','30-day search trend observed'],
+  opportunity_search_trend_90d: ['90일 검색 추세 관측','90-day search trend observed'],
+  opportunity_competition: ['경쟁 관측','Competition observed'],
+  opportunity_seasonality: ['계절성 관측','Seasonality observed'],
+  opportunity_last_updated: ['Opportunity 데이터 갱신일','Opportunity data updated'],
 };
 export function fieldLabel(field: string, language: string) {
   const observation=/^api_catalog_(reviews|reported_variants):([A-Z0-9]{10})$/.exec(field);

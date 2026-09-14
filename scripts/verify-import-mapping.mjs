@@ -56,7 +56,7 @@ try{
  const exportBytes=Buffer.from('\uFEFFJUNGLESCOUT WEBAPP CSV EXPORT\r\nReport Generated at: Wed Sep 09 2026 01:49:24 GMT-0500\r\n'+exportHeader+'\r\n"export fixture '+test.runId+'","9","1,200","$25.00","< 450","0%","-","Low","Low","Sep 08, 2026"\r\n');
  const exportPreview=await upload('/api/imports/preview',exportBytes);
  assert.equal(exportPreview.status,200);assert.equal(exportPreview.body.validCount,1,'Recognize real export preamble before its header');
- assert.deepEqual(exportPreview.body.mapping,{keyword:'Keyword'},'Do not map average price to top price');
+ assert.deepEqual(exportPreview.body.mapping,{keyword:'Keyword',opportunity_niche_score:'Niche Score',opportunity_monthly_units:'Units Sold - Monthly Avg',opportunity_monthly_price:'Price - Monthly Avg',opportunity_search_volume:'Search Volume - 30 Day Exact',opportunity_search_trend_30d:'Search Trend - 30 Day',opportunity_search_trend_90d:'Search Trend - 90 Day',opportunity_competition:'Competition',opportunity_seasonality:'Seasonality',opportunity_last_updated:'Last Updated'},'Map Opportunity Finder observations without mapping average price to top price');
  const exportImport=await upload('/api/imports',exportBytes,{mapping:exportPreview.body.mapping});assert.equal(exportImport.status,200);
  const exportStored=(await test.pool.query('SELECT source_type,schema_version,blob_ciphertext FROM imports WHERE id=$1',[exportImport.body.importId])).rows[0];
  assert.equal(exportStored.source_type,'user_declared','A file banner does not authenticate the source');
@@ -65,6 +65,10 @@ try{
  const exportRaw=(await test.pool.query('SELECT row_number,raw_json FROM import_rows WHERE import_id=$1',[exportImport.body.importId])).rows[0];
  assert.equal(exportRaw.row_number,1);assert.equal(exportRaw.raw_json['Search Volume - 30 Day Exact'],'< 450');
  assert.equal(exportRaw.raw_json['Price - Monthly Avg'],'$25.00');
+ const exportEvidence=(await test.pool.query('SELECT field,kind,value_text FROM evidence WHERE candidate_id=(SELECT candidate_id FROM candidate_import_rows WHERE import_row_id=(SELECT id FROM import_rows WHERE import_id=$1 LIMIT 1)) AND field LIKE \'opportunity_%\' ORDER BY field',[exportImport.body.importId])).rows;
+ assert.equal(exportEvidence.length,9,'Opportunity Finder observation fields are preserved as evidence');
+ assert.equal(exportEvidence.find(e=>e.field==='opportunity_monthly_price').value_text,'$25.00');
+ assert.equal((await test.pool.query("SELECT count(*)::int AS n FROM evidence WHERE candidate_id=(SELECT candidate_id FROM candidate_import_rows WHERE import_row_id=(SELECT id FROM import_rows WHERE import_id=$1 LIMIT 1)) AND field='top_price'",[exportImport.body.importId])).rows[0].n,0,'Average price must not become top price');
  const alternateExport=Buffer.from(exportBytes.toString('utf8').replace('Keyword,Niche Score','Opportunity,Niche Score').replace('export fixture','alternate fixture'));
  const alternatePreview=await upload('/api/imports/preview',alternateExport,{mapping:{keyword:'Opportunity'}});
  assert.equal(alternatePreview.status,200,'Different report headers remain manually mappable');assert.equal(alternatePreview.body.validCount,1);
