@@ -1,5 +1,5 @@
-export function historicalDataScript(query,marker){
- async function collect(query,marker){
+export function historicalDataScript(query,marker,representativeAsin=null){
+ async function collect(query,marker,representativeAsin){
   let page,result,owned=false,stage='OPEN';
   try{
    const existing=(await listBrowserTabs()).find(tab=>typeof tab.targetId==='string'&&typeof tab.url==='string'&&/^https:\/\/members\.junglescout\.com\//.test(tab.url));
@@ -45,7 +45,7 @@ export function historicalDataScript(query,marker){
    if(observed(extracted.exactSearchVolume)!==null)series.push({metric:'Exact Search Volume 30 Day',periodLabel:'30 Day',value:observed(extracted.exactSearchVolume),sourceText:'Exact Search Volume 30 Day 30 Day '+extracted.sourceText});
    if(!series.length)throw Error('RESULT_SCOPE_UNCONFIRMED');
    if(await input.evaluate(element=>element.value)!==query||await destination()!==sourcePageUrl)throw Error('QUERY_CHANGED');
-   result={protocol:1,kind:'captured',scope:'jungle_scout_historical_data',query,sourcePageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,dateRange:null,series};
+   result={protocol:1,kind:'captured',scope:'jungle_scout_historical_data',query,sourcePageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,dateRange:null,representativeAsin:representativeAsin??null,unavailableMetrics:['price','sales','rank'],series};
   }catch(error){
    const reason=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:'HISTORICAL_DATA_'+stage+'_UNCONFIRMED';
    result={protocol:1,kind:'unavailable',reason};
@@ -54,5 +54,6 @@ export function historicalDataScript(query,marker){
   console.log(marker+JSON.stringify(result));
  }
  if(typeof query!=='string'||!query.trim()||query.length>500)throw Error('INVALID_HISTORICAL_DATA_QUERY');
- return 'await ('+collect.toString()+')('+JSON.stringify(query)+','+JSON.stringify(marker)+')';
+ if(representativeAsin!==null&&(!/^[A-Z0-9]{10}$/.test(representativeAsin)))throw Error('INVALID_HISTORICAL_DATA_ASIN');
+ return 'await ('+collect.toString()+')('+JSON.stringify(query)+','+JSON.stringify(marker)+','+JSON.stringify(representativeAsin)+')';
 }

@@ -48,9 +48,9 @@ export async function acceptBrowserTaskResult(pool:Pool,input:{
   if(request.kind==='competitive_intelligence'){
    if(source.readKind!=='competitive_intelligence'||observation.scope!=='jungle_scout_competitive_intelligence'||observation.query!==request.query){await db.query('COMMIT');return {kind:'invalid' as const};}
   }else if(request.kind==='category_trends'){
-   if(source.readKind!=='category_trends'||observation.scope!=='jungle_scout_category_trends'||observation.query!==request.query){await db.query('COMMIT');return {kind:'invalid' as const};}
+   if(source.readKind!=='category_trends'||observation.scope!=='jungle_scout_category_trends'||observation.query!==request.query||(observation.representativeAsin??null)!==request.representativeAsin){await db.query('COMMIT');return {kind:'invalid' as const};}
   }else if(request.kind==='historical_data'){
-   if(source.readKind!=='historical_data'||observation.scope!=='jungle_scout_historical_data'||observation.query!==request.query){await db.query('COMMIT');return {kind:'invalid' as const};}
+   if(source.readKind!=='historical_data'||observation.scope!=='jungle_scout_historical_data'||observation.query!==request.query||(observation.representativeAsin??null)!==request.representativeAsin){await db.query('COMMIT');return {kind:'invalid' as const};}
   }else if(request.kind==='keyword_scout'){
    if(source.readKind!=='keyword_scout'||observation.scope!=='jungle_scout_keyword_scout'||observation.query!==request.query){await db.query('COMMIT');return {kind:'invalid' as const};}
   }else if(request.kind==='product_database'){

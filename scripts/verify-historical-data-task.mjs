@@ -6,6 +6,7 @@ import {browserSigningFixture} from './support/browser-signing-fixture.mjs';
 import {publishBrowserSigningIdentity} from '../apps/worker/src/browser-signing-key.ts';
 import {queueHistoricalData,queueKeywordScout,queueProductDatabase} from '../apps/worker/src/browser-task-producer.ts';
 import {decryptSecret} from '../packages/security/src/secrets.ts';
+import {historicalDataObservationSchema} from '../packages/domain/src/historical-data.ts';
 
 const reserve=createServer();
 reserve.listen(0,'127.0.0.1');
@@ -36,7 +37,7 @@ try{
  assert.equal(productTask.kind,'queued');
  const productClaim=(await call('/api/bridge/tasks/claim',{})).body;
   assert.equal(productClaim.kind,'task',JSON.stringify(productClaim));
- const productObservation={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100,sourcePageUrl:'https://members.junglescout.com/#/database',observedAt:new Date().toISOString(),snapshot:'Synthetic prerequisite',records:[{asin:'B0QA000001',title:'Synthetic kitchen product',sourceText:'B0QA000001 Synthetic kitchen product'}]};
+ const productObservation={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100,displayedCount:1,totalCount:1,coverage:'complete',sourcePageUrl:'https://members.junglescout.com/#/database',observedAt:new Date().toISOString(),snapshot:'Synthetic prerequisite',records:[{asin:'B0QA000001',title:'Synthetic kitchen product',categoryPath:'Kitchen & Dining',revenueMonthly:'$10,000',sourceText:'B0QA000001 Synthetic kitchen product Kitchen & Dining $10,000'}]};
  assert.equal((await call('/api/bridge/tasks/'+productClaim.taskId+'/results',{taskHash:productClaim.taskHash,observation:productObservation})).status,201);
  const keywordTask=await queueKeywordScout(test.pool,{deviceId,candidateId:candidate.id},{origin,privateKey:keys.privateKey});
  assert.equal(keywordTask.kind,'queued');
@@ -50,7 +51,10 @@ try{
  const request=JSON.parse(Buffer.from(claim.envelope.payload,'base64url')).request;
  assert.equal(request.kind,'historical_data');
  assert.equal(request.query,query);
- const observation={protocol:1,kind:'captured',scope:'jungle_scout_historical_data',query,sourcePageUrl:'https://members.junglescout.com/#/keyword',observedAt:new Date().toISOString(),snapshot:'Synthetic Historical Data result',dateRange:null,series:[{metric:'Search Trend 30 Day',periodLabel:'30 Day',value:'12%',sourceText:'Search Trend 30 Day 30 Day synthetic keyword 12%'},{metric:'Exact Search Volume 30 Day',periodLabel:'30 Day',value:'2,400',sourceText:'Exact Search Volume 30 Day 30 Day synthetic keyword 2,400'}]};
+ assert.equal(request.representativeAsin,'B0QA000001');
+ const observation={protocol:1,kind:'captured',scope:'jungle_scout_historical_data',query,sourcePageUrl:'https://members.junglescout.com/#/keyword',observedAt:new Date().toISOString(),snapshot:'Synthetic Historical Data result',dateRange:null,representativeAsin:'B0QA000001',unavailableMetrics:['price','sales','rank'],series:[{metric:'Search Trend 30 Day',periodLabel:'30 Day',value:'12%',sourceText:'Search Trend 30 Day 30 Day synthetic keyword 12%'},{metric:'Exact Search Volume 30 Day',periodLabel:'30 Day',value:'2,400',sourceText:'Exact Search Volume 30 Day 30 Day synthetic keyword 2,400'}]};
+ assert.equal(historicalDataObservationSchema.safeParse(observation).success,true,'Historical Data preserves the selected representative ASIN and unavailable metrics');
+ assert.equal(historicalDataObservationSchema.safeParse({...observation,unavailableMetrics:['price','demand']}).success,false,'Unavailable metric labels stay within the known contract');
  const submit=value=>call('/api/bridge/tasks/'+claim.taskId+'/results',{taskHash:claim.taskHash,observation:value});
  const accepted=await submit(observation);
  assert.equal(accepted.status,201);

@@ -8,8 +8,10 @@ const categoryRecordSchema = z.object({
 });
 
 const observedValue = z.string().trim().min(1).max(2_000).nullable().optional();
+const asin = z.string().regex(/^[A-Z0-9]{10}$/);
+const unavailableSignal = z.enum(["demand", "seasonality", "growth"]);
 const productSchema = z.object({
-  asin: z.string().regex(/^[A-Z0-9]{10}$/),
+  asin,
   rank: observedValue,
   productName: observedValue,
   rating: observedValue,
@@ -38,6 +40,7 @@ export const categoryTrendsObservationSchema = z.object({
   sourcePageUrl: z.string().url().max(4096).regex(/^https:\/\/members\.junglescout\.com\/(?:#\/)?category-trends(?:[/?#].*)?$/),
   observedAt: z.string().datetime({ offset: true }),
   snapshot: z.string().min(1).max(1_000_000),
+  representativeAsin: asin.nullable().optional(),
   categories: z.array(categoryRecordSchema).max(100),
   kitchenDiningConfirmation: z.enum(["confirmed", "not_confirmed"]),
   signals: z.array(z.object({
@@ -47,10 +50,14 @@ export const categoryTrendsObservationSchema = z.object({
   }).strict().refine(signal => signal.sourceText.includes(signal.label) && signal.sourceText.includes(signal.value), {
     message: "Category Trends source text must contain every observed signal",
   })).max(200),
+  unavailableSignals: z.array(unavailableSignal).max(3).optional(),
   products: z.array(productSchema).max(400).optional(),
   dateColumns: z.array(dateColumnSchema).max(31).optional(),
+  representativeHistory: z.array(productSchema).max(31).optional(),
 }).strict().refine(value => value.kitchenDiningConfirmation !== "confirmed" || value.categories.some(category => category.category === "Kitchen & Dining"), {
   message: "Kitchen & Dining can only be confirmed by an observed category",
+}).refine(value => (value.representativeHistory ?? []).every(product => value.representativeAsin !== null && value.representativeAsin !== undefined && product.asin === value.representativeAsin), {
+  message: "Representative history must belong to the selected representative ASIN",
 });
 
 export type CategoryTrendsObservation = z.infer<typeof categoryTrendsObservationSchema>;

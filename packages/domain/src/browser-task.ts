@@ -68,6 +68,7 @@ export const browserTaskSchema = z.object({
       inputVersion: z.number().int().positive(),
       settingsVersion: z.number().int().positive(),
       query: z.string().trim().min(1).max(500),
+      representativeAsin: z.string().regex(/^[A-Z0-9]{10}$/).nullable(),
     }).strict(),
     z.object({
       kind: z.literal("category_trends"),
@@ -75,6 +76,7 @@ export const browserTaskSchema = z.object({
       inputVersion: z.number().int().positive(),
       settingsVersion: z.number().int().positive(),
       query: z.string().trim().min(1).max(500),
+      representativeAsin: z.string().regex(/^[A-Z0-9]{10}$/).nullable(),
     }).strict(),
     z.object({
       kind: z.literal("competitive_intelligence"),

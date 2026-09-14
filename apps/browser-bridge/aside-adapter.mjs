@@ -57,7 +57,7 @@ export function createAsideAdapter(configuration) {
   const claim=ledger.claim(envelope);
   if(claim.kind!=='claimed')return claim;
   try{
-   const result=await invoke(marker=>task.request.kind==='competitive_intelligence'?competitiveIntelligenceScript(task.request.query,marker):task.request.kind==='category_trends'?categoryTrendsScript(task.request.query,marker):task.request.kind==='historical_data'?historicalDataScript(task.request.query,marker):task.request.kind==='keyword_scout'?keywordScoutScript(task.request.query,marker):task.request.kind==='product_database'?productDatabaseScript(task.request.query,marker):task.request.kind==='amazon_search'?amazonMarketScript(task.request.query,marker):task.request.kind==='saved_search_export'?savedSearchExportScript(task.request,marker):task.request.kind==='amazon_package'?amazonPackageScript(task.request.asin,marker):task.request.kind==='supplier_search'
+   const result=await invoke(marker=>task.request.kind==='competitive_intelligence'?competitiveIntelligenceScript(task.request.query,marker):task.request.kind==='category_trends'?categoryTrendsScript(task.request.query,marker,task.request.representativeAsin):task.request.kind==='historical_data'?historicalDataScript(task.request.query,marker,task.request.representativeAsin):task.request.kind==='keyword_scout'?keywordScoutScript(task.request.query,marker):task.request.kind==='product_database'?productDatabaseScript(task.request.query,marker):task.request.kind==='amazon_search'?amazonMarketScript(task.request.query,marker):task.request.kind==='saved_search_export'?savedSearchExportScript(task.request,marker):task.request.kind==='amazon_package'?amazonPackageScript(task.request.asin,marker):task.request.kind==='supplier_search'
     ?supplierSearchScript(task.request.query,marker):supplierDetailScript(task.request,marker));
    if(result?.kind==='unavailable'&&typeof result.reason==='string'&&/^[A-Z0-9_]+$/.test(result.reason)){
     return {kind:'pending_reconciliation',taskId:claim.taskId,taskHash:claim.taskHash,reason:result.reason};
@@ -68,9 +68,9 @@ export function createAsideAdapter(configuration) {
    if(task.request.kind==='competitive_intelligence'){
     if(observation.scope!=='jungle_scout_competitive_intelligence'||observation.query!==task.request.query)throw new Error('ASIDE_CAPTURE_INVALID');
    }else if(task.request.kind==='category_trends'){
-    if(observation.scope!=='jungle_scout_category_trends'||observation.query!==task.request.query)throw new Error('ASIDE_CAPTURE_INVALID');
+    if(observation.scope!=='jungle_scout_category_trends'||observation.query!==task.request.query||(observation.representativeAsin??null)!==task.request.representativeAsin)throw new Error('ASIDE_CAPTURE_INVALID');
    }else if(task.request.kind==='historical_data'){
-    if(observation.scope!=='jungle_scout_historical_data'||observation.query!==task.request.query)throw new Error('ASIDE_CAPTURE_INVALID');
+    if(observation.scope!=='jungle_scout_historical_data'||observation.query!==task.request.query||(observation.representativeAsin??null)!==task.request.representativeAsin)throw new Error('ASIDE_CAPTURE_INVALID');
    }else if(task.request.kind==='keyword_scout'){
     if(observation.scope!=='jungle_scout_keyword_scout'||observation.query!==task.request.query)throw new Error('ASIDE_CAPTURE_INVALID');
    }else if(task.request.kind==='product_database'){

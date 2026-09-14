@@ -37,7 +37,7 @@ try{
   assert.equal(productTask.kind,'queued');
   const productClaim=(await call('/api/bridge/tasks/claim',{})).body;
   assert.equal(productClaim.kind,'task',JSON.stringify(productClaim));
-  const productObservation={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100,sourcePageUrl:'https://members.junglescout.com/#/database',observedAt:new Date().toISOString(),snapshot:'Synthetic prerequisite',records:[{asin:'B0QA000001',title:'Synthetic kitchen product',sourceText:'B0QA000001 Synthetic kitchen product'}]};
+  const productObservation={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100,displayedCount:1,totalCount:1,coverage:'complete',sourcePageUrl:'https://members.junglescout.com/#/database',observedAt:new Date().toISOString(),snapshot:'Synthetic prerequisite',records:[{asin:'B0QA000001',title:'Synthetic kitchen product',categoryPath:'Kitchen & Dining',revenueMonthly:'$10,000',sourceText:'B0QA000001 Synthetic kitchen product Kitchen & Dining $10,000'}]};
   assert.equal((await call('/api/bridge/tasks/'+productClaim.taskId+'/results',{taskHash:productClaim.taskHash,observation:productObservation})).status,201);
   const keywordTask=await queueKeywordScout(test.pool,{deviceId,candidateId:candidate.id},{origin,privateKey:keys.privateKey});
   assert.equal(keywordTask.kind,'queued');
@@ -49,7 +49,7 @@ try{
   assert.equal(prerequisite.kind,'queued');
   const historicalClaim=(await call('/api/bridge/tasks/claim',{})).body;
   assert.equal(historicalClaim.kind,'task',JSON.stringify(historicalClaim));
-  const historicalObservation={protocol:1,kind:'captured',scope:'jungle_scout_historical_data',query,sourcePageUrl:'https://members.junglescout.com/#/keyword',observedAt:new Date().toISOString(),snapshot:'Synthetic prerequisite',dateRange:null,series:[{metric:'Search Trend 30 Day',periodLabel:'30 Day',value:'12%',sourceText:'Search Trend 30 Day 30 Day '+query+' 12%'}]};
+  const historicalObservation={protocol:1,kind:'captured',scope:'jungle_scout_historical_data',query,sourcePageUrl:'https://members.junglescout.com/#/keyword',observedAt:new Date().toISOString(),snapshot:'Synthetic prerequisite',dateRange:null,representativeAsin:'B0QA000001',unavailableMetrics:['price','sales','rank'],series:[{metric:'Search Trend 30 Day',periodLabel:'30 Day',value:'12%',sourceText:'Search Trend 30 Day 30 Day '+query+' 12%'}]};
   assert.equal((await call('/api/bridge/tasks/'+historicalClaim.taskId+'/results',{taskHash:historicalClaim.taskHash,observation:historicalObservation})).status,201);
  const queued=await queueCategoryTrends(test.pool,{deviceId,candidateId:candidate.id},{origin,privateKey:keys.privateKey});
  assert.equal(queued.kind,'queued');
@@ -58,7 +58,9 @@ try{
  const request=JSON.parse(Buffer.from(claim.envelope.payload,'base64url')).request;
  assert.equal(request.kind,'category_trends');
  assert.equal(request.query,query);
- const observation={protocol:1,kind:'captured',scope:'jungle_scout_category_trends',query,sourcePageUrl:'https://members.junglescout.com/#/category-trends',observedAt:new Date().toISOString(),snapshot:'Synthetic Category Trends result',categories:[{category:'Kitchen & Dining',sourceText:'Category Kitchen & Dining'}],kitchenDiningConfirmation:'confirmed',signals:[{label:'Growth',value:'12%',sourceText:'Growth 12%'}],products:[{asin:'B0QA000001',rank:'1',productName:'Synthetic kitchen product',rating:'4.6',reviews:'120',price:'$25.00',dateLabel:'Sep 13',sourceText:'Sep 13 B0QA000001#1 Synthetic kitchen product 4.6(120)|$25.00'}],dateColumns:[{dateLabel:'Sep 13',sourceText:'Sep 13 B0QA000001#1 Synthetic kitchen product 4.6(120)|$25.00',products:[{asin:'B0QA000001',rank:'1',productName:'Synthetic kitchen product',rating:'4.6',reviews:'120',price:'$25.00',dateLabel:'Sep 13',sourceText:'Sep 13 B0QA000001#1 Synthetic kitchen product 4.6(120)|$25.00'}]}]};
+ assert.equal(request.representativeAsin,'B0QA000001');
+ const representative={asin:'B0QA000001',rank:'1',productName:'Synthetic kitchen product',rating:'4.6',reviews:'120',price:'$25.00',dateLabel:'Sep 13',sourceText:'Sep 13 B0QA000001#1 Synthetic kitchen product 4.6(120)|$25.00'};
+ const observation={protocol:1,kind:'captured',scope:'jungle_scout_category_trends',query,sourcePageUrl:'https://members.junglescout.com/#/category-trends',observedAt:new Date().toISOString(),snapshot:'Synthetic Category Trends result',representativeAsin:'B0QA000001',categories:[{category:'Kitchen & Dining',sourceText:'Category Kitchen & Dining'}],kitchenDiningConfirmation:'confirmed',signals:[{label:'Growth',value:'12%',sourceText:'Growth 12%'}],unavailableSignals:['demand','seasonality'],products:[representative],dateColumns:[{dateLabel:'Sep 13',sourceText:'Sep 13 B0QA000001#1 Synthetic kitchen product 4.6(120)|$25.00',products:[representative]}],representativeHistory:[representative]};
  const submit=value=>call('/api/bridge/tasks/'+claim.taskId+'/results',{taskHash:claim.taskHash,observation:value});
  const accepted=await submit(observation);
  assert.equal(accepted.status,201);
@@ -70,5 +72,6 @@ try{
  const unconfirmed={...observation,categories:[{category:'Home & Kitchen',sourceText:'Category Home & Kitchen'}],kitchenDiningConfirmation:'confirmed'};
  assert.equal(categoryTrendsObservationSchema.safeParse(unconfirmed).success,false,'Home & Kitchen must never confirm Kitchen & Dining');
  assert.equal(categoryTrendsObservationSchema.safeParse(observation).success,true,'Category Trends preserves dated ranked product cards');
+ assert.equal(categoryTrendsObservationSchema.safeParse({...observation,unavailableSignals:['demand','unsupported']}).success,false,'Unavailable signal labels stay within the known contract');
  console.log(JSON.stringify({scenario:'signed_category_trends_aside_task',result:'PASS',signedTask:true,claimed:true,encryptedReceipt:true,homeKitchenDoesNotConfirmKitchenDining:true,paidApiCalls:0,externalActions:0}));
 }finally{await test.close();}

@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+const asin = z.string().regex(/^[A-Z0-9]{10}$/);
+const unavailableMetric = z.enum(["price", "sales", "rank"]);
+
 export const historicalDataObservationSchema = z.object({
   protocol: z.literal(1),
   kind: z.literal("captured"),
@@ -9,6 +12,8 @@ export const historicalDataObservationSchema = z.object({
   observedAt: z.string().datetime({ offset: true }),
   snapshot: z.string().min(1).max(1_000_000),
   dateRange: z.null(),
+  representativeAsin: asin.nullable().optional(),
+  unavailableMetrics: z.array(unavailableMetric).max(3).optional(),
   series: z.array(z.object({
     metric: z.string().trim().min(1).max(200),
     periodLabel: z.string().trim().min(1).max(200),

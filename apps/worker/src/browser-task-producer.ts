@@ -51,9 +51,9 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
     const request: BrowserReadTask["request"] = target.kind==='competitive_intelligence' && 'market_query' in source
       ? {kind:'competitive_intelligence',...scope,query:source.market_query}
       : target.kind==='category_trends' && 'market_query' in source
-      ? {kind:'category_trends',...scope,query:source.market_query}
+      ? {kind:'category_trends',...scope,query:source.market_query,representativeAsin:source.representative_asin}
       : target.kind==='historical_data' && 'market_query' in source
-      ? {kind:'historical_data',...scope,query:source.market_query}
+      ? {kind:'historical_data',...scope,query:source.market_query,representativeAsin:source.representative_asin}
       : target.kind==='keyword_scout' && 'market_query' in source
       ? {kind:'keyword_scout',...scope,query:source.market_query}
       : target.kind==='product_database' && 'market_query' in source

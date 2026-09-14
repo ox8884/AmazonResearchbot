@@ -1,5 +1,5 @@
-export function categoryTrendsScript(query,marker){
- async function collect(query,marker){
+export function categoryTrendsScript(query,marker,representativeAsin=null){
+ async function collect(query,marker,representativeAsin){
   function extractCategorySnapshot(tree){
    const lines=String(tree||'').split(/\r?\n/);
    const decode=line=>{const offset=line.indexOf('text: ');if(offset<0)return null;try{return JSON.parse(line.slice(offset+6).trim());}catch{return null;}};
@@ -36,7 +36,8 @@ export function categoryTrendsScript(query,marker){
    }
    const uniqueProducts=[...new Map(products.map(product=>[(product.dateLabel??'unknown')+'\n'+product.asin,product])).values()];
    const dateColumns=dateLabels.map(dateLabel=>({dateLabel,sourceText:[dateLabel,...uniqueProducts.filter(product=>product.dateLabel===dateLabel).map(product=>product.sourceText)].join('\n'),products:uniqueProducts.filter(product=>product.dateLabel===dateLabel)})).filter(column=>column.products.length);
-   return {categories,kitchenDiningConfirmation:categories.length?'confirmed':'not_confirmed',products:uniqueProducts,dateColumns};
+   const representativeHistory=representativeAsin===null?[]:uniqueProducts.filter(product=>product.asin===representativeAsin&&product.dateLabel!==null);
+   return {categories,kitchenDiningConfirmation:categories.length?'confirmed':'not_confirmed',products:uniqueProducts,dateColumns,representativeHistory};
   }
   let page,result,owned=false,stage='OPEN';
   try{
@@ -61,7 +62,7 @@ export function categoryTrendsScript(query,marker){
    const extracted=extractCategorySnapshot(snapshotResult.tree);
    if(!extracted.products.length||!extracted.dateColumns.length)throw Error('RESULT_SCOPE_UNCONFIRMED');
    if(await destination()!==sourcePageUrl)throw Error('SOURCE_CHANGED');
-   result={protocol:1,kind:'captured',scope:'jungle_scout_category_trends',query,sourcePageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,categories:extracted.categories,kitchenDiningConfirmation:extracted.kitchenDiningConfirmation,signals:[],products:extracted.products,dateColumns:extracted.dateColumns};
+   result={protocol:1,kind:'captured',scope:'jungle_scout_category_trends',query,sourcePageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,representativeAsin:representativeAsin??null,categories:extracted.categories,kitchenDiningConfirmation:extracted.kitchenDiningConfirmation,signals:[],unavailableSignals:['demand','seasonality','growth'],products:extracted.products,dateColumns:extracted.dateColumns,representativeHistory:extracted.representativeHistory};
   }catch(error){
    const reason=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:'CATEGORY_TRENDS_'+stage+'_UNCONFIRMED';
    result={protocol:1,kind:'unavailable',reason};
@@ -70,5 +71,6 @@ export function categoryTrendsScript(query,marker){
   console.log(marker+JSON.stringify(result));
  }
  if(typeof query!=='string'||!query.trim()||query.length>500)throw Error('INVALID_CATEGORY_TRENDS_QUERY');
- return 'await ('+collect.toString()+')('+JSON.stringify(query)+','+JSON.stringify(marker)+')';
+ if(representativeAsin!==null&&(!/^[A-Z0-9]{10}$/.test(representativeAsin)))throw Error('INVALID_CATEGORY_TRENDS_ASIN');
+ return 'await ('+collect.toString()+')('+JSON.stringify(query)+','+JSON.stringify(marker)+','+JSON.stringify(representativeAsin)+')';
 }

@@ -68,6 +68,8 @@ function projectResult(kind: JungleScoutTaskKind, raw: unknown, query: string): 
       if (observation.scope !== 'jungle_scout_historical_data') return null;
       return { state: 'captured', sourcePageUrl: observation.sourcePageUrl, observedAt: observation.observedAt, result: {
         dateRange: observation.dateRange,
+        representativeAsin: observation.representativeAsin ?? null,
+        unavailableMetrics: observation.unavailableMetrics ?? [],
         series: observation.series.map(({ metric, periodLabel, value }) => ({ metric, periodLabel, value })),
       } };
     case 'category_trends':
@@ -76,8 +78,11 @@ function projectResult(kind: JungleScoutTaskKind, raw: unknown, query: string): 
         categories: observation.categories.map(({ category }) => category),
         kitchenDiningConfirmation: observation.kitchenDiningConfirmation,
         signals: observation.signals.map(({ label, value }) => ({ label, value })),
+        representativeAsin: observation.representativeAsin ?? null,
+        unavailableSignals: observation.unavailableSignals ?? [],
         products: (observation.products ?? []).map(({ asin, rank = null, productName = null, rating = null, reviews = null, price = null, dateLabel = null }) => ({ asin, rank, productName, rating, reviews, price, dateLabel })),
         dateColumns: (observation.dateColumns ?? []).map(({ dateLabel, products }) => ({ dateLabel, productCount: products.length })),
+        representativeHistory: (observation.representativeHistory ?? []).map(({ asin, rank = null, productName = null, rating = null, reviews = null, price = null, dateLabel = null }) => ({ asin, rank, productName, rating, reviews, price, dateLabel })),
       } };
     case 'competitive_intelligence':
       if (observation.scope !== 'jungle_scout_competitive_intelligence') return null;

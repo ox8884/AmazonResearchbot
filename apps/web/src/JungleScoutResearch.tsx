@@ -155,8 +155,11 @@ function Result({ item }: { readonly item: CapturedResearch }) {
     case 'historical_data': {
       const range = isRecord(item.result.dateRange) ? item.result.dateRange : null;
       const series = records(item.result.series);
+      const unavailable = Array.isArray(item.result.unavailableMetrics) ? item.result.unavailableMetrics.filter(value => typeof value === 'string') : [];
       return <details className="jungle-scout-results"><summary>{t('확인한 추이 보기', 'View observed trend')}</summary>
         <p className="muted">{t('관측 기간', 'Observed range')}: {valueText(range?.label, t('기간 미확인', 'Range unknown'))}</p>
+        <p className="muted">{t('대표 ASIN', 'Representative ASIN')}: {valueText(item.result.representativeAsin, t('미선정', 'Not selected'))}</p>
+        {unavailable.length ? <p className="muted">{t('화면에서 확인되지 않은 추이', 'Trends unavailable on this page')}: {unavailable.join(' · ')}</p> : null}
         {series.length ? <div className="jungle-scout-record-list">{series.map((row, index) => <article className="jungle-scout-record" key={`${valueText(row.metric, 'metric')}-${index}`}><ObservedFields fields={[{ label: t('지표', 'Metric'), value: row.metric }, { label: t('기간', 'Period'), value: row.periodLabel }, { label: t('값', 'Value'), value: row.value }]} /></article>)}</div> : <p className="muted">{t('화면에서 확인된 추이 값이 없습니다.', 'No trend values were visible in the captured page.')}</p>}
       </details>;
     }
@@ -165,11 +168,15 @@ function Result({ item }: { readonly item: CapturedResearch }) {
       const signals = records(item.result.signals);
       const products = records(item.result.products);
       const dateColumns = records(item.result.dateColumns);
+      const representativeHistory = records(item.result.representativeHistory);
+      const unavailable = Array.isArray(item.result.unavailableSignals) ? item.result.unavailableSignals.filter(value => typeof value === 'string') : [];
       const confirmed = item.result.kitchenDiningConfirmation === 'confirmed';
       return <details className="jungle-scout-results"><summary>{t('확인한 카테고리 자료 보기', 'View observed category research')}</summary>
         <p>{t('Kitchen & Dining 분류', 'Kitchen & Dining classification')}: {confirmed ? t('확인됨', 'Confirmed') : t('미확인', 'Not confirmed')}</p>
         <p className="muted">{t('표시된 카테고리', 'Observed categories')}: {categories.length ? categories.join(' · ') : t('미확인', 'Unknown')}</p>
         <p className="muted">{t('관측 날짜', 'Observed dates')}: {dateColumns.length ? dateColumns.map(column => valueText(column.dateLabel, t('미확인', 'Unknown'))).join(' · ') : t('미확인', 'Unknown')}</p>
+        <p className="muted">{t('대표 ASIN 날짜별 기록', 'Representative dated records')}: {representativeHistory.length ? t(`${representativeHistory.length}개 확인`, `${representativeHistory.length} observed`) : t('해당 날짜 표에 대표 상품이 없어 미확인', 'Unknown because the representative product was not in the dated table')}</p>
+        {unavailable.length ? <p className="muted">{t('화면에서 확인되지 않은 신호', 'Signals unavailable on this page')}: {unavailable.join(' · ')}</p> : null}
         {products.length ? <div className="jungle-scout-record-list">{products.map((row, index) => <article className="jungle-scout-record" key={`${valueText(row.asin, 'category-product')}-${valueText(row.dateLabel, String(index))}`}><ObservedFields fields={[{ label: t('날짜', 'Date'), value: row.dateLabel }, { label: t('순위', 'Rank'), value: row.rank }, { label: t('ASIN', 'ASIN'), value: row.asin }, { label: t('상품명', 'Product'), value: row.productName }, { label: t('가격', 'Price'), value: row.price }, { label: t('리뷰', 'Reviews'), value: row.reviews }, { label: t('별점', 'Rating'), value: row.rating }]} /></article>)}</div> : null}
         {signals.length ? <div className="jungle-scout-record-list">{signals.map((row, index) => <article className="jungle-scout-record" key={`${valueText(row.label, 'signal')}-${index}`}><ObservedFields fields={[{ label: t('신호', 'Signal'), value: row.label }, { label: t('값', 'Value'), value: row.value }]} /></article>)}</div> : null}
       </details>;
