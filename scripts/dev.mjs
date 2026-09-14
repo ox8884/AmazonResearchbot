@@ -137,9 +137,39 @@ const children = [
   spawn(process.execPath, ["node_modules/vite/bin/vite.js"], { windowsHide: true, detached: false, stdio: "inherit", cwd: path.join(root, "apps/web"), shell: false, env: process.env }),
 ];
 
-let browserClient = await startOptionalBrowserClient({ root, source: process.env });
+let browserClient = null;
 let browserSupervisorStopped = false;
 let browserSupervisor = Promise.resolve();
+let browserRetryResolve = null;
+let browserClientStarting = null;
+async function startBrowserClient() {
+  const pending = startOptionalBrowserClient({ root, source: process.env });
+  browserClientStarting = pending;
+  try {
+    const client = await pending;
+    if (browserSupervisorStopped) {
+      client?.child.kill("SIGTERM");
+      return null;
+    }
+    browserClient = client;
+    return client;
+  } finally {
+    if (browserClientStarting === pending) browserClientStarting = null;
+  }
+}
+function waitForBrowserRetry(ms) {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      browserRetryResolve = null;
+      resolve();
+    }, ms);
+    browserRetryResolve = () => {
+      clearTimeout(timer);
+      browserRetryResolve = null;
+      resolve();
+    };
+  });
+}
 async function superviseBrowserClient() {
   let failures = 0;
   while (!browserSupervisorStopped && browserClient) {
@@ -152,21 +182,23 @@ async function superviseBrowserClient() {
       console.error("ASIDE 연결 프로그램이 반복 종료되어 자동 재시작을 멈춥니다. 설정과 기기 등록을 확인해 주세요.");
       return;
     }
-    await delay(Math.min(30000, 3000 * failures));
+    await waitForBrowserRetry(Math.min(30000, 3000 * failures));
     if (browserSupervisorStopped) return;
-    browserClient = await startOptionalBrowserClient({ root, source: process.env });
+    await startBrowserClient();
   }
 }
 console.log("웹 http://localhost:5173  API http://localhost:3001  Mailpit http://localhost:8025");
 
 function shutdown() {
   browserSupervisorStopped = true;
+  browserRetryResolve?.();
   browserClient?.child.kill("SIGTERM");
   for (const child of children) child.kill("SIGTERM");
   void browserSupervisor;
 }
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+browserClient = await startBrowserClient();
 browserSupervisor = superviseBrowserClient();
 
 await Promise.race(children.map((c) => wait(c)));
