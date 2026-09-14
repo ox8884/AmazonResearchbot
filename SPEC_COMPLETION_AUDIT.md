@@ -76,3 +76,9 @@ R4 로컬 승인 대기 달성은 원래 SPEC의 실제 RFQ 발송·견적 회�
 - 기록된 Opportunity Finder 조건을 ASIDE에 적용해 라이브 결과 226개·표시 100행을 확인하고 CSV를 다운로드했다.
 - Forge `/research`에서 10025 bytes 원본을 `user_declared`로 가져와 후보 100개를 생성했다. 기존 후보는 보존됐다.
 - CSV에 category 열이 없으므로 Home & Kitchen 발굴 결과를 Kitchen & Dining으로 자동 승격하지 않고 후보별 분류 확인 대기를 유지한다.
+
+## 2026-09-13 Jungle Scout automation checkpoint
+- Product Database, Keyword Scout, Historical Data, Category Trends, Competitive Intelligence signed ASIDE tasks implemented with encrypted receipts, duplicate/stale protection, and dedicated verifiers.
+- Candidate detail now exposes per-tool task status, safe captured results, provenance, source URL, observedAt, and explicit unavailable/uncollected states; raw snapshots remain server-side.
+- Verification: all five dedicated verifiers PASS; pnpm typecheck PASS; web build PASS; integrated scenario repeated 5 times PASS; saved-searches/evidence/contrast/orders PASS; external_actions=0 and paid provider calls=0.
+- Real logged-in ASIDE capture remains Jay-owned final manual gate.
