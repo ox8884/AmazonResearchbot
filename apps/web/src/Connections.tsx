@@ -53,6 +53,24 @@ export function SiteShortcuts() {
       </div>
       <div className="connection-row">
         <div>
+          <strong>Product Database</strong>
+          <p className="muted">{t("ASIN·리뷰·가격·판매량과 상품군을 확인", "Review ASIN, reviews, price, sales, and product families")}</p>
+        </div>
+        <a className="btn btn-secondary" href="https://members.junglescout.com/#/database" target="_blank" rel="noopener noreferrer">
+          {t("Product Database 열기", "Open Product Database")}
+        </a>
+      </div>
+      <div className="connection-row">
+        <div>
+          <strong>Keyword Scout</strong>
+          <p className="muted">{t("검색량·키워드 확장·추세를 확인", "Review search volume, keyword expansion, and trends")}</p>
+        </div>
+        <a className="btn btn-secondary" href="https://members.junglescout.com/#/keyword-scout" target="_blank" rel="noopener noreferrer">
+          {t("Keyword Scout 열기", "Open Keyword Scout")}
+        </a>
+      </div>
+      <div className="connection-row">
+        <div>
           <strong>Alibaba</strong>
           <p className="muted">
             {t(
