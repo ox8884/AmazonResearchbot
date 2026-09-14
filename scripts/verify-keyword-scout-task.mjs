@@ -38,7 +38,7 @@ try{
  const request=JSON.parse(Buffer.from(claim.envelope.payload,'base64url')).request;
  assert.equal(request.kind,'keyword_scout');
  assert.equal(request.query,query);
- const observation={protocol:1,kind:'captured',scope:'jungle_scout_keyword_scout',query,sourcePageUrl:'https://members.junglescout.com/keyword-scout',observedAt:new Date().toISOString(),snapshot:'Synthetic Keyword Scout result',metrics:[{label:'Search Volume',value:'2,400',sourceText:'Search Volume 2,400'}],relatedKeywords:[{keyword:'synthetic kitchen organizer',sourceText:'Related keyword synthetic kitchen organizer'}],asinRelations:[{asin:'B0KS000001',sourceText:'B0KS000001 keyword relation'}]};
+ const observation={protocol:1,kind:'captured',scope:'jungle_scout_keyword_scout',query,sourcePageUrl:'https://members.junglescout.com/#/keyword',observedAt:new Date().toISOString(),snapshot:'Synthetic Keyword Scout result',metrics:[{label:'Search Volume',value:'2,400',sourceText:'Search Volume 2,400'}],relatedKeywords:[{keyword:'synthetic kitchen organizer',sourceText:'Related keyword synthetic kitchen organizer'}],asinRelations:[{asin:'B0KS000001',sourceText:'B0KS000001 keyword relation'}]};
  const submit=value=>call('/api/bridge/tasks/'+claim.taskId+'/results',{taskHash:claim.taskHash,observation:value});
  const accepted=await submit(observation);
  assert.equal(accepted.status,201);

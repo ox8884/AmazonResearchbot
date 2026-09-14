@@ -2,11 +2,12 @@ export function keywordScoutScript(query,marker){
  async function collect(query,marker){
   let page,result;
   try{
-   page=await openTab('https://members.junglescout.com/keyword-scout');
+   page=await openTab('https://members.junglescout.com/');
+   await page.getByText('Keyword Scout',{exact:true}).click();
    const destination=()=>page.evaluate(()=>location.href);
    const sourcePageUrl=await destination();
-   if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?keyword-scout(?:[/?#].*)?$/.test(sourcePageUrl))throw Error('SITE_CHANGED');
-   const input=page.getByRole('textbox',{name:/search keywords/i}).first();
+   if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?keyword(?:[/?#].*)?$/.test(sourcePageUrl))throw Error('SITE_CHANGED');
+   const input=page.getByRole('textbox',{name:'Enter a Keyword or up to ten ASINs separated by commas',exact:true});
    await input.waitFor({state:'visible',timeout:20_000});
    await input.fill(query);
    if(await input.evaluate(el=>el.value)!==query)throw Error('QUERY_NOT_APPLIED');

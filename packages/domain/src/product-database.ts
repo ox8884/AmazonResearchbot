@@ -7,7 +7,7 @@ export const productDatabaseObservationSchema = z.object({
   kind: z.literal("captured"),
   scope: z.literal("jungle_scout_product_database"),
   query: z.string().trim().min(1).max(500),
-  sourcePageUrl: z.string().url().max(4096).regex(/^https:\/\/members\.junglescout\.com\/(?:#\/)?product-database(?:[/?#].*)?$/),
+  sourcePageUrl: z.string().url().max(4096).regex(/^https:\/\/members\.junglescout\.com\/(?:#\/)?database(?:[/?#].*)?$/),
   observedAt: z.string().datetime({ offset: true }),
   snapshot: z.string().min(1).max(1_000_000),
   records: z.array(z.object({

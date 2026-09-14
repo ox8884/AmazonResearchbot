@@ -7,7 +7,7 @@ export const keywordScoutObservationSchema = z.object({
   kind: z.literal("captured"),
   scope: z.literal("jungle_scout_keyword_scout"),
   query: keyword,
-  sourcePageUrl: z.string().url().max(4096).regex(/^https:\/\/members\.junglescout\.com\/(?:#\/)?keyword-scout(?:[/?#].*)?$/),
+  sourcePageUrl: z.string().url().max(4096).regex(/^https:\/\/members\.junglescout\.com\/(?:#\/)?keyword(?:[/?#].*)?$/),
   observedAt: z.string().datetime({ offset: true }),
   snapshot: z.string().min(1).max(1_000_000),
   metrics: z.array(z.object({

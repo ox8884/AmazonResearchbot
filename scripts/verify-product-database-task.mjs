@@ -38,7 +38,7 @@ try{
  const request=JSON.parse(Buffer.from(claim.envelope.payload,'base64url')).request;
  assert.deepEqual(request.kind,'product_database');
  assert.equal(request.query,query);
- const observation={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,sourcePageUrl:'https://members.junglescout.com/product-database',observedAt:new Date().toISOString(),snapshot:'Synthetic Product Database result',records:[{asin:'B0PD000001',title:'Synthetic kitchen organizer',sourceText:'B0PD000001 Synthetic kitchen organizer'}]};
+ const observation={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,sourcePageUrl:'https://members.junglescout.com/#/database',observedAt:new Date().toISOString(),snapshot:'Synthetic Product Database result',records:[{asin:'B0PD000001',title:'Synthetic kitchen organizer',sourceText:'B0PD000001 Synthetic kitchen organizer'}]};
  const submit=value=>call('/api/bridge/tasks/'+claim.taskId+'/results',{taskHash:claim.taskHash,observation:value});
  const accepted=await submit(observation);
  assert.equal(accepted.status,201);
