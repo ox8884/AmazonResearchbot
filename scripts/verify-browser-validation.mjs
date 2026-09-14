@@ -2,9 +2,12 @@ import assert from 'node:assert/strict';
 import {createHash,randomUUID} from 'node:crypto';
 import {openAcceptance} from './support/acceptance.mjs';
 import {advanceCandidate} from '../apps/worker/src/advance-candidate.ts';
+import {queueProductDatabase} from '../apps/worker/src/browser-task-producer.ts';
+import {publishBrowserSigningIdentity} from '../apps/worker/src/browser-signing-key.ts';
 import {denyTransport} from '../packages/integrations/src/jungle-scout/transport.ts';
 import {encryptSecret} from '../packages/security/src/secrets.ts';
 import {exactPayloadHash} from '../packages/security/src/approval-hash.ts';
+import {browserSigningFixture} from './support/browser-signing-fixture.mjs';
 
 const test=await openAcceptance({databaseKey:'browser-validation-'+Date.now()});
 try{
@@ -90,9 +93,28 @@ try{
  assert.equal((await test.pool.query('SELECT stage FROM candidates WHERE id=$1',[pendingId])).rows[0].stage,'api_validation');
  const raceQuery='browser validation race '+test.runId;
  const raceId=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",[raceQuery])).rows[0].id;
+ const positiveSnapshot={...settings.snapshot,jsDailyWireCap:20};
+ await test.pool.query('UPDATE settings_versions SET snapshot=$2::jsonb WHERE version=$1',[settings.version,JSON.stringify(positiveSnapshot)]);
  await test.pool.query("UPDATE bridge_devices SET reported_tasks=ARRAY['product_database']::text[],reported_connected=true,reported_at=now() WHERE id=$1",[deviceId]);
  let raceOfficialCalls=0;
  await advanceCandidate(test.pool,{kind:'ready',send:async()=>{raceOfficialCalls++;throw new Error('Official transport must not race browser dispatch');}},{candidateId:raceId,stage:'api_validation',inputVersion:1},ai);
  assert.equal(raceOfficialCalls,0);
- console.log(JSON.stringify({scenario:'browser-canonical-validation',result:'PASS',completePopulationEvaluated:true,partialPopulationHeld:true,mixedCategoryPopulationHeld:true,allReceiptsValidated:true,corruptReceiptRejected:true,pendingBrowserAvoidsOfficialFallback:true,dispatchRaceAvoidsOfficialFallback:true,unknownsPreserved:true,encryptedReceiptBound:true,developerApiCalls:0,externalActions:0}));
+ const keys=browserSigningFixture(),identity=await publishBrowserSigningIdentity(test.pool,keys.privateKey);
+ const concurrentQuery='browser validation concurrent dispatch '+test.runId;
+ const concurrentId=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",[concurrentQuery])).rows[0].id;
+ await test.pool.query("UPDATE bridge_devices SET reported_key_fingerprint=$2,reported_tasks=ARRAY['product_database']::text[],reported_connected=false,reported_at=now() WHERE id=$1",[deviceId,identity.fingerprint]);
+ let enterWire,releaseWire;
+ const wireEntered=new Promise(resolve=>{enterWire=resolve;});
+ const wireRelease=new Promise(resolve=>{releaseWire=resolve;});
+ const advancing=advanceCandidate(test.pool,{kind:'ready',send:async()=>{enterWire();await wireRelease;return {status:503,body:{},retryAfter:null};}},{candidateId:concurrentId,stage:'api_validation',inputVersion:1},ai);
+ await wireEntered;
+ await test.pool.query("UPDATE bridge_devices SET reported_connected=true,reported_at=now() WHERE id=$1",[deviceId]);
+ let queueSettled=false;
+ const queuing=queueProductDatabase(test.pool,{deviceId,candidateId:concurrentId},{origin:'http://localhost:5173',privateKey:keys.privateKey}).then(result=>{queueSettled=true;return result;});
+ await new Promise(resolve=>setTimeout(resolve,25));
+ assert.equal(queueSettled,false,'Browser dispatch waits while official fallback owns the candidate transport decision');
+ releaseWire();
+ await advancing;
+ assert.notEqual((await queuing).kind,'not_ready');
+ console.log(JSON.stringify({scenario:'browser-canonical-validation',result:'PASS',completePopulationEvaluated:true,partialPopulationHeld:true,mixedCategoryPopulationHeld:true,allReceiptsValidated:true,corruptReceiptRejected:true,pendingBrowserAvoidsOfficialFallback:true,positiveCapBrowserIntent:true,concurrentTransportArbitration:true,unknownsPreserved:true,encryptedReceiptBound:true,externalActions:0}));
 }finally{await test.close();}

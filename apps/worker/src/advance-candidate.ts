@@ -128,13 +128,19 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
         accountScope: "local",
         ...(firstPageSource?{firstPageSource}:{}),
       };
-    const browserResult=ai?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
-    if(browserResult==='not_ready')await consumeOfficialValidation(
-      pool,
-      transport,
-      context,
-      (retryAt) => scheduleDeferredAdvance(pool, { ...data, stage: "api_validation" }, retryAt),
-    );
+    const validationGuard=await pool.connect();
+    try{
+      await validationGuard.query('BEGIN');
+      await validationGuard.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",['browser-validation:'+data.candidateId]);
+      const browserResult=ai?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
+      if(browserResult==='not_ready')await consumeOfficialValidation(
+        pool,
+        transport,
+        context,
+        (retryAt) => scheduleDeferredAdvance(pool, { ...data, stage: "api_validation" }, retryAt),
+      );
+      await validationGuard.query('COMMIT');
+    }catch(error){await validationGuard.query('ROLLBACK');throw error;}finally{validationGuard.release();}
   }
   if(ai?.transport.kind==='ready'){
     const current=(await pool.query<{stage:string}>('SELECT stage FROM candidates WHERE id=$1',[data.candidateId])).rows[0];
