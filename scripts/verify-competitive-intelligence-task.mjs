@@ -19,9 +19,14 @@ const tieCells=['','B0CI000002 Synthetic ice cream scoop kitchen tool','Syntheti
 const tieRow={getClientRects:()=>[{}],innerText:tieCells.join(' '),querySelectorAll:()=>tieCells.map(innerText=>({innerText}))};
 let tableRows=[fakeRow];
 let currentUrl='https://members.junglescout.com/#/competitive-intelligence';
-let homeKitchen=true,standard=true,resultLimit='50';
+let homeKitchen=true,standard=true,resultLimit='50',marketplaceSelected=true;
 const fakeInput={value:'',waitFor:async()=>{},fill:async value=>{fakeInput.value=value;},evaluate:async callback=>callback({value:fakeInput.value})};
-const fakeLabel=name=>({first(){return this;},waitFor:async()=>{},click:async()=>{if(name==='Home & Kitchen')homeKitchen=true;if(name==='Standard')standard=true;},evaluate:async callback=>callback({matches:()=>false,querySelector:()=>({checked:name==='Home & Kitchen'?homeKitchen:standard,getAttribute:()=>null}),parentElement:null})});
+const fakeLabel=name=>({first(){return this;},waitFor:async()=>{},click:async()=>{if(name==='Home & Kitchen')homeKitchen=true;if(name==='Standard')standard=true;},evaluate:async callback=>callback({
+ matches:selector=>name==='United States'&&selector==='[role="combobox"]',
+ querySelector:()=>name==='United States'?null:{checked:name==='Home & Kitchen'?homeKitchen:standard,getAttribute:()=>null},
+ getAttribute:attribute=>attribute==='aria-valuetext'&&name==='United States'&&marketplaceSelected?'United States':null,
+ innerText:name==='United States'&&marketplaceSelected?'United States':'Canada',textContent:name,parentElement:null,contains:()=>true,
+})});
 const fakeLimit={evaluate:async callback=>callback({innerText:resultLimit,parentElement:{parentElement:{innerText:`Displaying 100 of ${tableRows.length}`}}}),click:async()=>{},waitFor:async()=>{}};
 const fakePage={
  goto:async url=>{currentUrl=url;},
@@ -60,6 +65,15 @@ assert.equal(generatedResult.coverage,'complete');
 assert.equal(generatedResult.representativeAsin,'B0CI000001');
 assert.equal(generatedResult.sourcePageUrl,'https://members.junglescout.com/#/database');
 assert.equal(competitiveIntelligenceObservationSchema.safeParse(generatedResult).success,true);
+marketplaceSelected=false;
+generatedOutput.length=0;
+currentUrl='https://members.junglescout.com/#/competitive-intelligence';
+await vm.runInNewContext('(async()=>{'+competitiveIntelligenceScript('ice cream scoop','CI:')+'})()',{
+ console:{log:value=>generatedOutput.push(value)},listBrowserTabs:async()=>[{targetId:'existing-jungle-scout',url:'https://members.junglescout.com/#/dashboard'}],
+ attachBrowserTab:async()=>fakePage,openTab:async()=>{throw new Error('Existing authenticated tab must be reused');},closeTab:async()=>{},snapshot:async()=>({tree:'Synthetic Product Database table'}),getComputedStyle:()=>({visibility:'visible'}),document:{body:{}},
+},{timeout:1000});
+assert.deepEqual(JSON.parse(generatedOutput[0].slice('CI:'.length)),{protocol:1,kind:'unavailable',reason:'MARKETPLACE_NOT_US'},'An unrelated United States control cannot prove the Product Database fallback marketplace');
+marketplaceSelected=true;
 tableRows=[fakeRow,tieRow];
 generatedOutput.length=0;
 await vm.runInNewContext('(async()=>{'+competitiveIntelligenceScript('ice cream scoop','CI:')+'})()',{

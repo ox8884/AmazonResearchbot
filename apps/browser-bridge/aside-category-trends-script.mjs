@@ -45,8 +45,11 @@ export function categoryTrendsScript(query,marker,representativeAsin=null){
    if(existing)page=await attachBrowserTab(existing.targetId);
    else {page=await openTab('https://members.junglescout.com/#/category-trends');owned=true;}
    stage='NAVIGATION';
-   await page.goto('https://members.junglescout.com/#/category-trends');
    const destination=()=>page.evaluate(()=>location.href);
+   const categoryUrl='https://members.junglescout.com/#/category-trends';
+   if(await destination()!==categoryUrl){
+    try{await page.goto(categoryUrl);}catch(error){if(await destination()!==categoryUrl)throw error;}
+   }
    const sourcePageUrl=await destination();
    if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?category-trends(?:[/?#].*)?$/.test(sourcePageUrl))throw Error('SITE_CHANGED');
    stage='CATEGORY';

@@ -6,25 +6,29 @@ export function productDatabaseScript(query,marker){
    if(existing)page=await attachBrowserTab(existing.targetId);
    else {page=await openTab('https://members.junglescout.com/#/database');owned=true;}
    stage='NAVIGATION';
-   await page.goto('https://members.junglescout.com/#/database');
    const destination=()=>page.evaluate(()=>location.href);
+   const databaseUrl='https://members.junglescout.com/#/database';
+   if(await destination()!==databaseUrl){
+    try{await page.goto(databaseUrl);}catch(error){if(await destination()!==databaseUrl)throw error;}
+   }
    const sourcePageUrl=await destination();
    if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?database(?:[/?#].*)?$/.test(sourcePageUrl))throw Error('SITE_CHANGED');
    stage='FILTERS';
    const marketplace=page.getByText('United States',{exact:true}).first();
    await marketplace.waitFor({state:'visible',timeout:20_000});
-   let marketplaceSelected=false;
-   try{marketplaceSelected=await page.locator('[role="combobox"]').evaluateAll(controls=>controls.some(control=>control.getClientRects().length>0&&(control.innerText||'').trim()==='United States'));}catch{}
-   if(!marketplaceSelected){
-    const stateForMarketplace=await marketplace.evaluate(el=>{
+   const stateForMarketplace=await marketplace.evaluate(el=>{
      for(let node=el;node&&node!==document.body;node=node.parentElement){
+      const combo=node.matches('[role="combobox"]')?node:node.querySelector('[role="combobox"]');
+      if(combo&&combo.contains(el)){
+       const value=(combo.getAttribute('aria-valuetext')||combo.innerText||combo.textContent||'').replace(/\s+/g,' ').trim();
+       return {found:true,selected:value==='United States',checked:false};
+      }
       const control=node.matches('input[type="checkbox"],[role="checkbox"]')?node:node.querySelector('input[type="checkbox"],[role="checkbox"]');
-      if(control)return {found:true,checked:control.checked===true||control.getAttribute('aria-checked')==='true'};
+      if(control&&node.contains(el))return {found:true,selected:false,checked:control.checked===true||control.getAttribute('aria-checked')==='true'};
      }
-     return {found:false,checked:false};
-    });
-    if(!stateForMarketplace.found||!stateForMarketplace.checked)throw Error('MARKETPLACE_FILTER_UNCONFIRMED');
-   }
+     return {found:false,selected:false,checked:false};
+   });
+   if(!stateForMarketplace.found||(!stateForMarketplace.selected&&!stateForMarketplace.checked))throw Error('MARKETPLACE_FILTER_UNCONFIRMED');
    const stateFor=label=>label.evaluate(el=>{
     for(let node=el;node&&node!==document.body;node=node.parentElement){
      const control=node.matches('input[type="checkbox"],[role="checkbox"]')?node:node.querySelector('input[type="checkbox"],[role="checkbox"]');

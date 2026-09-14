@@ -28,8 +28,8 @@ export async function openDevSupervisorFixture({root,source,exitedCore=false}){
   return child;
  };
  const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
- const run=new AsyncFunction('spawn','process','root','startOptionalBrowserClient','console',code.slice(start));
- const running=run(spawn,signalSource,root,async options=>{if(exitedCore){await Promise.all(ready);await exits[0];}browser=await startOptionalBrowserClient({...options,stdio:['ignore','pipe','pipe'],onAttention:()=>{}});return browser;},{log:()=>{}});
+ const run=new AsyncFunction('spawn','process','root','path','startOptionalBrowserClient','console',code.slice(start));
+ const running=run(spawn,signalSource,root,path,async options=>{if(exitedCore){await Promise.all(ready);await exits[0];}browser=await startOptionalBrowserClient({...options,stdio:['ignore','pipe','pipe'],onAttention:()=>{}});return browser;},{log:()=>{}});
  void running.then(()=>{finished=true;});
  await handlers;await Promise.all(ready);
  async function coreAlive(){

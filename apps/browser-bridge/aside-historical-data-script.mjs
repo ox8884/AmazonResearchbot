@@ -6,8 +6,11 @@ export function historicalDataScript(query,marker,representativeAsin=null){
    if(existing)page=await attachBrowserTab(existing.targetId);
    else {page=await openTab('https://members.junglescout.com/#/keyword');owned=true;}
    stage='NAVIGATION';
-   await page.goto('https://members.junglescout.com/#/keyword');
    const destination=()=>page.evaluate(()=>location.href);
+   const keywordUrl='https://members.junglescout.com/#/keyword';
+   if(await destination()!==keywordUrl){
+    try{await page.goto(keywordUrl);}catch(error){if(await destination()!==keywordUrl)throw error;}
+   }
    const sourcePageUrl=await destination();
    if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?keyword(?:[/?#].*)?$/.test(sourcePageUrl))throw Error('SITE_CHANGED');
    stage='QUERY';

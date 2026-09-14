@@ -1,11 +1,16 @@
-import {browserObservationSchema,evaluateNiche,measured,estimate,selectBrowserProductLeader,unknown,type Evidence,type NicheInput} from '@forge-ops/domain';
+import {createHash} from 'node:crypto';
+import {browserObservationSchema,browserTaskSchema,categoryTrendsObservationSchema,evaluateNiche,measured,estimate,productDatabaseObservationSchema,selectBrowserProductLeader,unknown,type Evidence,type NicheInput} from '@forge-ops/domain';
 import {decryptSecret,exactPayloadHash} from '@forge-ops/security';
 import type {Pool} from '@forge-ops/db';
 import {applyApiValidationDecision,loadCanonicalNicheEvidence,type ApiValidationContext} from './api-validation-store.ts';
 
 const requiredTasks=['product_database','keyword_scout','historical_data','category_trends','competitive_intelligence','amazon_package'] as const;
+const researchTasks=requiredTasks.slice(0,5);
 type BrowserValidationResult='pass'|'reject'|'hold'|'stale'|'pending'|'not_ready';
-type Receipt={id:string;body_ciphertext:string;body_sha256:string};
+type Receipt={
+ id:string;task_id:string;task_kind:typeof requiredTasks[number];envelope:{payload:string};task_hash:string;
+ body_ciphertext:string;body_sha256:string;
+};
 
 function exactCategory(value:string|null|undefined):boolean{
  return typeof value==='string'&&value.split(/\s*>\s*/).some(segment=>segment.trim().toLowerCase()==='kitchen & dining');
@@ -21,43 +26,84 @@ function money(value:string|null|undefined):number|null{
  return Number.isFinite(parsed)&&parsed>=0?parsed:null;
 }
 
+async function readBrowserReadiness(pool:Pool,context:ApiValidationContext):Promise<{started:number;completed:number;intended:boolean}>{
+ const client=await pool.connect();
+ try{
+  await client.query('BEGIN');
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('forge.settings'))");
+  const counts=(await client.query<{started:number;completed:number}>(`SELECT count(*) FILTER(WHERE task_kind=ANY($5::text[]))::int AS started,
+    count(DISTINCT task_kind) FILTER (WHERE state='completed')::int AS completed
+   FROM browser_tasks WHERE candidate_id=$1 AND input_version=$2 AND settings_version=$3
+    AND task_kind=ANY($4::text[])`,[context.candidateId,context.inputVersion,context.settingsVersion,requiredTasks,researchTasks])).rows[0];
+  const intended=context.snapshot.jsDailyWireCap>0&&((await client.query(`SELECT 1 FROM bridge_devices d JOIN "user" u ON u.id=d.owner_user_id
+    WHERE d.revoked_at IS NULL AND u.two_factor_enabled=true AND d.reported_connected=true
+     AND d.reported_at>clock_timestamp()-interval '90 seconds' AND 'product_database'=ANY(d.reported_tasks) LIMIT 1`)).rowCount??0)>0;
+  await client.query('COMMIT');
+  return {started:counts?.started??0,completed:counts?.completed??0,intended};
+ }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+}
+
 export async function consumeBrowserValidation(pool:Pool,context:ApiValidationContext,encryptionKey:Buffer):Promise<BrowserValidationResult>{
- const counts=(await pool.query<{started:number;completed:number}>(`SELECT
-   count(*) FILTER (WHERE task_kind='product_database')::int AS started,
-   count(DISTINCT task_kind) FILTER (WHERE state='completed')::int AS completed
-  FROM browser_tasks WHERE candidate_id=$1 AND input_version=$2 AND settings_version=$3
-   AND task_kind=ANY($4::text[])`,
-  [context.candidateId,context.inputVersion,context.settingsVersion,requiredTasks])).rows[0];
- if((counts?.completed??0)!==requiredTasks.length)return (counts?.started??0)>0?'pending':'not_ready';
- const receipt=(await pool.query<Receipt>(`SELECT r.id,r.body_ciphertext,r.body_sha256 FROM browser_tasks t
-  JOIN browser_task_results r ON r.id=t.result_id WHERE t.candidate_id=$1 AND t.input_version=$2 AND t.settings_version=$3
-   AND t.task_kind='product_database' AND t.state='completed' ORDER BY t.created_at DESC,t.id DESC LIMIT 1`,
-  [context.candidateId,context.inputVersion,context.settingsVersion])).rows[0];
- if(!receipt)return 'not_ready';
- const categoryReceipt=(await pool.query<Receipt>(`SELECT r.id,r.body_ciphertext,r.body_sha256 FROM browser_tasks t
-  JOIN browser_task_results r ON r.id=t.result_id WHERE t.candidate_id=$1 AND t.input_version=$2 AND t.settings_version=$3
-   AND t.task_kind='category_trends' AND t.state='completed' ORDER BY t.created_at DESC,t.id DESC LIMIT 1`,
-  [context.candidateId,context.inputVersion,context.settingsVersion])).rows[0];
- if(!categoryReceipt)return 'not_ready';
- let raw:unknown;
- let rawCategory:unknown;
- try{raw=JSON.parse(decryptSecret(receipt.body_ciphertext,encryptionKey,'browser-task-result:'+receipt.id).toString('utf8'));}
- catch{throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');}
- try{rawCategory=JSON.parse(decryptSecret(categoryReceipt.body_ciphertext,encryptionKey,'browser-task-result:'+categoryReceipt.id).toString('utf8'));}
- catch{throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');}
- if(exactPayloadHash(raw)!==receipt.body_sha256)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
- if(exactPayloadHash(rawCategory)!==categoryReceipt.body_sha256)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
- const parsed=browserObservationSchema.safeParse(raw);
- const parsedCategory=browserObservationSchema.safeParse(rawCategory);
- if(!parsed.success||parsed.data.scope!=='jungle_scout_product_database'||parsed.data.query!==context.keyword)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
- if(!parsedCategory.success||parsedCategory.data.scope!=='jungle_scout_category_trends'||parsedCategory.data.query!==context.keyword)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
+ const readiness=await readBrowserReadiness(pool,context);
+ if(readiness.completed!==requiredTasks.length){
+  if(readiness.started>0)return 'pending';
+  return readiness.intended?'pending':'not_ready';
+ }
+ const receipts=(await pool.query<Receipt>(`SELECT DISTINCT ON(t.task_kind)
+   r.id,t.id AS task_id,t.task_kind,t.envelope,t.task_hash,r.body_ciphertext,r.body_sha256
+  FROM browser_tasks t JOIN browser_task_results r ON r.id=t.result_id AND r.task_id=t.id
+  WHERE t.candidate_id=$1 AND t.input_version=$2 AND t.settings_version=$3
+   AND t.task_kind=ANY($4::text[]) AND t.state='completed'
+  ORDER BY t.task_kind,t.created_at DESC,t.id DESC`,
+  [context.candidateId,context.inputVersion,context.settingsVersion,requiredTasks])).rows;
+ if(receipts.length!==requiredTasks.length)return 'pending';
+ const rawByKind=new Map<string,unknown>();
+ const receiptByKind=new Map(receipts.map(receipt=>[receipt.task_kind,receipt]));
+ for(const receipt of receipts){
+  let raw:unknown;
+  let task:ReturnType<typeof browserTaskSchema.parse>;
+  try{
+   raw=JSON.parse(decryptSecret(receipt.body_ciphertext,encryptionKey,'browser-task-result:'+receipt.id).toString('utf8'));
+   task=browserTaskSchema.parse(JSON.parse(Buffer.from(receipt.envelope.payload,'base64url').toString('utf8')));
+  }catch{throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');}
+  if(exactPayloadHash(raw)!==receipt.body_sha256||createHash('sha256').update(receipt.envelope.payload).digest('hex')!==receipt.task_hash||
+     task.id!==receipt.task_id||task.request.kind!==receipt.task_kind||
+     !('candidateId' in task.request)||task.request.candidateId!==context.candidateId||
+     !('inputVersion' in task.request)||task.request.inputVersion!==context.inputVersion||
+     !('settingsVersion' in task.request)||task.request.settingsVersion!==context.settingsVersion)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
+  const parsed=browserObservationSchema.safeParse(raw);
+  if(!parsed.success)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
+  const observation=parsed.data,request=task.request;
+  if(request.kind==='product_database'){
+   if(observation.scope!=='jungle_scout_product_database'||observation.query!==context.keyword||observation.query!==request.query||
+      observation.marketplace!==request.marketplace||observation.category!==request.category||observation.discoveryCategory!==request.discoveryCategory||
+      observation.productTier!==request.productTier||observation.resultLimit!==request.resultLimit)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
+  }else if(request.kind==='keyword_scout'){
+   if(observation.scope!=='jungle_scout_keyword_scout'||observation.query!==context.keyword||observation.query!==request.query)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
+  }else if(request.kind==='historical_data'){
+   if(observation.scope!=='jungle_scout_historical_data'||observation.query!==context.keyword||observation.query!==request.query||
+      (observation.representativeAsin??null)!==request.representativeAsin)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
+  }else if(request.kind==='category_trends'){
+   if(observation.scope!=='jungle_scout_category_trends'||observation.query!==context.keyword||observation.query!==request.query||
+      (observation.representativeAsin??null)!==request.representativeAsin)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
+  }else if(request.kind==='competitive_intelligence'){
+   if(observation.scope!=='jungle_scout_competitive_intelligence'||observation.query!==context.keyword||observation.query!==request.query)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
+  }else if(request.kind==='amazon_package'){
+   if(observation.scope!=='amazon_product_page'||observation.asin!==request.asin)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
+  }else throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
+  rawByKind.set(receipt.task_kind,raw);
+ }
+ const parsed=productDatabaseObservationSchema.safeParse(rawByKind.get('product_database'));
+ const parsedCategory=categoryTrendsObservationSchema.safeParse(rawByKind.get('category_trends'));
+ const receipt=receiptByKind.get('product_database'),categoryReceipt=receiptByKind.get('category_trends');
+ if(!parsed.success||!parsedCategory.success||!receipt||!categoryReceipt)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
  const observation=parsed.data,sourceId='browser-task-result:'+receipt.id,observedAt=observation.observedAt;
  const populationComplete=observation.coverage==='complete'&&observation.displayedCount===observation.records.length&&observation.totalCount===observation.records.length;
  const categoriesKnown=observation.records.every(record=>typeof record.categoryPath==='string');
  const products=categoriesKnown?observation.records.filter(record=>exactCategory(record.categoryPath)):[];
  const reviews=products.map(record=>integer(record.reviews));
  const revenues=products.map(record=>money(record.revenueMonthly));
- const sourceComplete=populationComplete&&categoriesKnown&&products.length>0;
+ const sourceComplete=populationComplete&&categoriesKnown&&products.length===observation.records.length&&products.length>0;
  const reviewComplete=sourceComplete&&reviews.every(value=>value!==null);
  const revenueComplete=sourceComplete&&revenues.every(value=>value!==null);
  const review700Count:Evidence<number>=reviewComplete?measured(reviews.filter(value=>value!==null&&value>=700).length,sourceId,observedAt):unknown('BROWSER_REVIEW_POPULATION_INCOMPLETE',sourceId);

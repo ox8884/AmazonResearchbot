@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
-import {readFile,stat} from 'node:fs/promises';
+import {mkdir,readFile,stat,writeFile} from 'node:fs/promises';
 import {spawn} from 'node:child_process';
 import path from 'node:path';
 import {parseArgs} from 'node:util';
@@ -77,4 +77,8 @@ for(const [kind,makeScript] of captures){
   ? {products:observation.products?.length??0,dateColumns:observation.dateColumns?.length??0,kitchenDiningConfirmation:observation.kitchenDiningConfirmation}
   : {competitors:observation.competitors.length,totalCount:observation.totalCount??null,coverage:observation.coverage??null,entitlement:observation.entitlement?.status??'available'};
 }
-console.log(JSON.stringify({scenario:'jungle-scout-live-aside',result:'PASS',query,representativeAsin,...summary,paidApiCalls:0,externalActions:0}));
+const report={scenario:'jungle-scout-live-aside',result:'PASS',query,representativeAsin,...summary,transport:'aside_web_subscription',upgradeActions:'not_invoked'};
+const evidencePath=fileURLToPath(new URL('../.omo/evidence/jungle-scout-live-latest.json',import.meta.url));
+await mkdir(path.dirname(evidencePath),{recursive:true});
+await writeFile(evidencePath,JSON.stringify(report,null,2)+'\n',{encoding:'utf8',mode:0o600});
+console.log(JSON.stringify({...report,evidencePath:'.omo/evidence/jungle-scout-live-latest.json'}));

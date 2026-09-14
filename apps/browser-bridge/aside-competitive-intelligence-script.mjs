@@ -7,7 +7,10 @@ export function competitiveIntelligenceScript(query,marker){
    else {page=await openTab('https://members.junglescout.com/#/competitive-intelligence');owned=true;}
    const destination=()=>page.evaluate(()=>location.href);
    stage='NAVIGATION';
-   await page.goto('https://members.junglescout.com/#/competitive-intelligence');
+   const intelligenceUrl='https://members.junglescout.com/#/competitive-intelligence';
+   if(await destination()!==intelligenceUrl){
+    try{await page.goto(intelligenceUrl);}catch(error){if(await destination()!==intelligenceUrl)throw error;}
+   }
    const sourcePageUrl=await destination();
    if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?competitive-intelligence(?:[/?#].*)?$/.test(sourcePageUrl))throw Error('SITE_CHANGED');
    const body=page.locator('body');
@@ -20,11 +23,27 @@ export function competitiveIntelligenceScript(query,marker){
    const entitlement=upgradeRequired?{status:'upgrade_required',currentPlan,requiredPlan,sourcePageUrl,sourceText:bodyText}:null;
    if(upgradeRequired){
     stage='PRODUCT_DATABASE_FALLBACK';
-    await page.goto('https://members.junglescout.com/#/database');
+    const databaseUrl='https://members.junglescout.com/#/database';
+    if(await destination()!==databaseUrl){
+     try{await page.goto(databaseUrl);}catch(error){if(await destination()!==databaseUrl)throw error;}
+    }
     const databasePageUrl=await destination();
     if(!/^https:\/\/members\.junglescout\.com\/(?:#\/)?database(?:[/?#].*)?$/.test(databasePageUrl))throw Error('SITE_CHANGED');
-    const marketplaceSelected=await page.locator('[role="combobox"]').evaluateAll(controls=>controls.some(control=>control.getClientRects().length>0&&(control.innerText||'').trim()==='United States'));
-    if(!marketplaceSelected)throw Error('MARKETPLACE_NOT_US');
+    const marketplace=page.getByText('United States',{exact:true}).first();
+    await marketplace.waitFor({state:'visible',timeout:20_000});
+    const marketplaceState=await marketplace.evaluate(el=>{
+     for(let node=el;node&&node!==document.body;node=node.parentElement){
+      const combo=node.matches('[role="combobox"]')?node:node.querySelector('[role="combobox"]');
+      if(combo&&combo.contains(el)){
+       const value=(combo.getAttribute('aria-valuetext')||combo.innerText||combo.textContent||'').replace(/\s+/g,' ').trim();
+       return {found:true,selected:value==='United States',checked:false};
+      }
+      const control=node.matches('input[type="checkbox"],[role="checkbox"]')?node:node.querySelector('input[type="checkbox"],[role="checkbox"]');
+      if(control&&node.contains(el))return {found:true,selected:false,checked:control.checked===true||control.getAttribute('aria-checked')==='true'};
+     }
+     return {found:false,selected:false,checked:false};
+    });
+    if(!marketplaceState.found||(!marketplaceState.selected&&!marketplaceState.checked))throw Error('MARKETPLACE_NOT_US');
     const stateFor=label=>label.evaluate(el=>{
      for(let node=el;node&&node!==document.body;node=node.parentElement){
       const control=node.matches('input[type="checkbox"],[role="checkbox"]')?node:node.querySelector('input[type="checkbox"],[role="checkbox"]');

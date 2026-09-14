@@ -210,11 +210,11 @@ await runPackage({closeFailure:true});
 console.log(JSON.stringify({scenario:'aside-package-script',result:'PASS',exactAsin:true,visibleRowsOnly:true,scopedSnapshot:true,requestIsData:true,cleanupBeforeEmission:true}));
 
 {
- const output=[];let filled='',attached=false,closed=false,homeKitchen=false,standard=false,limitApplied=false,searched=false;
+  const output=[];let filled='',attached=false,closed=false,homeKitchen=false,standard=false,limitApplied=false,searched=false,marketplaceSelected=true;
  const input={waitFor:async()=>{},fill:async value=>{filled=value;},evaluate:async()=>filled};
  const label=name=>({
   waitFor:async()=>{},
-  evaluate:async()=>({found:name==='United States'||name==='Home & Kitchen'||name==='Standard',checked:name==='United States'||(name==='Home & Kitchen'?homeKitchen:standard)}),
+   evaluate:async()=>name==='United States'?{found:true,selected:marketplaceSelected,checked:false}:{found:name==='Home & Kitchen'||name==='Standard',checked:name==='Home & Kitchen'?homeKitchen:standard},
   click:async()=>{if(name==='Home & Kitchen')homeKitchen=true;if(name==='Standard')standard=true;if(name==='100')limitApplied=true;},
   first(){return this;},
   last(){return this;},
@@ -249,8 +249,14 @@ console.log(JSON.stringify({scenario:'aside-package-script',result:'PASS',exactA
  const result=JSON.parse(output[0].slice('PRODUCT_DB:'.length));
  assert.equal(result.kind,'captured','The duplicate Include/Exclude textbox name must resolve to the Include field');
  assert.equal(result.query,'ice cream scoop');
- assert.equal(attached,true,'Reuse the existing authenticated Jungle Scout tab');
- assert.equal(closed,false,'Do not close a tab owned by the user');
+  assert.equal(attached,true,'Reuse the existing authenticated Jungle Scout tab');
+  assert.equal(closed,false,'Do not close a tab owned by the user');
+  marketplaceSelected=false;
+  await vm.runInNewContext('(async()=>{'+productDatabaseScript('ice cream scoop','PRODUCT_DB:')+'})()',{
+   console:{log:value=>output.push(value)},listBrowserTabs:async()=>[{targetId:'existing-jungle-scout',url:'https://members.junglescout.com/#/database'}],
+   attachBrowserTab:async()=>page,openTab:async()=>{throw new Error('Existing authenticated tab must be reused');},closeTab:async()=>{},snapshot:async()=>({tree:'Synthetic Product Database table'}),
+  },{timeout:1000});
+  assert.deepEqual(JSON.parse(output[1].slice('PRODUCT_DB:'.length)),{protocol:1,kind:'unavailable',reason:'MARKETPLACE_FILTER_UNCONFIRMED'},'An unrelated/global marketplace label cannot prove the selected marketplace');
 }
 console.log(JSON.stringify({scenario:'aside-product-database-script',result:'PASS',duplicateTextboxResolved:true,authenticatedTabReused:true,userTabPreserved:true}));
 
