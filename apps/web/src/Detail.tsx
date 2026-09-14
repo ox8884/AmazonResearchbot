@@ -7,6 +7,7 @@ import {AdditionalMarketObservations} from './AdditionalMarketObservations.tsx';
 import {JungleScoutResearch} from './JungleScoutResearch.tsx';
 import { candidateApprovalPath } from "./candidate-links.ts";
 import { CandidateValidation } from "./CandidateValidation.tsx";
+import { contactReason } from "./contact-labels.ts";
 import { useQuery } from "@tanstack/react-query";
 import { NavLink, useParams } from "react-router";
 import { getCandidate } from "./api.ts";
@@ -14,6 +15,7 @@ import { evidenceText } from "./evidence.ts";
 import {EvidenceList,OfficialEvidence} from "./EvidenceList.tsx";
 import {
   Empty,
+  Icon,
   LoadError,
   Loading,
   PageHeader,
@@ -46,6 +48,9 @@ export function Detail() {
       />
     );
   const approvalPath = candidateApprovalPath(c);
+  const blockedReason = c.blockedReason
+    ? contactReason(c.blockedReason, language)
+    : null;
   return (
     <>
       <NavLink className="back-link" to="/candidates">
@@ -58,7 +63,16 @@ export function Detail() {
       <section className="stack">
         <h2>{t("다음 행동", "Next action")}</h2>
         <article className="card stack">
-          <Stage>{c.stageLabel}</Stage>
+          <div className="chips candidate-statuses">
+            <Stage>{c.stageLabel}</Stage>
+            {blockedReason && (
+              <span className="chip chip-warn">
+                <span className="muted">{t("막힘 이유", "Blocked because")}</span>
+                <Icon name="warning" />
+                {blockedReason}
+              </span>
+            )}
+          </div>
           <p>{c.nextAction.label}</p>
           {approvalPath && (
             <NavLink className="btn btn-primary" to={approvalPath}>

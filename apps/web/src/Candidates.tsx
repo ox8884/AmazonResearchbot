@@ -5,6 +5,7 @@ import { NavLink } from "react-router";
 import { listCandidates, type CandidateView } from "./api.ts";
 import { loadMarket, type MarketView } from "./MarketSource.tsx";
 import { evidenceText } from "./evidence.ts";
+import { contactReason } from "./contact-labels.ts";
 import {
   Empty,
   Icon,
@@ -48,9 +49,20 @@ export function CandidateCard({
       ? first.priceTexts[0] ?? t("가격 미확인", "Price unknown")
       : `$${first.price.value}`
     : t("가격 미확인", "Price unknown");
+  const blockedReason = c.blockedReason
+    ? contactReason(c.blockedReason, language)
+    : null;
   return (
     <article className={`card candidate-card${selected ? " selected" : ""}`}>
-      <Stage>{c.stageLabel}</Stage>
+      <div className="chips candidate-statuses">
+        <Stage>{c.stageLabel}</Stage>
+        {blockedReason && (
+          <span className="chip chip-warn">
+            <Icon name="warning" />
+            {t("막힘 이유", "Blocked because")}: {blockedReason}
+          </span>
+        )}
+      </div>
       <h3>
         <NavLink className="keyword-link" to={`/candidates/${c.id}`}>
           {c.keyword}

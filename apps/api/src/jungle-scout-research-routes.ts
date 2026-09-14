@@ -5,6 +5,7 @@ import { decryptSecret, exactPayloadHash } from '@forge-ops/security';
 import { z } from 'zod';
 
 const paramsSchema = z.object({ id: z.uuid() });
+const retryParamsSchema = z.object({ id: z.uuid(), kind: z.enum(['product_database', 'keyword_scout', 'historical_data', 'category_trends', 'competitive_intelligence']) });
 const taskKinds = ['product_database', 'keyword_scout', 'historical_data', 'category_trends', 'competitive_intelligence'] as const;
 const taskKindSchema = z.enum(taskKinds);
 type JungleScoutTaskKind = z.infer<typeof taskKindSchema>;
@@ -32,12 +33,19 @@ type CapturedResearch = {
   readonly provenance: Provenance;
   readonly result: Record<string, unknown>;
 };
-type ResearchView = { readonly state: ResearchState; readonly kind: JungleScoutTaskKind } | CapturedResearch;
+type ResearchView = { readonly state: ResearchState; readonly kind: JungleScoutTaskKind; readonly reason?: string } | CapturedResearch;
 
 function stateFor(row: TaskRow): ResearchState {
   if (row.input_version !== row.current_input || row.settings_version !== row.current_settings) return 'stale';
   if (row.state === 'completed') return 'unavailable';
   return row.state === 'cancelled' || row.expires_at.getTime() <= Date.now() ? 'waiting' : 'collecting';
+}
+
+function pendingReason(row: TaskRow, state: ResearchState): string | undefined {
+  if (state === 'stale') return 'INPUT_OR_SETTINGS_CHANGED';
+  if (state === 'waiting') return 'BROWSER_TASK_EXPIRED';
+  if (state === 'unavailable' && (!row.receipt_id || !row.body_ciphertext || !row.body_sha256)) return 'RESULT_RECEIPT_MISSING';
+  return undefined;
 }
 
 function projectResult(kind: JungleScoutTaskKind, raw: unknown, query: string): Omit<CapturedResearch, 'kind' | 'provenance'> | null {
@@ -47,11 +55,12 @@ function projectResult(kind: JungleScoutTaskKind, raw: unknown, query: string): 
   switch (kind) {
     case 'product_database':
       if (observation.scope !== 'jungle_scout_product_database') return null;
-      return { state: 'captured', sourcePageUrl: observation.sourcePageUrl, observedAt: observation.observedAt, result: { records: observation.records.map(({ asin, title }) => ({ asin, title })) } };
+      return { state: 'captured', sourcePageUrl: observation.sourcePageUrl, observedAt: observation.observedAt, result: { records: observation.records.map(({ asin, title, brand = null, categoryPath = null, bsr = null, unitsSoldMonthly = null, revenueMonthly = null, price = null, reviews = null, starRating = null, sellers = null, dimensions = null, weight = null }) => ({ asin, title, brand, categoryPath, bsr, unitsSoldMonthly, revenueMonthly, price, reviews, starRating, sellers, dimensions, weight })) } };
     case 'keyword_scout':
       if (observation.scope !== 'jungle_scout_keyword_scout') return null;
       return { state: 'captured', sourcePageUrl: observation.sourcePageUrl, observedAt: observation.observedAt, result: {
         metrics: observation.metrics.map(({ label, value }) => ({ label, value })),
+        keywordRecords: (observation.keywordRecords ?? []).map(({ keyword, searchTrend30Day = null, exactSearchVolume30Day = null, category = null, ppcBidExact = null, ppcBidBroad = null, easeToRank = null, relevancyScore = null }) => ({ keyword, searchTrend30Day, exactSearchVolume30Day, category, ppcBidExact, ppcBidBroad, easeToRank, relevancyScore })),
         relatedKeywords: observation.relatedKeywords.map(({ keyword }) => keyword),
         asinRelations: observation.asinRelations.map(({ asin }) => asin),
       } };
@@ -67,11 +76,21 @@ function projectResult(kind: JungleScoutTaskKind, raw: unknown, query: string): 
         categories: observation.categories.map(({ category }) => category),
         kitchenDiningConfirmation: observation.kitchenDiningConfirmation,
         signals: observation.signals.map(({ label, value }) => ({ label, value })),
+        products: (observation.products ?? []).map(({ asin, rank = null, productName = null, rating = null, reviews = null, price = null, dateLabel = null }) => ({ asin, rank, productName, rating, reviews, price, dateLabel })),
+        dateColumns: (observation.dateColumns ?? []).map(({ dateLabel, products }) => ({ dateLabel, productCount: products.length })),
       } };
     case 'competitive_intelligence':
       if (observation.scope !== 'jungle_scout_competitive_intelligence') return null;
       return { state: 'captured', sourcePageUrl: observation.sourcePageUrl, observedAt: observation.observedAt, result: {
         representativeAsin: observation.representativeAsin,
+        representativeSelection: observation.representativeSelection ?? null,
+        comparisonBasis: observation.comparisonBasis ?? 'competitive_intelligence',
+        entitlement: observation.entitlement ? {
+          status: observation.entitlement.status,
+          currentPlan: observation.entitlement.currentPlan,
+          requiredPlan: observation.entitlement.requiredPlan,
+          sourcePageUrl: observation.entitlement.sourcePageUrl,
+        } : null,
         competitors: observation.competitors.map(({ asin, brand, price, reviews, sales, revenue }) => ({ asin, brand, price, reviews, sales, revenue })),
       } };
   }
@@ -97,15 +116,15 @@ async function readResearch(pool: Pool, candidateId: string, key: Buffer): Promi
     const row = byKind.get(kind);
     if (!row) return { kind, state: 'not_collected' };
     const state = stateFor(row);
-    if (state !== 'unavailable') return { kind, state };
-    if (!row.receipt_id || !row.body_ciphertext || !row.body_sha256) return { kind, state };
+    if (state !== 'unavailable') return { kind, state, ...(pendingReason(row, state) ? { reason: pendingReason(row, state) } : {}) };
+    if (!row.receipt_id || !row.body_ciphertext || !row.body_sha256) return { kind, state, reason: 'RESULT_RECEIPT_MISSING' };
     try {
       const raw: unknown = JSON.parse(decryptSecret(row.body_ciphertext, key, 'browser-task-result:' + row.receipt_id).toString('utf8'));
-      if (exactPayloadHash(raw) !== row.body_sha256) return { kind, state };
+      if (exactPayloadHash(raw) !== row.body_sha256) return { kind, state, reason: 'RESULT_HASH_MISMATCH' };
       const result = projectResult(kind, raw, row.query);
-      return result === null ? { kind, state } : { kind, provenance: { source: 'jungle_scout_web', receiptId: row.receipt_id, resultHash: row.body_sha256 }, ...result };
+      return result === null ? { kind, state, reason: 'OBSERVATION_INVALID' } : { kind, provenance: { source: 'jungle_scout_web', receiptId: row.receipt_id, resultHash: row.body_sha256 }, ...result };
     } catch {
-      return { kind, state };
+      return { kind, state, reason: 'RESULT_DECRYPTION_FAILED' };
     }
   });
 }
@@ -116,5 +135,33 @@ export function registerJungleScoutResearchRoutes(app: FastifyInstance, pool: Po
     if (!params.success) return reply.status(400).send({ code: 'INVALID_CANDIDATE' });
     if (!(await pool.query('SELECT id FROM candidates WHERE id=$1', [params.data.id])).rowCount) return reply.status(404).send({ code: 'NOT_FOUND' });
     return { research: await readResearch(pool, params.data.id, key) };
+  });
+  app.post('/api/candidates/:id/jungle-scout-research/:kind/retry', async (request, reply) => {
+    const params = retryParamsSchema.safeParse(request.params);
+    if (!params.success) return reply.status(400).send({ code: 'INVALID_RESEARCH_RETRY' });
+    const actor = 'userId' in request && typeof request.userId === 'string' ? request.userId : null;
+    if (!actor) return reply.status(401).send({ code: 'UNAUTHENTICATED' });
+    const db = await pool.connect();
+    try {
+      await db.query('BEGIN');
+      await db.query("SELECT pg_advisory_xact_lock(hashtext('forge.settings'))");
+      const context = (await db.query<{ cap: number; input_version: number; settings_version: number }>(`
+        SELECT COALESCE((s.snapshot->>'jsDailyWireCap')::int,0) AS cap,c.input_version,s.version AS settings_version
+        FROM candidates c CROSS JOIN LATERAL(SELECT version,snapshot FROM settings_versions ORDER BY version DESC LIMIT 1)s
+        WHERE c.id=$1 FOR UPDATE OF c`, [params.data.id])).rows[0];
+      if (!context) { await db.query('ROLLBACK'); return reply.status(404).send({ code: 'NOT_FOUND' }); }
+      if (context.cap <= 0) { await db.query('ROLLBACK'); return reply.status(409).send({ code: 'JUNGLE_SCOUT_DAILY_LIMIT_DISABLED' }); }
+      await db.query(`UPDATE browser_tasks SET state='cancelled'
+        WHERE candidate_id=$1 AND task_kind=$2 AND input_version=$3 AND settings_version=$4
+          AND state IN ('queued','delivered')`, [params.data.id, params.data.kind, context.input_version, context.settings_version]);
+      await db.query("INSERT INTO audit_events(actor,action,target) VALUES($1,'jungle_scout_retry_requested',$2)", [actor, params.data.id + ':' + params.data.kind]);
+      await db.query('COMMIT');
+      return reply.status(202).send({ state: 'retry_requested', kind: params.data.kind });
+    } catch (error) {
+      await db.query('ROLLBACK');
+      throw error;
+    } finally {
+      db.release();
+    }
   });
 }

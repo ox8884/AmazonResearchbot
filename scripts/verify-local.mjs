@@ -57,6 +57,23 @@ if (scenario === "api-validation") {
   await runTs("scripts/verify-worker-replay.mjs");
   process.exit(0);
 }
+if (scenario === "browser-cap") {
+  await runTs("scripts/verify-browser-dispatch-cap.mjs");
+  process.exit(0);
+}
+if (scenario === "jungle-scout") {
+  await runTs("scripts/verify-aside-script.mjs");
+  await runTs("scripts/verify-product-database-task.mjs");
+  await runTs("scripts/verify-keyword-scout-aside-script.mjs");
+  await runTs("scripts/verify-keyword-scout-task.mjs");
+  await runTs("scripts/verify-historical-data-task.mjs");
+  await runTs("scripts/verify-category-trends-task.mjs");
+  await runTs("scripts/verify-competitive-intelligence-task.mjs");
+  await runTs("scripts/verify-jungle-scout-research-view.mjs");
+  await runTs("scripts/verify-browser-dispatch-cap.mjs");
+  await runTs("scripts/verify-browser-task-ledger.mjs");
+  process.exit(0);
+}
 if (scenario === "js-transport") {
   await runTs("scripts/verify-js-contracts.ts");
   await runTs("scripts/verify-simulator-boundary.mjs");

@@ -39,6 +39,7 @@ try {
     return { status: response.status, body: await response.json() };
   };
   assert.equal((await bridge('/api/bridge/capabilities', { connected: true, supportedTasks: ['product_database', 'keyword_scout', 'historical_data', 'category_trends', 'competitive_intelligence'], keyFingerprint: identity.fingerprint })).status, 200);
+  await test.pool.query("INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) SELECT version+1,now(),'research-view-fixture',jsonb_set(snapshot,'{jsDailyWireCap}','20'::jsonb) FROM settings_versions ORDER BY version DESC LIMIT 1");
   const query = 'synthetic jungle scout evidence ' + test.runId;
   const candidate = (await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id", [query])).rows[0];
   const emptyCandidate = (await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id", [query + ' empty'])).rows[0];
@@ -47,12 +48,17 @@ try {
   assert.equal(empty.body.research.every(item => item.state === 'not_collected'), true, 'Absent browser tasks remain explicitly uncollected');
   const queues = [queueProductDatabase, queueKeywordScout, queueHistoricalData, queueCategoryTrends, queueCompetitiveIntelligence];
   const observations = {
-    product_database: { protocol: 1, kind: 'captured', scope: 'jungle_scout_product_database', query, sourcePageUrl: 'https://members.junglescout.com/#/database', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_PRODUCT', records: [{ asin: 'B0JV000001', title: 'Synthetic product', sourceText: 'B0JV000001 Synthetic product' }] },
+    product_database: { protocol: 1, kind: 'captured', scope: 'jungle_scout_product_database', query, marketplace: 'us', category: 'Kitchen & Dining', discoveryCategory: 'Home & Kitchen', productTier: 'Standard', resultLimit: 100, sourcePageUrl: 'https://members.junglescout.com/#/database', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_PRODUCT', records: [{ asin: 'B0JV000001', title: 'Synthetic product', sourceText: 'B0JV000001 Synthetic product' }] },
     keyword_scout: { protocol: 1, kind: 'captured', scope: 'jungle_scout_keyword_scout', query, sourcePageUrl: 'https://members.junglescout.com/#/keyword', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_KEYWORD', metrics: [{ label: 'Search Volume', value: '2,400', sourceText: 'Search Volume 2,400' }], relatedKeywords: [{ keyword: 'synthetic related keyword', sourceText: 'synthetic related keyword' }], asinRelations: [{ asin: 'B0JV000001', sourceText: 'B0JV000001' }] },
-    historical_data: { protocol: 1, kind: 'captured', scope: 'jungle_scout_historical_data', query, sourcePageUrl: 'https://members.junglescout.com/historical-data', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_HISTORY', dateRange: { label: 'Jan 2026', start: '2026-01-01T00:00:00.000Z', end: '2026-01-31T00:00:00.000Z' }, series: [{ metric: 'Search Volume', periodLabel: 'Jan 2026', value: '2,400', sourceText: 'Search Volume Jan 2026 2,400' }] },
-    category_trends: { protocol: 1, kind: 'captured', scope: 'jungle_scout_category_trends', query, sourcePageUrl: 'https://members.junglescout.com/category-trends', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_CATEGORY', categories: [{ category: 'Kitchen & Dining', sourceText: 'Kitchen & Dining' }], kitchenDiningConfirmation: 'confirmed', signals: [{ label: 'Growth', value: '12%', sourceText: 'Growth 12%' }] },
+    historical_data: { protocol: 1, kind: 'captured', scope: 'jungle_scout_historical_data', query, sourcePageUrl: 'https://members.junglescout.com/#/keyword', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_HISTORY', dateRange: null, series: [{ metric: 'Exact Search Volume 30 Day', periodLabel: '30 Day', value: '2,400', sourceText: 'Exact Search Volume 30 Day 2,400' }] },
+    category_trends: { protocol: 1, kind: 'captured', scope: 'jungle_scout_category_trends', query, sourcePageUrl: 'https://members.junglescout.com/#/category-trends', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_CATEGORY', categories: [{ category: 'Kitchen & Dining', sourceText: 'Kitchen & Dining' }], kitchenDiningConfirmation: 'confirmed', signals: [], products: [{ asin: 'B0JV000001', rank: '1', productName: 'Synthetic product', rating: '4.6', reviews: '120', price: '$25.00', dateLabel: 'Sep 13', sourceText: 'Sep 13 B0JV000001 1 Synthetic product 4.6 120 $25.00' }], dateColumns: [{ dateLabel: 'Sep 13', sourceText: 'Sep 13 B0JV000001 1 Synthetic product 4.6 120 $25.00', products: [{ asin: 'B0JV000001', rank: '1', productName: 'Synthetic product', rating: '4.6', reviews: '120', price: '$25.00', dateLabel: 'Sep 13', sourceText: 'Sep 13 B0JV000001 1 Synthetic product 4.6 120 $25.00' }] }] },
     competitive_intelligence: { protocol: 1, kind: 'captured', scope: 'jungle_scout_competitive_intelligence', query, sourcePageUrl: 'https://members.junglescout.com/#/competitive-intelligence', observedAt: new Date().toISOString(), snapshot: 'SECRET_SNAPSHOT_COMPETITIVE', representativeAsin: 'B0JV000001', competitors: [{ asin: 'B0JV000001', brand: 'Synthetic Brand', price: '$25.00', reviews: '120', sales: null, revenue: null, sourceText: 'B0JV000001 Synthetic Brand $25.00 120' }] },
   };
+  // Given new structured rows alongside old receipts with no structured fields.
+  const productFields={brand:'Synthetic Brand',categoryPath:'Kitchen & Dining',bsr:'1,234',unitsSoldMonthly:'450',revenueMonthly:'$11,250',price:'$25.00',reviews:'120',starRating:'4.6',sellers:'3',dimensions:'10 x 6 x 4 in',weight:null};
+  observations.product_database.records.push({asin:'B0JV000002',title:'Detailed product',...productFields,sourceText:'B0JV000002 Detailed product Synthetic Brand Kitchen & Dining 1,234 450 $11,250 $25.00 120 4.6 3 10 x 6 x 4 in'});
+  const keywordFields={keyword:'synthetic organizer',searchTrend30Day:'-12%',exactSearchVolume30Day:'2,400',category:'Kitchen & Dining',ppcBidExact:'$0.75',ppcBidBroad:null,easeToRank:'Easy',relevancyScore:'87'};
+  observations.keyword_scout.keywordRecords=[{...keywordFields,sourceText:'synthetic organizer -12% 2,400 Kitchen & Dining $0.75 Easy 87'},{keyword:'unknown metrics',sourceText:'unknown metrics'}];
   for (let index = 0; index < queues.length; index += 1) {
     const queue = queues[index];
     const queued = await queue(test.pool, { deviceId, candidateId: candidate.id }, { origin, privateKey: keys.privateKey });
@@ -71,10 +77,26 @@ try {
   assert.deepEqual(view.body.research.map(item => item.kind).sort(), ['category_trends', 'competitive_intelligence', 'historical_data', 'keyword_scout', 'product_database']);
   assert.ok(view.body.research.every(item => item.state === 'captured' && item.sourcePageUrl.startsWith('https://members.junglescout.com/') && typeof item.observedAt === 'string'));
   assert.equal(view.body.research.find(item => item.kind === 'category_trends').result.kitchenDiningConfirmation, 'confirmed');
+  assert.equal(view.body.research.find(item => item.kind === 'category_trends').result.products[0].asin, 'B0JV000001');
+  assert.equal(view.body.research.find(item => item.kind === 'historical_data').result.dateRange, null, 'A 30-day Keyword Scout observation must not fabricate an exact date range');
+  // When reading captured research, then structured fields survive and absent values stay unknown.
+  const productView=view.body.research.find(item=>item.kind==='product_database');
+  assert.deepEqual(productView.result.records[1],{asin:'B0JV000002',title:'Detailed product',...productFields});
+  assert.deepEqual(productView.result.records[0],{asin:'B0JV000001',title:'Synthetic product',...Object.fromEntries(Object.keys(productFields).map(field=>[field,null]))});
+  const keywordView=view.body.research.find(item=>item.kind==='keyword_scout');
+  assert.deepEqual(keywordView.result.keywordRecords[0],keywordFields);
+  assert.deepEqual(keywordView.result.keywordRecords[1],{...Object.fromEntries(Object.keys(keywordFields).map(field=>[field,null])),keyword:'unknown metrics'});
+  assert.equal(typeof productView.provenance.receiptId,'string');
+  assert.equal(typeof keywordView.provenance.resultHash,'string');
+  assert.equal(JSON.stringify(view.body).includes('sourceText'),false,'Raw row sources remain in encrypted receipts');
   assert.equal(JSON.stringify(view.body).includes('SECRET_SNAPSHOT'), false, 'Raw encrypted browser snapshots must never be returned to the browser');
   await test.pool.query('UPDATE candidates SET input_version=input_version+1 WHERE id=$1', [candidate.id]);
   const stale = await test.call('/api/candidates/' + candidate.id + '/jungle-scout-research');
   assert.equal(stale.body.research.every(item => item.state === 'stale'), true, 'Prior encrypted observations are not shown as current evidence after input changes');
+  const retryRequested=await test.call('/api/candidates/'+emptyCandidate.id+'/jungle-scout-research/product_database/retry',{});
+  assert.equal(retryRequested.status,202,'A user can request one research stage again without changing candidate data');
+  await test.pool.query("INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) SELECT version+1,now(),'research-view-cap-fixture',jsonb_set(snapshot,'{jsDailyWireCap}','0'::jsonb) FROM settings_versions ORDER BY version DESC LIMIT 1");
+  assert.equal((await test.call('/api/candidates/'+emptyCandidate.id+'/jungle-scout-research/product_database/retry',{})).status,409,'Retry stays blocked when the approved daily limit is zero');
   console.log(JSON.stringify({ scenario: 'jungle_scout_candidate_research_view', result: 'PASS', taskStatuses: true, capturedResults: true, provenance: true, rawSnapshotWithheld: true, uncollectedExplicit: true, staleWithheld: true }));
 } finally {
   await test.close();
