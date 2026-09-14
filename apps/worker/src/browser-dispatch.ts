@@ -1,17 +1,17 @@
 import type { KeyObject } from "node:crypto";
 import type { Pool } from "@forge-ops/db";
 import { supplierCompanyUrlPattern, supplierProductUrlPattern } from "@forge-ops/domain";
-import { queueSupplierSearch, queueSupplierDetail, queueAmazonPackage,queueAmazonSearch,queueProductDatabase } from "./browser-task-producer.ts";
+import { queueSupplierSearch, queueSupplierDetail, queueAmazonPackage,queueAmazonSearch,queueProductDatabase,queueKeywordScout } from "./browser-task-producer.ts";
 import {dispatchSearchExports} from './search-export-producer.ts';
 
 export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin: string; readonly privateKey: KeyObject; readonly fingerprint: string }) {
   const searches=await dispatchSearchExports(pool,signing);
-  const devices = (await pool.query<{ id: string; capability: "supplier_search" | "supplier_detail" | "amazon_package" | "amazon_search" | "product_database" }>(`
+  const devices = (await pool.query<{ id: string; capability: "supplier_search" | "supplier_detail" | "amazon_package" | "amazon_search" | "product_database" | "keyword_scout" }>(`
     SELECT DISTINCT ON (caps.capability) d.id,caps.capability FROM bridge_devices d JOIN "user" u ON u.id=d.owner_user_id
     CROSS JOIN LATERAL unnest(d.reported_tasks) caps(capability)
     WHERE d.revoked_at IS NULL AND u.two_factor_enabled=true AND d.reported_connected=true
       AND d.reported_at>clock_timestamp()-interval '90 seconds' AND d.reported_key_fingerprint=$1
-      AND caps.capability IN ('supplier_search','supplier_detail','amazon_package','amazon_search','product_database')
+      AND caps.capability IN ('supplier_search','supplier_detail','amazon_package','amazon_search','product_database','keyword_scout')
     ORDER BY caps.capability,d.reported_at DESC,d.id`, [signing.fingerprint])).rows;
   if (!devices.length) return searches;
   let queued = searches.queued;
@@ -36,6 +36,17 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
         AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
       ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT 20`)).rows;
     for(const candidate of candidates)if((await queueProductDatabase(pool,{deviceId:productDatabaseDevice.id,candidateId:candidate.id},signing)).kind==='queued')queued++;
+  }
+  const keywordScoutDevice=devices.find(device=>device.capability==='keyword_scout');
+  if(keywordScoutDevice){
+    const candidates=(await pool.query<{id:string}>(`
+      SELECT c.id FROM candidates c JOIN LATERAL(SELECT version FROM settings_versions ORDER BY version DESC LIMIT 1) v ON true
+      WHERE c.marketplace='us' AND c.stage='api_validation' AND length(c.normalized_keyword) BETWEEN 1 AND 500
+       AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='keyword_scout'
+        AND t.input_version=c.input_version AND t.settings_version=v.version
+        AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
+      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT 20`)).rows;
+    for(const candidate of candidates)if((await queueKeywordScout(pool,{deviceId:keywordScoutDevice.id,candidateId:candidate.id},signing)).kind==='queued')queued++;
   }
   const packageDevice = devices.find(device => device.capability === 'amazon_package');
   if (packageDevice) {
