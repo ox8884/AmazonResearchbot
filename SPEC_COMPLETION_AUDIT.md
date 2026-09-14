@@ -106,3 +106,10 @@ R4 로컬 승인 대기 달성은 원래 SPEC의 실제 RFQ 발송·견적 회�
 - Competitive Intelligence는 Brand Owner 업그레이드 게이트를 보존하고 Product Database fallback을 비교 근거로 표시했다. Upgrade/Create Segment는 실행하지 않았다.
 - 반복 가능한 live verifier에서는 Product Database 16/16과 fallback 16/16을 확인했지만 단일 적격 대표 ASIN은 확정되지 않아 자동 대표를 `null`로 보존했다. 격리 판정 검증은 complete population만 수치 근거로 쓰고 partial population은 unknown/근거 대기로 유지한다.
 - 브라우저 6단계 중 하나라도 시작된 후보는 완료 전 공식 Developer API fallback을 실행하지 않는다. 전용 verifier가 pending browser task 상태의 wire call 0을 확인한다.
+
+## 2026-09-14 외부 단계 승인 및 preflight 결과
+
+- 외부 단계 진행 승인을 받았지만, 실제 쓰기 전에 필요한 공개 origin/Access Tunnel, R2 활성화·bucket, Oracle 전용 설치·DB role, 메일·공급처 수신 대상이 현재 환경에 없어 실행을 보류했다.
+- Oracle ARM64 호스트 식별과 Cloudflare token 인증은 읽기 전용으로 확인했다. 기존 `amazon-research-worker.service`와 기존 Cloudflare 자산은 건드리지 않았다.
+- 로컬 typecheck/integrated·edge·mail·AI·browser delivery 검증은 PASS이며 external action/provider call은 0이다. 이 결과를 production/외부 인수 완료로 합산하지 않는다.
+- 재개 입력과 명령 경계는 `docs/external-phase-preflight-2026-09-14.md`에 고정했다.
