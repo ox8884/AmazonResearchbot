@@ -13,6 +13,20 @@ export function productDatabaseScript(query,marker){
    stage='FILTERS';
    const marketplace=page.getByText('United States',{exact:true}).first();
    await marketplace.waitFor({state:'visible',timeout:20_000});
+   let marketplaceCombobox=null;
+   try{marketplaceCombobox=page.getByRole('combobox',{name:/marketplace/i}).first();}catch{}
+   if(marketplaceCombobox&&typeof marketplaceCombobox.count==='function'&&await marketplaceCombobox.count()){
+    if((await marketplaceCombobox.evaluate(el=>(el.innerText||'').trim()))!=='United States')throw Error('MARKETPLACE_NOT_US');
+   }else{
+    const stateForMarketplace=await marketplace.evaluate(el=>{
+     for(let node=el;node&&node!==document.body;node=node.parentElement){
+      const control=node.matches('input[type="checkbox"],[role="checkbox"]')?node:node.querySelector('input[type="checkbox"],[role="checkbox"]');
+      if(control)return {found:true,checked:control.checked===true||control.getAttribute('aria-checked')==='true'};
+     }
+     return {found:false,checked:false};
+    });
+    if(!stateForMarketplace.found||!stateForMarketplace.checked)throw Error('MARKETPLACE_FILTER_UNCONFIRMED');
+   }
    const stateFor=label=>label.evaluate(el=>{
     for(let node=el;node&&node!==document.body;node=node.parentElement){
      const control=node.matches('input[type="checkbox"],[role="checkbox"]')?node:node.querySelector('input[type="checkbox"],[role="checkbox"]');

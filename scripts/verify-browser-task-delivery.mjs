@@ -68,8 +68,12 @@ try{
  assert.equal((await machine('/api/bridge/tasks/claim',{},b.credential)).body.kind,'idle');
  assert.equal((await client.claimTask({deviceId:a.id})).taskId,queued.taskId);
  const claims=await Promise.all([machine('/api/bridge/tasks/claim',{},a.credential),machine('/api/bridge/tasks/claim',{},a.credential)]);
- assert.ok(claims.every(result=>result.status===200&&result.body.taskId===queued.taskId));
- const claim=claims[0].body;
+ assert.ok(claims.every(result=>result.status===200&&result.body.kind==='idle'),'An active delivery lease must prevent duplicate browser execution');
+ await test.pool.query("UPDATE browser_tasks SET delivered_at=now()-interval '151 seconds' WHERE id=$1",[queued.taskId]);
+ const recoveryClaims=await Promise.all([machine('/api/bridge/tasks/claim',{},a.credential),machine('/api/bridge/tasks/claim',{},a.credential)]);
+ assert.equal(recoveryClaims.filter(result=>result.body.taskId===queued.taskId).length,1,'An expired delivery lease permits exactly one recovery claimant');
+ assert.equal(recoveryClaims.filter(result=>result.body.kind==='idle').length,1);
+ const claim=recoveryClaims.find(result=>result.body.taskId===queued.taskId).body;
  const verify=createBrowserTaskVerifier({origin,deviceId:a.id,publicKey:keys.publicKey.export({format:'pem',type:'spki'}).toString()});
  assert.equal(verify(claim.envelope).request.candidateId,source.id);
  const body={taskHash:claim.taskHash,observation:observation(source)};

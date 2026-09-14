@@ -4,7 +4,7 @@ import type { PgBoss } from "pg-boss";
 import { z } from "zod";
 import { JOB_ADVANCE, txAdapter } from "./queue.ts";
 import {readMarketSource} from './market-source-store.ts';
-import { productDatabaseObservationSchema } from '@forge-ops/domain';
+import { confirmsKitchenDining, productDatabaseObservationSchema } from '@forge-ops/domain';
 import { decryptSecret, exactPayloadHash } from '@forge-ops/security';
 
 const paramsSchema = z.object({ id: z.uuid() });
@@ -51,7 +51,7 @@ async function readRepresentative(db: Pick<Pool, "query">, id: string,key:Buffer
       const raw:unknown=JSON.parse(decryptSecret(productReceipt.body_ciphertext,key,'browser-task-result:'+productReceipt.receipt_id).toString('utf8'));
       const parsed=productDatabaseObservationSchema.safeParse(raw);
       if(exactPayloadHash(raw)===productReceipt.body_sha256&&parsed.success&&parsed.data.query===productReceipt.query){
-        productDatabase=parsed.data.records.flatMap(record=>record.categoryPath?.includes('Kitchen & Dining')?[{asin:record.asin,title:record.title}]:[]);
+        productDatabase=parsed.data.records.flatMap(record=>record.categoryPath&&confirmsKitchenDining(record.categoryPath)?[{asin:record.asin,title:record.title}]:[]);
       }
     }catch(error){if(!(error instanceof Error))throw error;}
   }

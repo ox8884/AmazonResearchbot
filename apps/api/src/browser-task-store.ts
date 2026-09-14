@@ -23,7 +23,7 @@ async function readJungleScoutBrowserBudget(db:QueryConnection):Promise<number>{
  const cap=setting?.cap??0;
  if(!Number.isSafeInteger(cap)||cap<=0)return 0;
  const used=(await db.query<{used:number}>(`SELECT count(*)::int AS used FROM browser_tasks
-  WHERE task_kind=ANY($1::text[]) AND state IN ('delivered','completed')
+  WHERE task_kind=ANY($1::text[]) AND (state IN ('delivered','completed') OR (state='cancelled' AND delivered_at IS NOT NULL))
    AND created_at>=date_trunc('day',clock_timestamp())`,[jungleScoutBrowserTaskKinds])).rows[0]?.used??0;
  return Math.max(0,cap-used);
 }
@@ -56,9 +56,9 @@ export async function claimBrowserTask(pool:Pool,deviceId:string) {
   const researchRemaining=await readJungleScoutBrowserBudget(db);
   for(let checked=0;checked<20;checked++){
    const row=(await db.query<BrowserTaskRow>(`SELECT t.* FROM browser_tasks t
-    WHERE t.device_id=$1 AND t.state IN ('queued','delivered')
+    WHERE t.device_id=$1 AND (t.state='queued' OR (t.state='delivered' AND t.delivered_at<=clock_timestamp()-interval '150 seconds'))
      AND (t.task_kind <> ALL($2::text[]) OR $3::boolean)
-    ORDER BY (t.state='queued') DESC,
+   ORDER BY
      (SELECT max(prior.delivered_at) FROM browser_tasks prior
       WHERE prior.task_kind=t.task_kind
        AND prior.candidate_id IS NOT DISTINCT FROM t.candidate_id
@@ -71,7 +71,7 @@ export async function claimBrowserTask(pool:Pool,deviceId:string) {
    if(!row){await db.query("COMMIT");return {kind:"idle" as const};}
    const source=row.search_run_id!==null?await lockSearchTaskSource(db,row):await lockTaskSource(db,row);
    if(!source){await db.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1",[row.id]);continue;}
-   const delivered=await db.query("UPDATE browser_tasks SET state='delivered',delivered_at=COALESCE(delivered_at,now()) WHERE id=$1 AND state IN ('queued','delivered') AND expires_at>clock_timestamp() RETURNING id",[row.id]);
+   const delivered=await db.query("UPDATE browser_tasks SET state='delivered',delivered_at=now() WHERE id=$1 AND (state='queued' OR (state='delivered' AND delivered_at<=clock_timestamp()-interval '150 seconds')) AND expires_at>clock_timestamp() RETURNING id",[row.id]);
    if(!delivered.rowCount){await db.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1 AND state IN ('queued','delivered')",[row.id]);continue;}
    await db.query("COMMIT");
    return {kind:"task" as const,taskId:row.id,taskHash:row.task_hash,envelope:row.envelope};

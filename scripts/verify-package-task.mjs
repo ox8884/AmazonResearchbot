@@ -39,6 +39,9 @@ try{
  async function candidate(label,representative=asin){
   const c=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",['Package '+label+' '+test.runId])).rows[0];
   await test.pool.query("INSERT INTO candidate_events(candidate_id,stage,input_version,detail) VALUES($1,'api_validation',1,$2::jsonb)",[c.id,JSON.stringify({representativeAsin:representative})]);
+  const ciTask=(await test.pool.query("INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,expires_at,task_kind) VALUES(gen_random_uuid(),$1,$2,NULL,1,(SELECT max(version) FROM settings_versions),'{}'::jsonb,repeat('c',64),now()+interval '5 minutes','competitive_intelligence') RETURNING id",[deviceId,c.id])).rows[0];
+  const ciResult=(await test.pool.query("INSERT INTO browser_task_results(id,task_id,body_sha256,body_ciphertext,capture_ids) VALUES(gen_random_uuid(),$1,repeat('d',64),'synthetic','{}'::uuid[]) RETURNING id",[ciTask.id])).rows[0];
+  await test.pool.query("UPDATE browser_tasks SET state='completed',result_id=$2,delivered_at=now() WHERE id=$1",[ciTask.id,ciResult.id]);
   return c.id;
  }
  const candidateId=await candidate('known');

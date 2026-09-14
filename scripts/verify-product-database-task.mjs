@@ -7,7 +7,7 @@ import {publishBrowserSigningIdentity} from '../apps/worker/src/browser-signing-
 import {queueProductDatabase} from '../apps/worker/src/browser-task-producer.ts';
 import {decryptSecret} from '../packages/security/src/secrets.ts';
 import {productDatabaseObservationSchema} from '../packages/domain/src/product-database.ts';
-import {selectBrowserProductLeader} from '../packages/domain/src/product-database-leader.ts';
+import {confirmsKitchenDining,selectBrowserProductLeader} from '../packages/domain/src/product-database-leader.ts';
 import {INITIAL_SETTINGS} from '../packages/domain/src/settings.ts';
 
 // Given a screen row with all displayed product fields and an unavailable weight.
@@ -25,6 +25,7 @@ assert.equal(selectBrowserProductLeader({...productFixture,records:[productRecor
 assert.equal(selectBrowserProductLeader({...productFixture,records:[{...productRecord,revenueMonthly:null}]}).kind,'pending','An unknown revenue stays pending');
 assert.deepEqual(selectBrowserProductLeader({...productFixture,records:[{...productRecord,revenueMonthly:'$11,250 / $5,625'}]}),{kind:'pending',reason:'MONTHLY_REVENUE_AMBIGUOUS'},'Mixed revenue strings stay pending');
 assert.deepEqual(selectBrowserProductLeader({...productFixture,records:[{...productRecord,categoryPath:'Home & Kitchen'}]}),{kind:'pending',reason:'CATEGORY_UNCONFIRMED'},'Unconfirmed category membership stays pending');
+assert.equal(confirmsKitchenDining('Kitchen & Dining Accessories'),false,'A similarly named category is not Kitchen & Dining');
 
 const reserve=createServer();
 reserve.listen(0,'127.0.0.1');
@@ -55,7 +56,14 @@ try{
  const candidate=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",[query])).rows[0];
  const queued=await queueProductDatabase(test.pool,{deviceId,candidateId:candidate.id},{origin,privateKey:keys.privateKey});
  assert.equal(queued.kind,'queued');
- const claim=(await call('/api/bridge/tasks/claim',{})).body;
+ const concurrentClaims=await Promise.all([
+  call('/api/bridge/tasks/claim',{}),
+  call('/api/bridge/tasks/claim',{}),
+ ]);
+ const taskClaims=concurrentClaims.filter(response=>response.body.kind==='task');
+ assert.equal(taskClaims.length,1,'Concurrent bridge claims must deliver a queued task once');
+ assert.equal(concurrentClaims.filter(response=>response.body.kind==='idle').length,1,'The losing concurrent claim must be idle');
+ const claim=taskClaims[0].body;
  assert.equal(claim.taskId,queued.taskId);
  const request=JSON.parse(Buffer.from(claim.envelope.payload,'base64url')).request;
  assert.deepEqual(request.kind,'product_database');

@@ -95,6 +95,11 @@ try {
   assert.equal((await machineCall('/api/bridge/tasks/claim', {})).body.kind, 'idle',
     'The positive daily cap bounds additional browser claims');
 
+  const retryResponse = await test.call(`/api/candidates/${candidate.id}/jungle-scout-research/product_database/retry`, {});
+  assert.equal(retryResponse.status, 202, 'A delivered read can be marked for retry');
+  assert.equal((await dispatchBrowserWork(test.pool, { ...signing, fingerprint: identity.fingerprint })).queued, 0,
+    'Retrying a delivered read must not reopen the consumed daily wire cap');
+
   const nextCandidate = (await test.pool.query(
     "INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",
     [`cap-one ${test.runId}`],

@@ -30,7 +30,7 @@ function parseMonthlyRevenue(value: string): number | null {
   return Number.isFinite(amount) && amount > 0 ? amount : null;
 }
 
-function confirmsKitchenDining(categoryPath: string): boolean {
+export function confirmsKitchenDining(categoryPath: string): boolean {
   return categoryPath.split(/\s*>\s*/).some((segment) => segment.trim().toLocaleLowerCase() === "kitchen & dining");
 }
 

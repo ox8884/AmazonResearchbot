@@ -13,6 +13,7 @@ const researchPrerequisite = {
   historical_data: "keyword_scout",
   category_trends: "historical_data",
   competitive_intelligence: "category_trends",
+  amazon_package: "competitive_intelligence",
 } as const;
 async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
   const fingerprint = createHash("sha256").update(createPublicKey(signing.privateKey).export({ format: "der", type: "spki" })).digest("hex");
