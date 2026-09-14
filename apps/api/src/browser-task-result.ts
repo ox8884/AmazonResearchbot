@@ -40,12 +40,16 @@ export async function acceptBrowserTaskResult(pool:Pool,input:{
   const observed=Date.parse(observation.observedAt),now=Date.now();
   if(request.kind==="saved_search_export"||task.state!=="delivered"||task.expires_at.getTime()<=now||!source||
      payload.id!==task.id||payload.deviceId!==task.device_id||request.candidateId!==task.candidate_id||
-     (request.kind!=='amazon_package'&&request.kind!=='amazon_search'&&request.kind!=='product_database'&&request.kind!=='keyword_scout'&&request.specId!==task.spec_id)||request.inputVersion!==task.input_version||request.settingsVersion!==task.settings_version||
+     (request.kind!=='amazon_package'&&request.kind!=='amazon_search'&&request.kind!=='product_database'&&request.kind!=='keyword_scout'&&request.kind!=='historical_data'&&request.kind!=='category_trends'&&request.specId!==task.spec_id)||request.inputVersion!==task.input_version||request.settingsVersion!==task.settings_version||
      observed>now||observed<Date.parse(payload.issuedAt)||observed>Date.parse(payload.expiresAt)){
    await db.query("COMMIT");return {kind:"stale" as const};
   }
   const receiptId=randomUUID(),captureIds:string[]=[];
-  if(request.kind==='keyword_scout'){
+  if(request.kind==='category_trends'){
+   if(source.readKind!=='category_trends'||observation.scope!=='jungle_scout_category_trends'||observation.query!==request.query){await db.query('COMMIT');return {kind:'invalid' as const};}
+  }else if(request.kind==='historical_data'){
+   if(source.readKind!=='historical_data'||observation.scope!=='jungle_scout_historical_data'||observation.query!==request.query){await db.query('COMMIT');return {kind:'invalid' as const};}
+  }else if(request.kind==='keyword_scout'){
    if(source.readKind!=='keyword_scout'||observation.scope!=='jungle_scout_keyword_scout'||observation.query!==request.query){await db.query('COMMIT');return {kind:'invalid' as const};}
   }else if(request.kind==='product_database'){
    if(source.readKind!=='product_database'||observation.scope!=='jungle_scout_product_database'||observation.query!==request.query){await db.query('COMMIT');return {kind:'invalid' as const};}

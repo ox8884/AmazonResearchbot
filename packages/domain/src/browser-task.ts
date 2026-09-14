@@ -57,6 +57,20 @@ export const browserTaskSchema = z.object({
       settingsVersion: z.number().int().positive(),
       query: z.string().trim().min(1).max(500),
     }).strict(),
+    z.object({
+      kind: z.literal("historical_data"),
+      candidateId: uuid,
+      inputVersion: z.number().int().positive(),
+      settingsVersion: z.number().int().positive(),
+      query: z.string().trim().min(1).max(500),
+    }).strict(),
+    z.object({
+      kind: z.literal("category_trends"),
+      candidateId: uuid,
+      inputVersion: z.number().int().positive(),
+      settingsVersion: z.number().int().positive(),
+      query: z.string().trim().min(1).max(500),
+    }).strict(),
   ]),
 }).strict().refine(task => {
   const issued = Date.parse(task.issuedAt), expires = Date.parse(task.expiresAt);

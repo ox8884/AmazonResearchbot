@@ -6,6 +6,8 @@ import { searchExportObservationSchema } from './search-export.ts';
 import {amazonMarketObservationSchema} from './amazon-market.ts';
 import {productDatabaseObservationSchema} from './product-database.ts';
 import {keywordScoutObservationSchema} from './keyword-scout.ts';
+import {historicalDataObservationSchema} from './historical-data.ts';
+import {categoryTrendsObservationSchema} from './category-trends.ts';
 const urls=supplierCaptureSchema.shape;
 export const supplierSearchObservationSchema=z.object({
  protocol:z.literal(1),kind:z.literal("captured"),scope:z.literal("first_results_page"),
@@ -19,4 +21,4 @@ export const supplierSearchObservationSchema=z.object({
  }).strict().refine(row=>row.pageText.includes(row.companyName)&&row.pageText.includes(row.productName),{message:"Source text must contain the observed names"})).min(1).max(200),
 }).strict().refine(value=>value.visibleCards>=value.records.length,{message:"Invalid visible record count"});
 
-export const browserObservationSchema=z.union([supplierSearchObservationSchema,supplierDetailObservationSchema,amazonPackageObservationSchema,searchExportObservationSchema,amazonMarketObservationSchema,productDatabaseObservationSchema,keywordScoutObservationSchema]);
+export const browserObservationSchema=z.union([supplierSearchObservationSchema,supplierDetailObservationSchema,amazonPackageObservationSchema,searchExportObservationSchema,amazonMarketObservationSchema,productDatabaseObservationSchema,keywordScoutObservationSchema,historicalDataObservationSchema,categoryTrendsObservationSchema]);

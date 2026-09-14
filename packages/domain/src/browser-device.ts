@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const bridgeCapabilitySchema = z.enum(["supplier_search", "supplier_detail", "amazon_package", "saved_search_export", "amazon_search", "product_database", "keyword_scout"]);
+export const bridgeCapabilitySchema = z.enum(["supplier_search", "supplier_detail", "amazon_package", "saved_search_export", "amazon_search", "product_database", "keyword_scout", "historical_data", "category_trends"]);
 
 export const bridgeConnectionStateSchema = z.enum(["unreported", "ready", "offline", "stale", "unsupported", "key_mismatch", "revoked"]);
 export const bridgeDeviceSchema = z.object({
