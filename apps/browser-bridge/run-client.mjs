@@ -6,8 +6,9 @@ import {createAsideAdapter} from './aside-adapter.mjs';
 import {deviceVault} from './device-vault.mjs';
 import {openBrowserTaskLedger} from './task-ledger.mjs';
 import {createRecoveryCycle} from './recovery-cycle.mjs';
+import {acquireBridgeProcessLock} from './process-lock.mjs';
 
-let adapter,ledger,stopping=false,wake;
+let adapter,ledger,releaseProcessLock,stopping=false,wake;
 process.once('SIGINT',()=>{stopping=true;wake?.();});
 process.once('SIGTERM',()=>{stopping=true;wake?.();});
 try{
@@ -18,6 +19,7 @@ try{
  const client=createBridgeClient({origin:configuration.origin});
  const readCredential=()=>deviceVault('read',{origin:configuration.origin,deviceId:configuration.deviceId});
  if(!await readCredential())throw new Error('DEVICE_CREDENTIAL_MISSING');
+ releaseProcessLock=await acquireBridgeProcessLock(configuration.directory,configuration.deviceId);
  ledger=openBrowserTaskLedger(configuration);
  adapter=createAsideAdapter(configuration);
  const keyFingerprint=createHash('sha256').update(createPublicKey(configuration.publicKey).export({format:'der',type:'spki'})).digest('hex');
@@ -48,9 +50,11 @@ try{
    wake=()=>{clearTimeout(timer);wake=undefined;resolve();};
   });
  }while(!stopping);
-}catch{
- console.error('Browser bridge could not start. Check trusted configuration and device registration.');
- process.exitCode=1;
+}catch(error){
+ const code=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:'BRIDGE_CLIENT_START_FAILED';
+ console.error(JSON.stringify({service:'browser-bridge',kind:'attention',code}));
+ process.exitCode=code==='BRIDGE_CLIENT_ALREADY_RUNNING'?0:1;
 }finally{
  adapter?.close();ledger?.close();
+ if(releaseProcessLock)await releaseProcessLock();
 }

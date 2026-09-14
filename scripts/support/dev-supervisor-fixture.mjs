@@ -5,21 +5,26 @@ import {readFile} from 'node:fs/promises';
 import path from 'node:path';
 import {startOptionalBrowserClient} from './dev-browser-client.mjs';
 
-export async function openDevSupervisorFixture({root,source,exitedCore=false}){
+export async function openDevSupervisorFixture({root,source,exitedCore=false,exitedBackup=false}){
  const code=await readFile(path.join(root,'scripts/dev.mjs'),'utf8');
- const start=code.indexOf('const children = [');
+ const start=code.indexOf('let shuttingDown = false;');
  assert.ok(start>=0,'Supervisor child setup must exist');
  const signalSource=new EventEmitter();
  Object.assign(signalSource,{execPath:process.execPath,platform:process.platform,env:source});
- const core=[],exits=[],ready=[];let browser,finished=false,handlersReady;
+ const core=[],coreExits=[],exits=[],ready=[];let browser,finished=false,handlersReady;
  const handlers=new Promise(resolve=>{handlersReady=resolve;});
  const on=signalSource.on.bind(signalSource);
  signalSource.on=(name,listener)=>{on(name,listener);if(signalSource.listenerCount('SIGTERM')&&signalSource.listenerCount('SIGINT'))handlersReady();return signalSource;};
- const spawn=()=>{
-  const childCode=exitedCore&&core.length===0?"process.send({kind:'ready'},()=>process.exit(0));":"process.send({kind:'ready'});process.on('message',m=>{if(m.kind==='ping')process.send({kind:'pong',id:m.id});});setInterval(()=>{},1000);";
+ const spawn=(_command,args)=>{
+  const backup=Array.isArray(args)&&args.includes('scripts/backup-scheduler.mjs');
+  const shouldExit=(backup&&exitedBackup)||(!backup&&exitedCore&&core.length===0);
+  const exitDelay=backup?100:10;
+  const childCode=shouldExit?`setTimeout(()=>process.send({kind:'ready'},()=>process.exit(1)),${exitDelay});`:"setTimeout(()=>process.send({kind:'ready'}),10);process.on('message',m=>{if(m.kind==='ping')process.send({kind:'pong',id:m.id});});setInterval(()=>{},1000);";
   const child=spawnChild(process.execPath,['-e',childCode],{windowsHide:true,stdio:['ignore','ignore','ignore','ipc'],env:{...process.env,NODE_OPTIONS:''}});
-  core.push(child);
-  exits.push(new Promise(resolve=>{child.once('error',resolve);child.once('close',resolve);}));
+  if(!backup)core.push(child);
+  const exited=new Promise(resolve=>{child.once('error',resolve);child.once('close',resolve);});
+  if(!backup)coreExits.push(exited);
+  exits.push(exited);
   ready.push(new Promise((resolve,reject)=>{
    const timer=setTimeout(()=>reject(new Error('CORE_FIXTURE_START_TIMEOUT')),10000);
    child.once('error',error=>{clearTimeout(timer);reject(error);});
@@ -29,9 +34,10 @@ export async function openDevSupervisorFixture({root,source,exitedCore=false}){
  };
  const AsyncFunction=Object.getPrototypeOf(async function(){}).constructor;
  const run=new AsyncFunction('spawn','process','root','path','startOptionalBrowserClient','console',code.slice(start));
- const running=run(spawn,signalSource,root,path,async options=>{if(exitedCore){await Promise.all(ready);await exits[0];}browser=await startOptionalBrowserClient({...options,stdio:['ignore','pipe','pipe'],onAttention:()=>{}});return browser;},{log:()=>{}});
+ const running=run(spawn,signalSource,root,path,async options=>{if(exitedCore){await Promise.all(ready);await coreExits[0];}browser=await startOptionalBrowserClient({...options,stdio:['ignore','pipe','pipe'],onAttention:()=>{}});return browser;},{log:()=>{},error:()=>{}});
  void running.then(()=>{finished=true;});
  await handlers;await Promise.all(ready);
+ if(exitedBackup)await exits[0];
  async function coreAlive(){
   assert.equal(finished,false,'Optional exit must not resolve the core race');
   await Promise.all(core.map((child,index)=>new Promise((resolve,reject)=>{

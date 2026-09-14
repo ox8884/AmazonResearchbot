@@ -130,8 +130,12 @@ const migrate = spawn(process.execPath, ["--import", "tsx", "scripts/migrate.ts"
 });
 await wait(migrate);
 if (migrate.exitCode !== 0) fail("데이터베이스 준비에 실패했습니다.");
+let shuttingDown = false;
+const backup = spawn(process.execPath, ["--import", "tsx", "scripts/backup-scheduler.mjs"], { windowsHide: true, detached: false, stdio: "inherit", cwd: root, env: process.env });
+void wait(backup).then((code) => {
+  if (!shuttingDown) console.error(JSON.stringify({ service: "local-backup", kind: "degraded", exitCode: code }));
+});
 const children = [
-  spawn(process.execPath, ["--import", "tsx", "scripts/backup-scheduler.mjs"], { windowsHide: true, detached: false, stdio: "inherit", cwd: root, env: process.env }),
   spawn(process.execPath, ["--import", "tsx", "apps/api/src/index.ts"], { windowsHide: true, detached: false, stdio: "inherit", cwd: root, shell: false, env: process.env }),
   spawn(process.execPath, ["--import", "tsx", "apps/worker/src/index.ts"], { windowsHide: true, detached: false, stdio: "inherit", cwd: root, shell: false, env: process.env }),
   spawn(process.execPath, ["node_modules/vite/bin/vite.js"], { windowsHide: true, detached: false, stdio: "inherit", cwd: path.join(root, "apps/web"), shell: false, env: process.env }),
@@ -175,6 +179,7 @@ async function superviseBrowserClient() {
     const result = await browserClient.closed;
     browserClient = null;
     if (browserSupervisorStopped) return;
+    if (result && result.code === 0) return;
     if (result && result.signal && ["SIGTERM", "SIGINT"].includes(result.signal)) return;
     failures += 1;
     if (failures > 5) {
@@ -189,10 +194,12 @@ async function superviseBrowserClient() {
 console.log("웹 http://localhost:5173  API http://localhost:3001  Mailpit http://localhost:8025");
 
 function shutdown() {
+  shuttingDown = true;
   browserSupervisorStopped = true;
   browserStopResolve?.(null);
   browserRetryResolve?.();
   browserClient?.child.kill("SIGTERM");
+  backup.kill("SIGTERM");
   for (const child of children) child.kill("SIGTERM");
   void browserSupervisor;
 }
