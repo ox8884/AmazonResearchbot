@@ -8,6 +8,12 @@ type Signing = { readonly origin: string; readonly privateKey: KeyObject };
 type Target = { readonly deviceId: string; readonly candidateId: string } & (
   { readonly kind: "supplier_search" | "amazon_package" | "amazon_search" | "product_database" | "keyword_scout" | "historical_data" | "category_trends" | "competitive_intelligence" } | { readonly kind: "supplier_detail"; readonly sourceCaptureId: string }
 );
+const researchPrerequisite = {
+  keyword_scout: "product_database",
+  historical_data: "keyword_scout",
+  category_trends: "historical_data",
+  competitive_intelligence: "category_trends",
+} as const;
 async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
   const fingerprint = createHash("sha256").update(createPublicKey(signing.privateKey).export({ format: "der", type: "spki" })).digest("hex");
   const db = await pool.connect();
@@ -20,6 +26,18 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
     const captured = target.kind === "supplier_detail" && source.spec_id !== null ? await readSupplierSearchSource(db, target.sourceCaptureId, source) : null;
     if (target.kind === "supplier_detail" && (!captured || !alibabaCompanyKey(captured.company_url) || !alibabaProductKey(captured.product_url))) {
       await db.query("COMMIT"); return { kind: "not_ready" as const };
+    }
+    const prerequisite = target.kind in researchPrerequisite
+      ? researchPrerequisite[target.kind as keyof typeof researchPrerequisite]
+      : null;
+    if (prerequisite) {
+      const ready = await db.query(
+        `SELECT 1 FROM browser_tasks
+         WHERE candidate_id=$1 AND task_kind=$2 AND input_version=$3 AND settings_version=$4
+           AND state='completed' LIMIT 1`,
+        [source.id, prerequisite, source.input_version, source.settings_version],
+      );
+      if (!ready.rowCount) { await db.query("COMMIT"); return { kind: "not_ready" as const }; }
     }
     const ready = await db.query("SELECT d.id FROM bridge_devices d JOIN browser_signing_identity k ON k.fingerprint=d.reported_key_fingerprint WHERE d.id=$1 AND d.reported_connected=true AND d.reported_at>clock_timestamp()-interval '90 seconds' AND d.reported_key_fingerprint=$2 AND $3=ANY(d.reported_tasks)", [device.id, fingerprint, target.kind]);
     if (!ready.rowCount) { await db.query("COMMIT"); return { kind: "not_ready" as const }; }

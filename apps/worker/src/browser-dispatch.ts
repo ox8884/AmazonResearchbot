@@ -42,6 +42,8 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
     const candidates=(await pool.query<{id:string}>(`
       SELECT c.id FROM candidates c JOIN LATERAL(SELECT version FROM settings_versions ORDER BY version DESC LIMIT 1) v ON true
       WHERE c.marketplace='us' AND c.stage='api_validation' AND length(c.normalized_keyword) BETWEEN 1 AND 500
+       AND EXISTS(SELECT 1 FROM browser_tasks prerequisite WHERE prerequisite.candidate_id=c.id AND prerequisite.task_kind='product_database'
+        AND prerequisite.input_version=c.input_version AND prerequisite.settings_version=v.version AND prerequisite.state='completed')
        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='keyword_scout'
         AND t.input_version=c.input_version AND t.settings_version=v.version
         AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
@@ -53,6 +55,8 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
     const candidates=(await pool.query<{id:string}>(`
       SELECT c.id FROM candidates c JOIN LATERAL(SELECT version FROM settings_versions ORDER BY version DESC LIMIT 1) v ON true
       WHERE c.marketplace='us' AND c.stage='api_validation' AND length(c.normalized_keyword) BETWEEN 1 AND 500
+       AND EXISTS(SELECT 1 FROM browser_tasks prerequisite WHERE prerequisite.candidate_id=c.id AND prerequisite.task_kind='keyword_scout'
+        AND prerequisite.input_version=c.input_version AND prerequisite.settings_version=v.version AND prerequisite.state='completed')
        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='historical_data'
         AND t.input_version=c.input_version AND t.settings_version=v.version
         AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
@@ -64,6 +68,8 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
     const candidates=(await pool.query<{id:string}>(`
       SELECT c.id FROM candidates c JOIN LATERAL(SELECT version FROM settings_versions ORDER BY version DESC LIMIT 1) v ON true
       WHERE c.marketplace='us' AND c.stage='api_validation' AND length(c.normalized_keyword) BETWEEN 1 AND 500
+       AND EXISTS(SELECT 1 FROM browser_tasks prerequisite WHERE prerequisite.candidate_id=c.id AND prerequisite.task_kind='historical_data'
+        AND prerequisite.input_version=c.input_version AND prerequisite.settings_version=v.version AND prerequisite.state='completed')
        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='category_trends'
         AND t.input_version=c.input_version AND t.settings_version=v.version
         AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
@@ -75,6 +81,8 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
     const candidates=(await pool.query<{id:string}>(`
       SELECT c.id FROM candidates c JOIN LATERAL(SELECT version FROM settings_versions ORDER BY version DESC LIMIT 1) v ON true
       WHERE c.marketplace='us' AND c.stage='api_validation' AND length(c.normalized_keyword) BETWEEN 1 AND 500
+       AND EXISTS(SELECT 1 FROM browser_tasks prerequisite WHERE prerequisite.candidate_id=c.id AND prerequisite.task_kind='category_trends'
+        AND prerequisite.input_version=c.input_version AND prerequisite.settings_version=v.version AND prerequisite.state='completed')
        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='competitive_intelligence'
         AND t.input_version=c.input_version AND t.settings_version=v.version
         AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
