@@ -7,7 +7,7 @@ import type { Pool } from "@forge-ops/db";
 import { evaluateNiche, readNicheEvidence, type StoredEvidence, type SettingsSnapshot, type Stage } from "@forge-ops/domain";
 import type { JsTransport } from "@forge-ops/integrations/jungle-scout/transport";
 import { PgBoss } from "pg-boss";
-import {consumeBrowserValidation} from './browser-validation.ts';
+import {consumeBrowserValidation,reserveOfficialValidation} from './browser-validation.ts';
 
 export type AdvanceJob = { candidateId: string; stage: string; inputVersion: number };
 
@@ -128,19 +128,16 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
         accountScope: "local",
         ...(firstPageSource?{firstPageSource}:{}),
       };
-    const validationGuard=await pool.connect();
-    try{
-      await validationGuard.query('BEGIN');
-      await validationGuard.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))",['browser-validation:'+data.candidateId]);
-      const browserResult=ai?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
-      if(browserResult==='not_ready')await consumeOfficialValidation(
+    const browserResult=ai?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
+    const officialReserved=browserResult==='not_ready'&&transport.kind==='ready'&&context.snapshot.jsDailyWireCap>0
+      ?await reserveOfficialValidation(pool,context)
+      :browserResult==='not_ready';
+    if(officialReserved)await consumeOfficialValidation(
         pool,
         transport,
         context,
         (retryAt) => scheduleDeferredAdvance(pool, { ...data, stage: "api_validation" }, retryAt),
       );
-      await validationGuard.query('COMMIT');
-    }catch(error){await validationGuard.query('ROLLBACK');throw error;}finally{validationGuard.release();}
   }
   if(ai?.transport.kind==='ready'){
     const current=(await pool.query<{stage:string}>('SELECT stage FROM candidates WHERE id=$1',[data.candidateId])).rows[0];

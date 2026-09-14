@@ -109,12 +109,9 @@ try{
  const advancing=advanceCandidate(test.pool,{kind:'ready',send:async()=>{enterWire();await wireRelease;return {status:503,body:{},retryAfter:null};}},{candidateId:concurrentId,stage:'api_validation',inputVersion:1},ai);
  await wireEntered;
  await test.pool.query("UPDATE bridge_devices SET reported_connected=true,reported_at=now() WHERE id=$1",[deviceId]);
- let queueSettled=false;
- const queuing=queueProductDatabase(test.pool,{deviceId,candidateId:concurrentId},{origin:'http://localhost:5173',privateKey:keys.privateKey}).then(result=>{queueSettled=true;return result;});
- await new Promise(resolve=>setTimeout(resolve,25));
- assert.equal(queueSettled,false,'Browser dispatch waits while official fallback owns the candidate transport decision');
- releaseWire();
- await advancing;
- assert.notEqual((await queuing).kind,'not_ready');
+ const queuing=queueProductDatabase(test.pool,{deviceId,candidateId:concurrentId},{origin:'http://localhost:5173',privateKey:keys.privateKey});
+ assert.equal((await queuing).kind,'not_ready','Browser dispatch cannot join an input reserved for official validation');
+  releaseWire();
+  await advancing;
  console.log(JSON.stringify({scenario:'browser-canonical-validation',result:'PASS',completePopulationEvaluated:true,partialPopulationHeld:true,mixedCategoryPopulationHeld:true,allReceiptsValidated:true,corruptReceiptRejected:true,pendingBrowserAvoidsOfficialFallback:true,positiveCapBrowserIntent:true,concurrentTransportArbitration:true,unknownsPreserved:true,encryptedReceiptBound:true,externalActions:0}));
 }finally{await test.close();}

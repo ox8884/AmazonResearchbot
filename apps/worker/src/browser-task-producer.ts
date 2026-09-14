@@ -19,11 +19,17 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
   const db = await pool.connect();
   try {
     await db.query("BEGIN");
-    await db.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", ["browser-validation:" + target.candidateId]);
     await db.query("SELECT pg_advisory_xact_lock(hashtext('forge.settings'))");
     const device = await lockActiveBridgeDevice(db, target.deviceId);
     const source = device ? (target.kind==='amazon_search'||target.kind==='product_database'||target.kind==='keyword_scout'||target.kind==='historical_data'||target.kind==='category_trends'||target.kind==='competitive_intelligence')?await lockMarketContext(db,target.candidateId):target.kind === 'amazon_package' ? await lockPackageContext(db,target.candidateId) : await lockSourcingContext(db, target.candidateId) : null;
     if (!device || !source) { await db.query("COMMIT"); return { kind: "not_ready" as const }; }
+    if (target.kind==='product_database'||target.kind==='keyword_scout'||target.kind==='historical_data'||target.kind==='category_trends'||target.kind==='competitive_intelligence') {
+      const official=(await db.query<{reserved:boolean}>(`SELECT EXISTS(SELECT 1 FROM candidate_events
+        WHERE candidate_id=$1 AND stage='api_validation' AND input_version=$2
+         AND detail->>'validationTransport'='official' AND (detail->>'validationSettingsVersion')::int=$3) AS reserved`,
+        [source.id,source.input_version,source.settings_version])).rows[0]?.reserved??false;
+      if(official){await db.query('COMMIT');return {kind:'not_ready' as const};}
+    }
     const captured = target.kind === "supplier_detail" && source.spec_id !== null ? await readSupplierSearchSource(db, target.sourceCaptureId, source) : null;
     if (target.kind === "supplier_detail" && (!captured || !alibabaCompanyKey(captured.company_url) || !alibabaProductKey(captured.product_url))) {
       await db.query("COMMIT"); return { kind: "not_ready" as const };

@@ -146,3 +146,26 @@ export async function consumeBrowserValidation(pool:Pool,context:ApiValidationCo
  const evidenceBlock=!categoryConfirmed?'CATEGORY_MEMBERSHIP_UNCONFIRMED':complete?null:'BROWSER_PRODUCT_DATABASE_METRICS_INCOMPLETE';
  return applyApiValidationDecision({pool,context,decision:{assessment,input,outcome:assessment.hardFail?'reject':evidenceBlock?'hold':assessment.outcome,evidenceBlock,sourceIds:[sourceId,'browser-task-result:'+categoryReceipt.id]}});
 }
+
+export async function reserveOfficialValidation(pool:Pool,context:ApiValidationContext):Promise<boolean>{
+ const client=await pool.connect();
+ try{
+  await client.query('BEGIN');
+  await client.query("SELECT pg_advisory_xact_lock(hashtext('forge.settings'))");
+  const current=(await client.query<{valid:boolean}>(`SELECT c.stage='api_validation' AND c.input_version=$2
+    AND (SELECT max(version) FROM settings_versions)=$3 AS valid FROM candidates c WHERE c.id=$1 FOR UPDATE`,
+    [context.candidateId,context.inputVersion,context.settingsVersion])).rows[0]?.valid??false;
+  if(!current){await client.query('COMMIT');return false;}
+  const browserStarted=((await client.query(`SELECT 1 FROM browser_tasks WHERE candidate_id=$1 AND input_version=$2 AND settings_version=$3
+    AND task_kind=ANY($4::text[]) LIMIT 1`,[context.candidateId,context.inputVersion,context.settingsVersion,researchTasks])).rowCount??0)>0;
+  const browserIntended=context.snapshot.jsDailyWireCap>0&&((await client.query(`SELECT 1 FROM bridge_devices d JOIN "user" u ON u.id=d.owner_user_id
+    WHERE d.revoked_at IS NULL AND u.two_factor_enabled=true AND d.reported_connected=true
+     AND d.reported_at>clock_timestamp()-interval '90 seconds' AND 'product_database'=ANY(d.reported_tasks) LIMIT 1`)).rowCount??0)>0;
+  if(browserStarted||browserIntended){await client.query('COMMIT');return false;}
+  await client.query(`INSERT INTO candidate_events(candidate_id,stage,input_version,detail)
+    VALUES($1,'api_validation',$2,jsonb_build_object('validationTransport','official','validationSettingsVersion',$3::int))
+    ON CONFLICT(candidate_id,stage,input_version) DO UPDATE SET detail=candidate_events.detail||EXCLUDED.detail`,
+    [context.candidateId,context.inputVersion,context.settingsVersion]);
+  await client.query('COMMIT');return true;
+ }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
+}
