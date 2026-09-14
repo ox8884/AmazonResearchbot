@@ -45,6 +45,7 @@ export function BrowserConnection() {
             {state === "ready" && device.capabilities.includes("amazon_package") && <p>{t("대표 상품 포장 정보 읽기 가능", "Representative product packaging can be read")}</p>}
             {state === "ready" && device.capabilities.includes("saved_search_export") && <p>{t("저장검색 CSV 자동 수집 가능", "Saved-search CSV collection available")}</p>}
             {state === "ready" && device.capabilities.includes("amazon_search") && <p>{t("Amazon 첫 페이지 근거 수집 가능", "Amazon first-page observations available")}</p>}
+            {state === "ready" && device.capabilities.includes("product_database") && <p>{t("Jungle Scout Product Database 결과 읽기 가능", "Jungle Scout Product Database results available")}</p>}
             {state === "unreported" && <p className="muted">{t("기기는 등록됐어요. 이 PC의 연결 프로그램을 실행해 주세요.", "Device registered. Start the connection program on this PC.")}</p>}
           </div>
           {device.connectionState !== "revoked" && <button type="button" className="btn btn-secondary" disabled={Boolean(busy)} onClick={() => void revoke(device.id)} aria-label={t(device.name + " 연결 해제", "Disconnect " + device.name)}>{busy === device.id ? t("해제 중", "Disconnecting") : t("연결 해제", "Disconnect")}</button>}
