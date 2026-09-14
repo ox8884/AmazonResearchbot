@@ -12,12 +12,22 @@ const reviewSchema=z.object({
   message:'Review variant identity must come from its observed product link',
 });
 
+const catalogFactSchema=z.object({
+ kind:z.enum(['category_breadcrumb','best_sellers_rank','composition','quantity','aggregate_review_count','aggregate_rating']),
+ label:z.string().trim().min(1).max(100),
+ value:z.string().trim().min(1).max(2000),
+ sourceText:z.string().trim().min(1).max(3000),
+}).strict().refine(fact=>fact.sourceText.includes(fact.value),{
+ message:'Catalog fact must retain the exact observed value in its source text',
+});
+
 /** Listing claims and sampled review text are source material, not verified product performance. */
 export const amazonProductEvidenceSchema=z.object({
   basis:z.literal('listing_claims_and_review_excerpts'),
   title:z.string().trim().min(1).max(2000).nullable(),
   claims:z.array(z.string().trim().min(1).max(4000)).max(20),
   reviews:z.array(reviewSchema).max(20),
+  catalogFacts:z.array(catalogFactSchema).max(30).optional(),
 }).strict().refine(value=>new Set(value.reviews.map(row=>row.id)).size===value.reviews.length,{
   message:'Each observed review must have a distinct source identity',
 });

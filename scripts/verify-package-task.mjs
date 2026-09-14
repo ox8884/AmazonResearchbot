@@ -60,7 +60,13 @@ try{
  const request=JSON.parse(Buffer.from(claimed.envelope.payload,'base64url')).request;
  assert.equal(request.kind,'amazon_package');assert.equal(request.asin,asin);assert.equal(request.specId,undefined);
  const rows=[{label:'ASIN',value:asin},{label:'Package Dimensions',value:'18 x 14 x 8 inches; 20 pounds'}].map(row=>({...row,excerpt:row.label+' '+row.value}));
- const productEvidence={basis:'listing_claims_and_review_excerpts',title:'Synthetic spatula',claims:['Silicone blade'],reviews:[{id:'RTEST0001',title:'Thick edge',bodyExcerpt:'The blade is too thick for eggs.',ratingText:'4 out of 5 stars',variantLabel:'Size: 4 pieces',variantPath:'/portal/customer-reviews/B0QA000002',reviewedAsin:'B0QA000002'}]};
+ const productEvidence={basis:'listing_claims_and_review_excerpts',title:'Synthetic spatula',claims:['Silicone blade'],reviews:[{id:'RTEST0001',title:'Thick edge',bodyExcerpt:'The blade is too thick for eggs.',ratingText:'4 out of 5 stars',variantLabel:'Size: 4 pieces',variantPath:'/portal/customer-reviews/B0QA000002',reviewedAsin:'B0QA000002'}],catalogFacts:[
+  {kind:'category_breadcrumb',label:'Category breadcrumb',value:'Home & Kitchen › Kitchen & Dining',sourceText:'Home & Kitchen › Kitchen & Dining'},
+  {kind:'best_sellers_rank',label:'Best Sellers Rank',value:'#1 in Kitchen & Dining',sourceText:'Best Sellers Rank #1 in Kitchen & Dining'},
+  {kind:'quantity',label:'Number of Pieces',value:'21',sourceText:'Number of Pieces 21'},
+  {kind:'aggregate_review_count',label:'Aggregate review count',value:'1,234 ratings',sourceText:'1,234 ratings'},
+  {kind:'aggregate_rating',label:'Aggregate rating',value:'4.6 out of 5 stars',sourceText:'4.6 out of 5 stars'},
+ ]};
  productEvidence.reviews.push({id:'RTEST0002',title:'No variant link',bodyExcerpt:'The handle is sturdy.',ratingText:null,variantLabel:null,variantPath:null,reviewedAsin:null});
  const observation={protocol:1,kind:'captured',scope:'amazon_product_page',asin,sourcePageUrl:'https://www.amazon.com/dp/'+asin,observedAt:new Date().toISOString(),snapshot:'Synthetic package snapshot',pageText:rows.map(r=>r.excerpt).join('\n'),rows,productEvidence};
  const submit=obs=>call('/api/bridge/tasks/'+task.taskId+'/results',{taskHash:claimed.taskHash,observation:obs});

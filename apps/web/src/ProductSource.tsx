@@ -21,6 +21,10 @@ export function ProductSource({candidateId}:{candidateId:string}){
    <p><strong>{view.productEvidence.title??t('상품명 미확인','Title unknown')}</strong> · {view.asin}</p>
    <p className="muted">{t('관측 시각','Observed')}: {new Intl.DateTimeFormat(language==='ko'?'ko-KR':'en-US',{dateStyle:'medium',timeStyle:'short'}).format(new Date(view.observedAt))}</p>
    <a className="text-btn" href={view.sourcePageUrl} target="_blank" rel="noopener noreferrer">{t('Amazon 원본 상품 보기','View original Amazon product')}</a>
+   {view.productEvidence.catalogFacts?.length?<details><summary>{t('상품 페이지 추가 관측값 보기','View additional product-page observations')}</summary>
+    <p className="muted">{t('카테고리·BSR·구성·수량·평점은 페이지에 표시된 원문 관측값입니다. 표시되지 않은 값은 미확인으로 남습니다.','Category, BSR, composition, quantity and review totals are observations shown on the page. Values not shown remain unknown.')}</p>
+    <ul className="stack">{view.productEvidence.catalogFacts.map((fact,index)=><li id={'product-source-fact-'+index} key={`${fact.kind}-${fact.label}-${index}`}><strong>{fact.label}</strong>: {fact.value}<p className="muted">{t('원문','Source')}: {fact.sourceText}</p></li>)}</ul>
+   </details>:null}
    {view.productEvidence.claims.length?<details><summary>{t('판매자 기능 설명 보기','View seller feature claims')}</summary>
     <ul className="stack">{view.productEvidence.claims.map((claim,index)=><li id={'product-source-claim-'+index} key={index}>{claim}</li>)}</ul>
    </details>:<p>{t('기능 설명은 수집되지 않았습니다.','No feature claims were captured.')}</p>}

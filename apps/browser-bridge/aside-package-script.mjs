@@ -21,7 +21,7 @@ export function amazonPackageScript(asin,marker) {
      if(cells.length!==2)continue;
      const label=clean(cells[0].innerText),value=clean(cells[1].innerText);
      if(label==='ASIN')asins.push(value);
-     if(!/^(?:ASIN|Package Dimensions|Package Weight|Item Weight|(?:Item|Product) Dimensions.*)$/.test(label))continue;
+     if(!/^(?:ASIN|Package Dimensions|Package Weight|Item Weight|(?:Item|Product) Dimensions.*|Best Sellers Rank|Customer Reviews|(?:Item )?Package Quantity|Number of Pieces|Unit Count|Number of Items|Included Components|Material(?: Type)?)$/.test(label))continue;
      if(element.getClientRects().length===0||getComputedStyle(element).visibility==='hidden')continue;
      const excerpt=clean(element.innerText);
      if(!label||!value||label.length>100||value.length>2000||excerpt!==label+' '+value)throw Error('ROW_UNCONFIRMED');

@@ -6,7 +6,8 @@ import * as productEvidence from '../packages/domain/src/amazon-product-evidence
 import {amazonPackageObservationSchema} from '../packages/domain/src/amazon-package.ts';
 
 const element=(text,options={})=>({innerText:text,textContent:text,...options,
- getClientRects:()=>options.hidden?[]:[{}],getAttribute:name=>name==='href'?options.href:null});
+ getClientRects:()=>options.hidden?[]:[{}],getAttribute:name=>name==='href'?options.href:name==='title'?options.title:null});
+const tableRow=(label,value)=>({children:[{...element(label),tagName:'TH'},{...element(value),tagName:'TD'}],innerText:label+' '+value,getClientRects:()=>[{}]});
 function review(id,variant){
  const fields={
   '[data-hook="reviewTitle"]':element('Thick edge'),
@@ -20,10 +21,11 @@ const otherVariant=review('RTEST0001',element('Size: 4 pieces',{href:'/portal/cu
 const missingVariant=review('RTEST0002',null);
 const hostileVariant=review('RTEST0003',element('Size: 5 pieces',{href:'https://evil.invalid/portal/customer-reviews/B0QA000001'}));
 const hiddenReview={...review('RTEST0004',null),getClientRects:()=>[]};
-const root={querySelector:selector=>selector==='#productTitle'?element(' Synthetic spatula '):null,
+const root={querySelector:selector=>selector==='#productTitle'?element(' Synthetic spatula '):selector==='body'?element('Synthetic product page'):selector.includes('#wayfinding-breadcrumbs_container')?element('Home & Kitchen › Kitchen & Dining'):selector==='#acrPopover'?element('',{title:'4.6 out of 5 stars'}):selector==='#acrCustomerReviewText'?element('1,234 ratings'):null,
  querySelectorAll:selector=>selector==='#feature-bullets li .a-list-item'
   ?[element('Silicone\n blade'),element('Hidden marketing',{hidden:true})]
-  :selector==='#localTopReviewsList [data-hook="review"]'?[otherVariant,missingVariant,hostileVariant,hiddenReview]:[]};
+  :selector==='#localTopReviewsList [data-hook="review"]'?[otherVariant,missingVariant,hostileVariant,hiddenReview]
+  :selector.includes('table tr')?[tableRow('Best Sellers Rank','#1 in Kitchen & Dining'),tableRow('Number of Pieces','21'),tableRow('Material','Silicone')]:[]};
 const captured=vm.runInNewContext('('+readAmazonProductEvidence.toString()+')(root)',{root,getComputedStyle:()=>({visibility:'visible'})});
 const result=amazonProductEvidenceSchema.parse(JSON.parse(JSON.stringify(captured)));
 assert.equal(result.title,'Synthetic spatula');
@@ -34,6 +36,14 @@ assert.equal(result.reviews[0].reviewedAsin,'B0QA000002');
 assert.equal(result.reviews[0].variantPath,'/portal/customer-reviews/B0QA000002');
 assert.equal(result.reviews[1].reviewedAsin,null);
 assert.equal(result.reviews[2].reviewedAsin,null);
+assert.deepEqual(result.catalogFacts,[
+ {kind:'category_breadcrumb',label:'Category breadcrumb',value:'Home & Kitchen › Kitchen & Dining',sourceText:'Home & Kitchen › Kitchen & Dining'},
+ {kind:'aggregate_rating',label:'Aggregate rating',value:'4.6 out of 5 stars',sourceText:'4.6 out of 5 stars'},
+ {kind:'aggregate_review_count',label:'Aggregate review count',value:'1,234 ratings',sourceText:'1,234 ratings'},
+ {kind:'best_sellers_rank',label:'Best Sellers Rank',value:'#1 in Kitchen & Dining',sourceText:'Best Sellers Rank #1 in Kitchen & Dining'},
+ {kind:'quantity',label:'Number of Pieces',value:'21',sourceText:'Number of Pieces 21'},
+ {kind:'composition',label:'Material',value:'Silicone',sourceText:'Material Silicone'},
+]);
 assert.equal(JSON.stringify(result).includes('PRIVATE REVIEWER'),false);
 for(const bad of [
  {...result,reviews:[result.reviews[0],result.reviews[0]]},
@@ -41,6 +51,7 @@ for(const bad of [
  {...result,reviews:[{...result.reviews[0],ratingText:'7 out of 5 stars'}]},
  {...result,reviews:[{...result.reviews[0],author:'Unexpected personal field'}]},
  {...result,claims:['x'.repeat(4001)]},
+ {...result,catalogFacts:[{kind:'best_sellers_rank',label:'Best Sellers Rank',value:'#1',sourceText:'observed but value omitted'}]},
 ])assert.equal(amazonProductEvidenceSchema.safeParse(bad).success,false);
 const asin='B0QA000001',rows=[{label:'ASIN',value:asin,excerpt:'ASIN '+asin}];
 const legacy={protocol:1,kind:'captured',scope:'amazon_product_page',asin,sourcePageUrl:'https://www.amazon.com/dp/'+asin,observedAt:'2026-09-09T00:00:00.000Z',snapshot:'Synthetic source',pageText:rows[0].excerpt,rows};
