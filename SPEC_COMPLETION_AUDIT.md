@@ -88,14 +88,15 @@ R4 로컬 승인 대기 달성은 원래 SPEC의 실제 RFQ 발송·견적 회�
 - Runtime ordering checkpoint: after restarting the hidden local stack with the ordering commits loaded, API health returned 200 and the queue only advanced one candidate to Keyword Scout after Product Database completion; later stages remained gated.
 
 
-## 최신 체크포인트 — 2026-09-14 Jungle Scout 실제 브라우저 인수
+## 2026-09-14 Jungle Scout 실제 브라우저 인수와 후속 상태
 
-- Jay ASIDE 로그인 세션에서 Product Database, Keyword Scout, Historical 30-day fields, Category Trends, Competitive Intelligence upgrade-gate fallback을 실제 실행했다.
+- 같은 날 앞선 Jay ASIDE 로그인 세션에서 Product Database, Keyword Scout, Historical 30-day fields, Category Trends, Competitive Intelligence upgrade-gate fallback을 실제 실행했다.
 - 실측 수집량은 Product Database 16행, Keyword Scout 100행, Historical 2개 지표, Category Trends 240개 상품/4개 날짜, Competitive fallback 16행이다. Kitchen & Dining 여부는 각 실제 분류 문자열 또는 Category Trends 선택 결과로 확인한다.
 - Competitive Intelligence는 Brand Owner 업그레이드가 필요한 현재 화면을 출처로 보존했으며 Upgrade/Create Segment를 실행하지 않았다. 비교값은 Product Database fallback으로 명시한다.
 - 격리 acceptance DB에서 5단계 signed task → claim → ASIDE capture → encrypted result → candidate research API를 연결해 모두 captured임을 확인했다. Developer API, 외부 LLM, 공급처/메일, 배포 호출은 0.
 - cap 0에서는 새 웹 작업 claim/dispatch가 0이고 기존 큐를 삭제하지 않는다. 양수 cap은 당일 완료·진행 작업을 포함해 제한하며, 브라우저 실패는 30초/2분/5분 backoff 후 재개한다.
-- 로컬 Jungle Scout 자동화 범위는 구현·실브라우저 인수를 통과했다. 전체 SPEC는 비개발자 사용성, 외부 메일/공급처 승인 인수, Oracle/Cloudflare/R2 배포가 남아 있으므로 완료로 합산하지 않는다.
+- 이 historical acceptance 뒤 현재 후속 재확인에서는 Jungle Scout 세션이 members 화면 대신 공개 홈페이지로 돌아가 새 수정본의 live PASS를 확정하지 않았다. Jay가 ASIDE에서 다시 로그인한 뒤 live verifier를 재실행해야 한다.
+- 전체 SPEC는 비개발자 사용성, 외부 메일/공급처 승인 인수, Oracle/Cloudflare/R2 배포가 남아 있으므로 완료로 합산하지 않는다.
 
 ### Jungle Scout live acceptance에서 확인하지 않은 값
 
