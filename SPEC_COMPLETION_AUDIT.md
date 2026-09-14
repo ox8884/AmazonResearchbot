@@ -84,3 +84,6 @@ R4 로컬 승인 대기 달성은 원래 SPEC의 실제 RFQ 발송·견적 회�
 - Real logged-in ASIDE capture remains Jay-owned final manual gate.
 - Live browser DOM checkpoint: authenticated Jungle Scout Catalyst exposes Product Database at #/database, Keyword Scout at #/keyword, and Category Trends at #/category-trends; adapters were aligned to these routes and fail closed when source controls/results are absent.
 
+
+- Runtime ordering checkpoint: after restarting the hidden local stack with the ordering commits loaded, API health returned 200 and the queue only advanced one candidate to Keyword Scout after Product Database completion; later stages remained gated.
+
