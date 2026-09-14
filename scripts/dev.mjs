@@ -137,16 +137,37 @@ const children = [
   spawn(process.execPath, ["node_modules/vite/bin/vite.js"], { windowsHide: true, detached: false, stdio: "inherit", cwd: path.join(root, "apps/web"), shell: false, env: process.env }),
 ];
 
-const browserClient = await startOptionalBrowserClient({root,source:process.env});
-
+let browserClient = await startOptionalBrowserClient({ root, source: process.env });
+let browserSupervisorStopped = false;
+let browserSupervisor = Promise.resolve();
+async function superviseBrowserClient() {
+  let failures = 0;
+  while (!browserSupervisorStopped && browserClient) {
+    const result = await browserClient.closed;
+    browserClient = null;
+    if (browserSupervisorStopped) return;
+    if (result && result.signal && ["SIGTERM", "SIGINT"].includes(result.signal)) return;
+    failures += 1;
+    if (failures > 5) {
+      console.error("ASIDE 연결 프로그램이 반복 종료되어 자동 재시작을 멈춥니다. 설정과 기기 등록을 확인해 주세요.");
+      return;
+    }
+    await delay(Math.min(30000, 3000 * failures));
+    if (browserSupervisorStopped) return;
+    browserClient = await startOptionalBrowserClient({ root, source: process.env });
+  }
+}
 console.log("웹 http://localhost:5173  API http://localhost:3001  Mailpit http://localhost:8025");
 
 function shutdown() {
+  browserSupervisorStopped = true;
   browserClient?.child.kill("SIGTERM");
   for (const child of children) child.kill("SIGTERM");
+  void browserSupervisor;
 }
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);
+browserSupervisor = superviseBrowserClient();
 
 await Promise.race(children.map((c) => wait(c)));
 shutdown();
