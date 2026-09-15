@@ -10,7 +10,7 @@
     "run_worker_first": ["/api", "/api/*"]
   },
   "vars": {
-    "PUBLIC_ORIGIN": "",
-    "API_ORIGIN": ""
+    "PUBLIC_ORIGIN": "https://ops.atelier-jw.com",
+    "API_ORIGIN": "https://api.ops.atelier-jw.com"
   }
 }
