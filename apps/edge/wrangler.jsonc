@@ -11,6 +11,6 @@
   },
   "vars": {
     "PUBLIC_ORIGIN": "https://ops.atelier-jw.com",
-    "API_ORIGIN": "https://api.ops.atelier-jw.com"
+    "API_ORIGIN": "https://api-ops.atelier-jw.com"
   }
 }
