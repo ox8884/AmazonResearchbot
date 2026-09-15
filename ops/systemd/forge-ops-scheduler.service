@@ -11,6 +11,7 @@ EnvironmentFile=/etc/forge-ops/runtime.env
 Environment=APP_ENV=production
 Environment=DATABASE_URL=postgresql:///forge_ops?host=/var/run/postgresql&user=forge_ops_scheduler
 Environment=JS_TRANSPORT=disabled
+LoadCredential=encryption-key:/etc/forge-ops/credentials/encryption-key
 ExecStart=/usr/bin/node --import tsx apps/worker/src/scheduler.ts --production
 TimeoutStartSec=90
 UMask=0077
