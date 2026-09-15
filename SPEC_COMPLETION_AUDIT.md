@@ -113,3 +113,9 @@ R4 로컬 승인 대기 달성은 원래 SPEC의 실제 RFQ 발송·견적 회�
 - Oracle ARM64 호스트 식별과 Cloudflare token 인증은 읽기 전용으로 확인했다. 기존 `amazon-research-worker.service`와 기존 Cloudflare 자산은 건드리지 않았다.
 - 로컬 typecheck/integrated·edge·mail·AI·browser delivery 검증은 PASS이며 external action/provider call은 0이다. 이 결과를 production/외부 인수 완료로 합산하지 않는다.
 - 재개 입력과 명령 경계는 `docs/external-phase-preflight-2026-09-14.md`에 고정했다.
+
+## 2026-09-14 Oracle Forge worker 설치
+
+- 기존 실패작 제거 후 Oracle에 Forge 전용 `forge_ops` PostgreSQL DB, peer role, authority manifest, `/opt/forge-ops/releases/41a02cf`, `forge-ops-worker.service`를 설치했다.
+- worker 기동 로그와 `deployment_identity=production`·Oracle OCID·Unix socket authority를 확인했고, 의도적 `SIGKILL` 뒤 systemd 자동 재기동과 PID 변경을 확인했다.
+- Ubuntu 기본 저장소 제약으로 PostgreSQL 16.15를 사용했다. SPEC의 PostgreSQL 17 요구와의 차이는 운영 전 해결해야 하며, API/scheduler·Cloudflare/Tunnel/R2·외부 전송은 아직 미완료다.

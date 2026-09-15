@@ -28,3 +28,11 @@ Jay가 유료 API·외부 메일/공급처 연락·Oracle·Cloudflare/R2 배포�
 - Jay 요청으로 Oracle `hermes-server`의 구 실패작 `amazon-research-worker.service`를 `disable --now` 후 unit 파일까지 제거했다.
 - 제거 확인: `systemctl is-active`=`inactive`, `is-enabled`=`not-found`, unit file 부재, 구 워커 프로세스 0.
 - `/opt/amazon-research` release/source/data와 기존 다른 systemd 서비스는 삭제하거나 중단하지 않았다.
+
+## Forge worker 설치 결과
+
+- PostgreSQL 16.15를 Oracle 기본 저장소에서 설치했다. Ubuntu 24.04 ARM64 기본 후보가 16이라 SPEC의 17과 버전 차이가 남아 있으며, 운영 전 17 전환을 별도 결정해야 한다.
+- `forge_ops` DB와 `forge_ops_api`, `forge_ops_worker`, `forge_ops_scheduler`, `forge_ops_migrator`를 만들고 append-only migration 0001–0046 및 `candidate.advance` queue를 적용했다.
+- `/opt/forge-ops/releases/41a02cf`를 설치하고 `/opt/forge-ops/current`를 가리키게 했다. worker는 `APP_ENV=production`, Oracle OCID authority, Unix-socket peer DB, JS/AI/메일 disabled로 실행한다.
+- `forge-ops-worker.service`를 enable/start하고 `worker listening for candidate.advance`를 확인했다. `SIGKILL` 후 systemd가 새 PID로 자동 재기동하는 복구도 통과했다.
+- API/scheduler unit, Cloudflare Worker/Tunnel, R2, 실제 유료 API·메일·공급처 연락은 아직 설치·활성화하지 않았다.
