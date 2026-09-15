@@ -139,6 +139,19 @@ export function SettingsDetails({
           disabled={disabled}
           onChange={onChange}
         />
+        {knownCallCap && (
+          <p className="muted">
+            {appliedCallCap === 0
+              ? t(
+                  "호출 한도가 0이면 Jungle Scout 확인을 실행하지 않습니다.",
+                  "A call limit of 0 disables Jungle Scout verification.",
+                )
+              : t(
+                  "호출 한도는 승인 즉시 저장되고, 다음 리서치 시작 시각부터 새 예산 일자에 적용됩니다.",
+                  "The call limit is saved on approval and applies to the new budget day at the next research start time.",
+                )}
+          </p>
+        )}
         <NavLink className="text-btn" to="/summaries">
           {t("앱 내부 아침 요약 보기", "View morning summaries in the app")}
         </NavLink>
