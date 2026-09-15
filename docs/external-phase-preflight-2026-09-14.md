@@ -22,3 +22,9 @@ Jay가 유료 API·외부 메일/공급처 연락·Oracle·Cloudflare/R2 배포�
 5. 실제 업무 메일 프로필의 송신/수신 주소와 승인된 공급처 수신 주소·RFQ 본문/수량. 현재 로컬 `.env`에는 외부 메일 프로필과 수신 대상이 없다.
 
 이 값이 채워지기 전에는 Worker 생성, R2 bucket 생성, Oracle 서비스 설치, 유료 API 호출, 외부 메시지 발송을 실행하지 않는다. 템플릿 unit과 로컬 검증만으로 production 인수를 선언하지 않는다.
+
+## 추가 조치 — 구 워커 제거
+
+- Jay 요청으로 Oracle `hermes-server`의 구 실패작 `amazon-research-worker.service`를 `disable --now` 후 unit 파일까지 제거했다.
+- 제거 확인: `systemctl is-active`=`inactive`, `is-enabled`=`not-found`, unit file 부재, 구 워커 프로세스 0.
+- `/opt/amazon-research` release/source/data와 기존 다른 systemd 서비스는 삭제하거나 중단하지 않았다.
