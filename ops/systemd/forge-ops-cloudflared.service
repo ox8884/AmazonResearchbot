@@ -1,0 +1,29 @@
+[Unit]
+Description=Forge Kitchen Ops Cloudflare Tunnel
+After=network-online.target forge-ops-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=cloudflared
+Group=cloudflared
+LoadCredential=tunnel-token:/etc/forge-ops/credentials/cloudflared-token
+ExecStart=/usr/local/bin/cloudflared tunnel run --no-autoupdate --token-file /run/credentials/forge-ops-cloudflared.service/tunnel-token
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+CapabilityBoundingSet=
+AmbientCapabilities=
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target
