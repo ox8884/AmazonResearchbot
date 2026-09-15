@@ -77,3 +77,30 @@ export async function revokeBridgeDevice(pool: Pool, input: { readonly ownerId: 
     throw error;
   } finally { db.release(); }
 }
+
+export type DeleteBridgeDeviceResult = "deleted" | "not_revoked" | null;
+
+export async function deleteBridgeDevice(pool: Pool, input: { readonly ownerId: string; readonly deviceId: string }): Promise<DeleteBridgeDeviceResult> {
+  const db = await pool.connect();
+  try {
+    await db.query("BEGIN");
+    const row = (await db.query<{ revoked_at: Date | null; hidden_at: Date | null }>(
+      "SELECT revoked_at,hidden_at FROM bridge_devices WHERE id=$1 AND owner_user_id=$2 FOR UPDATE",
+      [input.deviceId, input.ownerId],
+    )).rows[0];
+    if (!row) { await db.query("COMMIT"); return null; }
+    if (!row.revoked_at) { await db.query("COMMIT"); return "not_revoked"; }
+    if (row.hidden_at) { await db.query("COMMIT"); return null; }
+    const deleted = (await db.query<{ id: string }>(
+      "UPDATE bridge_devices SET hidden_at=now() WHERE id=$1 AND owner_user_id=$2 AND revoked_at IS NOT NULL AND hidden_at IS NULL RETURNING id",
+      [input.deviceId, input.ownerId],
+    )).rows[0];
+    if (!deleted) { await db.query("COMMIT"); return null; }
+    await db.query("INSERT INTO audit_events(actor,action,target) VALUES($1,'bridge_device_deleted',$2)", [input.ownerId, input.deviceId]);
+    await db.query("COMMIT");
+    return "deleted";
+  } catch (error) {
+    await db.query("ROLLBACK");
+    throw error;
+  } finally { db.release(); }
+}

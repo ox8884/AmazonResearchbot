@@ -29,6 +29,6 @@ export async function readBridgeDeviceStatus(pool: Pool, deviceId: string) {
   return row ? status(row) : null;
 }
 export async function listBridgeDeviceStatuses(pool: Pool, ownerId: string) {
-  const rows = await pool.query<DeviceRow>(statusQuery + " WHERE d.owner_user_id=$1 ORDER BY d.created_at,d.id", [ownerId]);
+  const rows = await pool.query<DeviceRow>(statusQuery + " WHERE d.owner_user_id=$1 AND d.hidden_at IS NULL ORDER BY d.created_at,d.id", [ownerId]);
   return rows.rows.map(status);
 }

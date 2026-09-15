@@ -19,3 +19,8 @@ export async function revokeBrowserDevice(id: string): Promise<void> {
   const result = await request("/api/bridge/devices/" + encodeURIComponent(id) + "/revoke", {});
   if (typeof result !== "object" || result === null || !("revoked" in result) || result.revoked !== true) throw new BridgeConnectionError("BRIDGE_REVOKE_UNCONFIRMED");
 }
+
+export async function deleteBrowserDevice(id: string): Promise<void> {
+  const result = await request("/api/bridge/devices/" + encodeURIComponent(id) + "/delete", {});
+  if (typeof result !== "object" || result === null || !("deleted" in result) || result.deleted !== true) throw new BridgeConnectionError("BRIDGE_DELETE_UNCONFIRMED");
+}

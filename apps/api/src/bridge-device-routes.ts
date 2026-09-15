@@ -5,7 +5,7 @@ import { fromNodeHeaders } from "better-auth/node";
 import { z } from "zod";
 import type { Pool } from "@forge-ops/db";
 import type { createAuth } from "./auth.ts";
-import { issueBridgePairing, redeemBridgePairing, readBridgeIdentity, revokeBridgeDevice } from "./bridge-device-store.ts";
+import { deleteBridgeDevice, issueBridgePairing, redeemBridgePairing, readBridgeIdentity, revokeBridgeDevice } from "./bridge-device-store.ts";
 
 const pairingInput = z.object({
   pairingCode: z.string().regex(/^fbp_[a-f0-9]{64}$/),
@@ -56,5 +56,14 @@ export function registerBridgeDeviceRoutes(
     if (!("userId" in request) || typeof request.userId !== "string") return reply.status(401).send({code:"UNAUTHENTICATED"});
     const found = await revokeBridgeDevice(pool,{ownerId:request.userId,deviceId:params.data.id});
     return found ? {revoked:true} : reply.status(404).send({code:"NOT_FOUND"});
+  });
+  app.post("/api/bridge/devices/:id/delete", async (request, reply) => {
+    const params = z.object({id:z.string().uuid()}).safeParse(request.params);
+    if (!params.success) return reply.status(400).send({code:"INVALID"});
+    if (!("userId" in request) || typeof request.userId !== "string") return reply.status(401).send({code:"UNAUTHENTICATED"});
+    const result = await deleteBridgeDevice(pool,{ownerId:request.userId,deviceId:params.data.id});
+    if (result === "not_revoked") return reply.status(409).send({code:"DEVICE_NOT_REVOKED"});
+    if (result === null) return reply.status(404).send({code:"NOT_FOUND"});
+    return reply.header("cache-control","no-store").send({deleted:true});
   });
 }
