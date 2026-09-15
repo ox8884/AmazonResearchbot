@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {randomBytes} from 'node:crypto';
 import {encryptSecret,decryptSecret,last4} from '../packages/security/src/secrets.ts';
+import {credentialModeAllowed} from '../packages/security/src/service-credentials.ts';
 const key=randomBytes(32),plain=Buffer.from('synthetic-secret-value'),aad='provider:fixture:key';
 const encrypted=encryptSecret(plain,key,aad);
 assert.deepEqual(decryptSecret(encrypted,key,aad),plain);
@@ -10,4 +11,8 @@ const version=encrypted.split('.');version[1]='999';assert.throws(()=>decryptSec
 const tag=encrypted.split('.');tag[4]=(tag[4]??'').slice(0,6);assert.throws(()=>decryptSecret(tag.join('.'),key,aad));
 assert.throws(()=>encryptSecret(plain,key,aad,2));
 assert.notEqual(last4('abc'),'abc');assert.equal(last4('abcdefgh'),'efgh');
+assert.equal(credentialModeAllowed(0o440),true);
+assert.equal(credentialModeAllowed(0o400),true);
+assert.equal(credentialModeAllowed(0o600),true);
+assert.equal(credentialModeAllowed(0o644),false);
 console.log('PASS: authenticated encryption roundtrip/AAD/key/version/tag gates and short secret masking.');

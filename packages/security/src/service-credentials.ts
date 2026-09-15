@@ -1,6 +1,12 @@
 import { lstat, readFile } from "node:fs/promises";
 import path from "node:path";
 import type { RuntimeAuthority } from "./runtime-authority.ts";
+
+export function credentialModeAllowed(mode: number): boolean {
+  const permissions = mode & 0o777;
+  return permissions === 0o400 || permissions === 0o440 || permissions === 0o600;
+}
+
 export async function runtimeEnvironment(
   authority: RuntimeAuthority,
   source: NodeJS.ProcessEnv,
@@ -34,7 +40,7 @@ export async function runtimeEnvironment(
         (directory.mode & 0o022) !== 0 ||
         !file.isFile() ||
         ![0, uid].includes(file.uid) ||
-        (file.mode & 0o077) !== 0 ||
+        !credentialModeAllowed(file.mode) ||
         file.size < 1 ||
         file.size > 65536
       )
