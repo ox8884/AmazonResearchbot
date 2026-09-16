@@ -10,6 +10,19 @@ type UpstreamFetch = (url: URL, init: RequestInit) => Promise<Response>;
 const allowedHeaders = ["accept", "accept-language", "content-type", "cookie", "authorization", "origin", "user-agent"] as const;
 const methods = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]);
 const serviceHeaders = ["cf-access-client-id", "cf-access-client-secret", "cf-access-jwt-assertion"] as const;
+const cloudflareCookieNames = new Set(["cf_authorization", "cf_appsession", "cf_clearance", "__cf_bm"]);
+
+function filterCloudflareCookies(headers: Headers): Headers {
+  const result = new Headers(headers);
+  const cookies = headers.getSetCookie();
+  result.delete("set-cookie");
+  for (const cookie of cookies) {
+    const separator = cookie.indexOf("=");
+    const name = (separator === -1 ? cookie : cookie.slice(0, separator)).trim().toLowerCase();
+    if (!cloudflareCookieNames.has(name)) result.append("set-cookie", cookie);
+  }
+  return result;
+}
 
 function httpsOrigin(value: string | undefined): URL | null {
   if (!value) return null;
@@ -76,7 +89,7 @@ export async function handleEdgeRequest(
       await response.body?.cancel();
       return failure(502, "UPSTREAM_REDIRECT_DENIED");
     }
-    const responseHeaders = new Headers(response.headers);
+    const responseHeaders = filterCloudflareCookies(response.headers);
     for (const name of serviceHeaders) responseHeaders.delete(name);
     for (const name of ["expires", "etag", "last-modified", "age", "location", "refresh"]) {
       responseHeaders.delete(name);

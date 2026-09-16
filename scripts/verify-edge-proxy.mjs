@@ -3,10 +3,10 @@ import {handleEdgeRequest} from '../apps/edge/src/index.ts';
 let apiCalls=0,assetCalls=0;
 const secret='SYNTHETIC_ACCESS_SECRET_7392';
 const env={ASSETS:{fetch:async()=>{assetCalls++;return new Response('<main>SPA</main>',{headers:{'content-type':'text/html'}});}},PUBLIC_ORIGIN:'https://app.example.com',API_ORIGIN:'https://api.example.com',ACCESS_CLIENT_ID:'synthetic-client-id',ACCESS_CLIENT_SECRET:secret};
-const proxy=async(url,init)=>{apiCalls++;assert.equal(url.origin,env.API_ORIGIN);assert.equal(init.redirect,'manual');assert.equal(init.cache,'no-store');assert.equal(init.headers.get('CF-Access-Client-Secret'),secret);assert.equal(init.headers.get('CF-Access-Client-Id'),env.ACCESS_CLIENT_ID);assert.equal(init.headers.has('x-forwarded-for'),false);return new Response(JSON.stringify({path:url.pathname,query:url.search,method:init.method,cookie:init.headers.get('cookie'),body:init.body?await new Response(init.body).text():null}),{status:201,headers:{'cache-control':'public,max-age=3600','set-cookie':'session=synthetic; HttpOnly; Secure; SameSite=Lax; Path=/','CF-Access-Client-Secret':secret}});};
+const proxy=async(url,init)=>{apiCalls++;assert.equal(url.origin,env.API_ORIGIN);assert.equal(init.redirect,'manual');assert.equal(init.cache,'no-store');assert.equal(init.headers.get('CF-Access-Client-Secret'),secret);assert.equal(init.headers.get('CF-Access-Client-Id'),env.ACCESS_CLIENT_ID);assert.equal(init.headers.has('x-forwarded-for'),false);return new Response(JSON.stringify({path:url.pathname,query:url.search,method:init.method,cookie:init.headers.get('cookie'),body:init.body?await new Response(init.body).text():null}),{status:201,headers:[['cache-control','public,max-age=3600'],['set-cookie','session=synthetic; HttpOnly; Secure; SameSite=Lax; Path=/'],['set-cookie','CF_Authorization=api-token; Secure; Path=/'],['set-cookie','cf_clearance=clear; Secure; Path=/'],['set-cookie','trusted=device; HttpOnly; Secure; Path=/'],['CF-Access-Client-Secret',secret]]});};
 let response=await handleEdgeRequest(new Request(env.PUBLIC_ORIGIN+'/candidates/one'),env,proxy);assert.equal(response.status,200);assert.equal(assetCalls,1);assert.equal(apiCalls,0);
 response=await handleEdgeRequest(new Request(env.PUBLIC_ORIGIN+'/api/items?target=https://evil.invalid',{method:'POST',headers:{origin:env.PUBLIC_ORIGIN,cookie:'session=old','content-type':'application/json','CF-Access-Client-Secret':'spoof','x-forwarded-for':'spoof'},body:'{"synthetic":true}'}),env,proxy);
-assert.equal(response.status,201);assert.equal(response.headers.get('cache-control'),'no-store');assert.equal(response.headers.has('CF-Access-Client-Secret'),false);assert.match(response.headers.get('set-cookie'),/session=synthetic/);assert.deepEqual(await response.json(),{path:'/api/items',query:'?target=https://evil.invalid',method:'POST',cookie:'session=old',body:'{"synthetic":true}'});
+assert.equal(response.status,201);assert.equal(response.headers.get('cache-control'),'no-store');assert.equal(response.headers.has('CF-Access-Client-Secret'),false);assert.deepEqual(response.headers.getSetCookie(),['session=synthetic; HttpOnly; Secure; SameSite=Lax; Path=/','trusted=device; HttpOnly; Secure; Path=/']);assert.deepEqual(await response.json(),{path:'/api/items',query:'?target=https://evil.invalid',method:'POST',cookie:'session=old',body:'{"synthetic":true}'});
 const before=apiCalls;
 for(const request of [new Request(env.PUBLIC_ORIGIN+'/api/items',{method:'POST'}),new Request(env.PUBLIC_ORIGIN+'/api/items',{headers:{origin:'https://evil.invalid'}}),new Request(env.PUBLIC_ORIGIN+'/api/items',{method:'PROPFIND'})])assert.ok((await handleEdgeRequest(request,env,proxy)).status>=400);
 assert.equal(apiCalls,before);
@@ -24,7 +24,7 @@ const server=createServer(async(req,res)=>{
  wireCalls++;
  assert.equal(req.headers['cf-access-client-secret'],secret);
  const chunks=[];for await(const chunk of req)chunks.push(chunk);
- res.writeHead(200,{'content-type':'application/json','set-cookie':['session=new; HttpOnly; Secure; Path=/','trusted=device; HttpOnly; Secure; Path=/']});
+ res.writeHead(200,{'content-type':'application/json','set-cookie':['session=new; HttpOnly; Secure; Path=/','trusted=device; HttpOnly; Secure; Path=/','CF_AppSession=api-session; Secure; Path=/']});
  res.end(JSON.stringify({url:req.url,body:Buffer.concat(chunks).toString(),cookie:req.headers.cookie}));
 });
 server.listen(0,'127.0.0.1');await once(server,'listening');
@@ -41,7 +41,7 @@ try{
   method:'POST',headers:{origin:env.PUBLIC_ORIGIN,cookie:'session=old','content-type':'application/json'},body:'{"synthetic":true}'
  }),env,{waitUntil(){throw new Error('ExecutionContext must not be used as fetch');}});
  assert.equal(response.status,200);
- assert.equal(response.headers.getSetCookie().length,2);
+ assert.deepEqual(response.headers.getSetCookie(),['session=new; HttpOnly; Secure; Path=/','trusted=device; HttpOnly; Secure; Path=/']);
  assert.deepEqual(await response.json(),{url:'/api/auth/sign-in/email',body:'{"synthetic":true}',cookie:'session=old'});
  assert.equal(wireCalls,1);
  console.log(JSON.stringify({scenario:'edge-http',result:'PASS',wireCalls,cookies:2,workerEntrypoint:true,realCloudflare:false}));
