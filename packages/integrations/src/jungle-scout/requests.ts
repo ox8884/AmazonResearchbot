@@ -107,7 +107,6 @@ export function buildProductDatabaseRequest(
       data: {
         type: "product_database_query",
         attributes: {
-          categories: ["Kitchen & Dining"],
           include_keywords: [keyword.value],
         },
       },

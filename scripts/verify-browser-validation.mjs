@@ -97,8 +97,9 @@ try{
  await test.pool.query('UPDATE settings_versions SET snapshot=$2::jsonb WHERE version=$1',[settings.version,JSON.stringify(positiveSnapshot)]);
  await test.pool.query("UPDATE bridge_devices SET reported_tasks=ARRAY['product_database']::text[],reported_connected=true,reported_at=now() WHERE id=$1",[deviceId]);
  let raceOfficialCalls=0;
- await advanceCandidate(test.pool,{kind:'ready',send:async()=>{raceOfficialCalls++;throw new Error('Official transport must not race browser dispatch');}},{candidateId:raceId,stage:'api_validation',inputVersion:1},ai);
- assert.equal(raceOfficialCalls,0);
+ await advanceCandidate(test.pool,{kind:'ready',send:async()=>{raceOfficialCalls++;return {status:503,body:{},retryAfter:null};}},{candidateId:raceId,stage:'api_validation',inputVersion:1},ai);
+ assert.equal(raceOfficialCalls,1,'Approved official transport must take priority over browser dispatch when the daily cap is positive');
+ assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM browser_tasks WHERE candidate_id=$1',[raceId])).rows[0].n,0);
  const keys=browserSigningFixture(),identity=await publishBrowserSigningIdentity(test.pool,keys.privateKey);
  const concurrentQuery='browser validation concurrent dispatch '+test.runId;
  const concurrentId=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",[concurrentQuery])).rows[0].id;
@@ -113,5 +114,5 @@ try{
  assert.equal((await queuing).kind,'not_ready','Browser dispatch cannot join an input reserved for official validation');
   releaseWire();
   await advancing;
- console.log(JSON.stringify({scenario:'browser-canonical-validation',result:'PASS',completePopulationEvaluated:true,partialPopulationHeld:true,mixedCategoryPopulationHeld:true,allReceiptsValidated:true,corruptReceiptRejected:true,pendingBrowserAvoidsOfficialFallback:true,positiveCapBrowserIntent:true,concurrentTransportArbitration:true,unknownsPreserved:true,encryptedReceiptBound:true,externalActions:0}));
+ console.log(JSON.stringify({scenario:'browser-canonical-validation',result:'PASS',completePopulationEvaluated:true,partialPopulationHeld:true,mixedCategoryPopulationHeld:true,allReceiptsValidated:true,corruptReceiptRejected:true,pendingBrowserAvoidsOfficialFallback:true,positiveCapOfficialPriority:true,concurrentTransportArbitration:true,unknownsPreserved:true,encryptedReceiptBound:true,externalActions:0}));
 }finally{await test.close();}

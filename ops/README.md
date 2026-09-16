@@ -24,7 +24,7 @@
 - worker: `encryption-key`
 - API: `encryption-key`, `auth-secret`
 - scheduler: 데이터 암호화 master key를 받지 않음
-- 승인 후 JS를 켜는 경우 worker/scheduler unit의 별도 drop-in에 `js-api-key-name`, `js-api-key` credential이 필요함
+- 승인된 JS official transport는 worker/scheduler unit의 `js-api-key-name`, `js-api-key` credential을 사용함
 - 승인 후 API의 Composio를 켜는 경우 `COMPOSIO_ENABLED=true`와 `composio-api-key` credential이 필요함
 - 승인된 아침 요약을 Composio Gmail로 발송하는 경우 worker drop-in에 `SUMMARY_MAIL_TRANSPORT=composio`와 `composio-api-key` credential이 필요함. 이 설정은 공급처 연락과 수신함 transport에는 적용되지 않음
 
