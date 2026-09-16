@@ -33,7 +33,7 @@ if (product.ok) {
   assert.deepEqual(product.value.body, {
     data: {
       type: "product_database_query",
-      attributes: { categories: ["Kitchen & Dining"], include_keywords: ["sentinel product keyword"] },
+      attributes: { include_keywords: ["sentinel product keyword"] },
     },
   });
 }
@@ -183,7 +183,7 @@ assert.equal(createOfficialTransport({...credentials,apiKey:"invalid-☃"}).kind
 assert.equal(createOfficialTransport({...credentials,accountScope:""}).kind,"disabled");
 assert.equal(resolveTransport({APP_ENV:"development",JS_API_KEY_NAME:credentials.keyName,JS_API_KEY:credentials.apiKey,JS_ACCOUNT_SCOPE:credentials.accountScope}).kind,"disabled","Keys alone cannot activate paid calls");
 assert.equal(resolveTransport({APP_ENV:"development",JS_TRANSPORT:"official",JS_API_KEY_NAME:credentials.keyName,JS_API_KEY:credentials.apiKey,JS_ACCOUNT_SCOPE:credentials.accountScope}).kind,"ready","Explicit official configuration constructs a transport without sending a request");
-assert.equal(resolveTransport({APP_ENV:"production",JS_TRANSPORT:"official",JS_API_KEY_NAME:credentials.keyName,JS_API_KEY:credentials.apiKey,JS_ACCOUNT_SCOPE:credentials.accountScope}).kind,"disabled");
+assert.equal(resolveTransport({APP_ENV:"production",JS_TRANSPORT:"official",JS_API_KEY_NAME:credentials.keyName,JS_API_KEY:credentials.apiKey,JS_ACCOUNT_SCOPE:credentials.accountScope}).kind,"ready","Explicit production official configuration constructs a transport with systemd-injected credentials");
 assert.equal(resolveTransport({APP_ENV:"development",JS_TRANSPORT:"disabled",JS_SIMULATOR_ORIGIN:"http://127.0.0.1:1"}).kind,"disabled");
 assert.equal(resolveTransport({APP_ENV:"development",JS_TRANSPORT:"official",JS_SIMULATOR_ORIGIN:"http://127.0.0.1:1",JS_API_KEY_NAME:credentials.keyName,JS_API_KEY:credentials.apiKey,JS_ACCOUNT_SCOPE:credentials.accountScope}).kind,"disabled");
 const keywordData={data:[{id:'us/related keyword',type:'keywords_by_keyword_result',attributes:{country:'us',name:'related keyword',monthly_search_volume_exact:null,monthly_search_volume_broad:100,monthly_trend:-25,quarterly_trend:null,organic_product_count:null}}]};

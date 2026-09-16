@@ -11,14 +11,14 @@
 
 ## 명시적 활성화 설정
 
-현재 worker는 development만 지원한다. 유료 호출과 계정 사용이 별도로 승인된 뒤 운영 설정에 아래 항목이 모두 필요하다.
+worker와 scheduler는 명시적으로 승인된 production 공식 전송을 지원한다. 유료 호출과 계정 사용이 승인된 뒤 운영 설정에 아래 항목이 모두 필요하다.
 
 - `.env`: `JS_TRANSPORT=official`
 - `.env`: `JS_ACCOUNT_SCOPE`에 동일 실제 API 계정을 구별하는 영구 ID 지정. 소문자 영문·숫자와 `. _ -`만 사용하며 최대128자다.
 - `.env.junglescout`: 발급받은 `JS_API_KEY_NAME`, `JS_API_KEY`. 이 파일은 서버 시작 때 허용된 두 키만 로드한다.
 - 승인된 앱 설정의 `jsDailyWireCap`이 양수여야 한다. 호출자가 더 높은 한도를 지정해도 승인된 한도를 넘지 못한다.
 
-키 파일만 있어서는 활성화되지 않는다. production은 현재 차단된다. official과 simulator를 동시에 지정하면 차단하며, `JS_TRANSPORT=disabled`는 전송을 비활성화한다. 이 작업에서는 활성화 설정이나 실제 키를 바꾸지 않았다.
+키 파일만 있어서는 활성화되지 않는다. `JS_TRANSPORT=official`과 승인된 systemd `LoadCredential`이 함께 있어야 하며, official과 simulator를 동시에 지정하면 차단한다. `JS_TRANSPORT=disabled`는 전송을 비활성화한다.
 
 `JS_ACCOUNT_SCOPE`는 API 키 자체나 키 이름이 아니다. 같은 실제 계정에서 키만 교체할 때 이 값을 바꾸면 안 된다. 어댑터는 이 ID의 hash로 공식 계정 namespace를 만들고 호출자가 넘긴 임의 scope보다 우선한다. 따라서 시뮬레이터·다른 계정의 cache를 재사용하지 않으며, 동일 계정의 키 교체로 불확실한 요청의 재전송 방어를 우회하지 않는다.
 

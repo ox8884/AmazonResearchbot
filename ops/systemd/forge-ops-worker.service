@@ -13,10 +13,12 @@ EnvironmentFile=/etc/forge-ops/runtime.env
 Environment=APP_ENV=production
 Environment=DATABASE_URL=postgresql:///forge_ops?host=/var/run/postgresql&user=forge_ops_worker
 Environment=AI_TRANSPORT=disabled
-Environment=JS_TRANSPORT=disabled
+Environment=JS_TRANSPORT=official
 Environment=MAIL_TRANSPORT=disabled
 Environment=SUMMARY_MAIL_TRANSPORT=disabled
 LoadCredential=encryption-key:/etc/forge-ops/credentials/encryption-key
+LoadCredential=js-api-key-name:/etc/forge-ops/credentials/js-api-key-name
+LoadCredential=js-api-key:/etc/forge-ops/credentials/js-api-key
 ExecStart=/usr/bin/node --import tsx apps/worker/src/index.ts --production
 Restart=always
 RestartSec=5

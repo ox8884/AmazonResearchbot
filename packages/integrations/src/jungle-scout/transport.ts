@@ -50,13 +50,16 @@ export function createSimulatorTransport(origin: string, appEnv: string): JsTran
 }
 
 export function resolveTransport(env: NodeJS.ProcessEnv): JsTransport {
-  if (env.APP_ENV !== "development") return denyTransport();
+  const development = env.APP_ENV === "development";
+  const production = env.APP_ENV === "production";
+  if (!development && !production) return denyTransport();
   if (env.JS_TRANSPORT === "official") {
     const official = createOfficialTransport({ keyName: env.JS_API_KEY_NAME, apiKey: env.JS_API_KEY, accountScope: env.JS_ACCOUNT_SCOPE });
     return env.JS_SIMULATOR_ORIGIN
       ? { kind: "disabled", accountScope: official.accountScope }
       : official;
   }
+  if (env.APP_ENV !== "development") return denyTransport();
   if (env.JS_TRANSPORT && env.JS_TRANSPORT !== "simulator") return denyTransport();
   const origin = env.JS_SIMULATOR_ORIGIN;
   if (origin && origin.startsWith("http://127.0.0.1")) {

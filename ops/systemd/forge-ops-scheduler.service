@@ -10,8 +10,10 @@ WorkingDirectory=/opt/forge-ops/current
 EnvironmentFile=/etc/forge-ops/runtime.env
 Environment=APP_ENV=production
 Environment=DATABASE_URL=postgresql:///forge_ops?host=/var/run/postgresql&user=forge_ops_scheduler
-Environment=JS_TRANSPORT=disabled
+Environment=JS_TRANSPORT=official
 LoadCredential=encryption-key:/etc/forge-ops/credentials/encryption-key
+LoadCredential=js-api-key-name:/etc/forge-ops/credentials/js-api-key-name
+LoadCredential=js-api-key:/etc/forge-ops/credentials/js-api-key
 ExecStart=/usr/bin/node --import tsx apps/worker/src/scheduler.ts --production
 TimeoutStartSec=90
 UMask=0077
