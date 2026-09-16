@@ -11,6 +11,7 @@ import { createInboxCycle } from "./inbox-loop.ts";
 import { advanceCandidate, type AdvanceJob } from "./advance-candidate.ts";
 import { createContactCycle } from "./contact-loop.ts";
 import { resolveWorkMailTransport } from "./work-mail.ts";
+import { resolveSummaryMailTransport } from "./summary-mail.ts";
 import { parseKey } from "@forge-ops/security";
 import { recoverContactOutcomes } from "./contact-runner.ts";
 import { createPool, recoverDispatchingAttempts } from "@forge-ops/db";
@@ -100,7 +101,14 @@ collectInbox();
 let summaryTask: Promise<void> | null = null;
 function deliverSummaries(): void {
   if(summaryTask)return;
-  summaryTask=runSummaryDeliveryCycle(pool,()=>resolveWorkMailTransport(pool,encryptionKey,appEnv,source.MAIL_TRANSPORT)).catch(()=>{
+  summaryTask=runSummaryDeliveryCycle(pool,()=>resolveSummaryMailTransport(
+    pool,
+    encryptionKey,
+    appEnv,
+    source.MAIL_TRANSPORT,
+    source.SUMMARY_MAIL_TRANSPORT,
+    source.COMPOSIO_API_KEY,
+  )).catch(()=>{
     console.error("Summary delivery interrupted; saved state will be reconciled");
   }).finally(()=>{summaryTask=null;});
 }

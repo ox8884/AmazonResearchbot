@@ -26,6 +26,7 @@
 - scheduler: 데이터 암호화 master key를 받지 않음
 - 승인 후 JS를 켜는 경우 worker/scheduler unit의 별도 drop-in에 `js-api-key-name`, `js-api-key` credential이 필요함
 - 승인 후 API의 Composio를 켜는 경우 `COMPOSIO_ENABLED=true`와 `composio-api-key` credential이 필요함
+- 승인된 아침 요약을 Composio Gmail로 발송하는 경우 worker drop-in에 `SUMMARY_MAIL_TRANSPORT=composio`와 `composio-api-key` credential이 필요함. 이 설정은 공급처 연락과 수신함 transport에는 적용되지 않음
 
 기본 unit은 외부 transport를 disabled로 둔다. `runtime.env`에는 승인된 HTTPS `WEB_ORIGIN` 등 비밀이 아닌 값만 둔다. 개발용 `.env`를 복사하지 않는다. unit의 `--production` 인자는 환경파일로 모드를 development로 낮추는 실수를 차단한다.
 

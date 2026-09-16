@@ -64,6 +64,8 @@ export async function runtimeEnvironment(
   }
   if (authority.service === "api" && source.COMPOSIO_ENABLED === "true")
     result.COMPOSIO_API_KEY = await credential("composio-api-key");
+  if (authority.service === "worker" && source.SUMMARY_MAIL_TRANSPORT === "composio")
+    result.COMPOSIO_API_KEY = await credential("composio-api-key");
   if(authority.service==="worker"&&source.BROWSER_TASKS_ENABLED==="true")
     result.BROWSER_SIGNING_KEY=await credential("browser-signing-key");
   return result;

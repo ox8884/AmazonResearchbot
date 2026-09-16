@@ -15,6 +15,7 @@ Environment=DATABASE_URL=postgresql:///forge_ops?host=/var/run/postgresql&user=f
 Environment=AI_TRANSPORT=disabled
 Environment=JS_TRANSPORT=disabled
 Environment=MAIL_TRANSPORT=disabled
+Environment=SUMMARY_MAIL_TRANSPORT=disabled
 LoadCredential=encryption-key:/etc/forge-ops/credentials/encryption-key
 ExecStart=/usr/bin/node --import tsx apps/worker/src/index.ts --production
 Restart=always

@@ -5,6 +5,9 @@ import {openAcceptance} from './support/acceptance.mjs';
 import {prepareSummaryDelivery,dispatchSummaryDelivery,recoverSummaryDeliveries,reconcileSummaryDelivery} from '../apps/worker/src/summary-delivery.ts';
 import {buildDailySummary} from '../packages/db/src/daily-summary.ts';
 import {randomUUID} from 'node:crypto';
+import {createComposioGmailTransport} from '../packages/integrations/src/mail/composio.ts';
+import {resolveSummaryMailTransport} from '../apps/worker/src/summary-mail.ts';
+import {createHash} from 'node:crypto';
 const test=await openAcceptance({databaseKey:'summary-delivery-'+Date.now()});
 let sends=0;
 const localMail=createMailpitTransport('development');
@@ -66,4 +69,46 @@ for(const mode of ['changed','unknown','recovery','recipient','legacy','disabled
   }
   console.log(JSON.stringify({scenario:'summary-'+mode,result:'PASS',submitted}));
  }finally{await scope.close();}
+}
+
+{
+ const scope=await openAcceptance({databaseKey:'summary-composio-access-'+Date.now()});
+ const apiKey='approved-composio-key';
+ try{
+  const consent=await scope.call('/api/settings/proposals',{summaryEmail:scope.authFixture.email,summaryEmailEnabled:true});
+  assert.equal((await scope.call(`/api/approvals/${consent.body.approvalId}/approve`,{})).status,200);
+  const user=(await scope.pool.query('SELECT id FROM "user" WHERE lower(email)=lower($1)',[scope.authFixture.email])).rows[0];assert.ok(user?.id);
+  const fingerprint=createHash('sha256').update('mcp-v1:'+apiKey).digest('hex');
+  await scope.pool.query("INSERT INTO composio_gmail_connections(user_id,key_fingerprint,session_ciphertext,mcp_ciphertext,account_id,status,email,checked_at) VALUES($1,$2,'fixture-session','fixture-mcp','account-fixture','active',$3,now())",[user.id,fingerprint,scope.authFixture.email]);
+  const transport=await resolveSummaryMailTransport(scope.pool,Buffer.from(scope.encryptionKeyHex,'hex'),'development','disabled','composio',apiKey,async()=>{throw new Error('WIRE_NOT_USED');});
+  assert.equal(transport?.name,'composio-gmail');
+  assert.deepEqual(await transport?.authorize({recipient:scope.authFixture.email,subject:'Summary',body:'Body'}),{allowed:true});
+  const changed=await scope.call('/api/settings/proposals',{summaryEmailEnabled:false});assert.equal((await scope.call(`/api/approvals/${changed.body.approvalId}/approve`,{})).status,200);
+  assert.deepEqual(await transport?.authorize({recipient:scope.authFixture.email,subject:'Summary',body:'Body'}),{allowed:false,reason:'COMPOSIO_CONNECTION_CHANGED'});
+  console.log(JSON.stringify({scenario:'summary-composio-access',result:'PASS',staleApprovalBlocked:true}));
+ }finally{await scope.close();}
+}
+
+{
+ let requestCount=0;
+ const wire=async({body})=>{
+  requestCount++;
+  const request=JSON.parse(body);
+  if(request.method==='initialize')return {status:200,body:{jsonrpc:'2.0',id:request.id,result:{protocolVersion:'2025-03-26'}} ,mcpSessionId:'summary-session'};
+  if(request.method==='notifications/initialized')return {status:202,body:null};
+  assert.equal(request.params.name,'COMPOSIO_MULTI_EXECUTE_TOOL');
+  const [tool]=request.params.arguments.tools;
+  assert.equal(tool.tool_slug,'GMAIL_SEND_EMAIL');
+  assert.equal(tool.account,'account-fixture');
+  assert.deepEqual(tool.arguments,{recipient_email:'jay@fixture.invalid',subject:'Morning summary',body:'Approved facts only',is_html:false,user_id:'me'});
+  return {status:200,body:{jsonrpc:'2.0',id:request.id,result:{content:[{type:'text',text:JSON.stringify({successful:true,data:{results:[{response:{successful:true,data:{id:'gmail-message-1',threadId:'gmail-thread-1'}}}]}})}]}}};
+ };
+ const transport=createComposioGmailTransport('api-key-fixture',{accountId:'account-fixture',recipient:'jay@fixture.invalid',isCurrent:async()=>true},wire);
+ assert.deepEqual(await transport.authorize({recipient:'jay@fixture.invalid',subject:'Morning summary',body:'Approved facts only'}),{allowed:true});
+ assert.deepEqual(await transport.authorize({recipient:'other@fixture.invalid',subject:'Morning summary',body:'Approved facts only'}),{allowed:false,reason:'COMPOSIO_RECIPIENT_CHANGED'});
+ const receipt=await transport.send({recipient:'jay@fixture.invalid',subject:'Morning summary',body:'Approved facts only'},randomUUID());
+ assert.equal(receipt.kind,'sent');
+ if(receipt.kind==='sent')assert.equal(receipt.messageId,'gmail-message-1');
+ assert.equal(requestCount,3);
+ console.log(JSON.stringify({scenario:'summary-composio-transport',result:'PASS',requestCount}));
 }

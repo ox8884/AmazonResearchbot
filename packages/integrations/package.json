@@ -13,6 +13,7 @@
     "./jungle-scout/endpoints": "./src/jungle-scout/endpoints.ts",
     "./mail/transport": "./src/mail/transport.ts",
     "./mail/mailpit": "./src/mail/mailpit.ts",
+    "./mail/composio": "./src/mail/composio.ts",
     "./jungle-scout/requests": "./src/jungle-scout/requests.ts",
     "./jungle-scout/pagination": "./src/jungle-scout/pagination.ts",
     "./jungle-scout/responses": "./src/jungle-scout/responses.ts",
@@ -37,7 +38,8 @@
     "csv-parse": "7.0.2",
     "imapflow": "1.7.8",
     "nodemailer": "10.0.0",
-    "@forge-ops/security": "workspace:*"
+    "@forge-ops/security": "workspace:*",
+    "zod": "4.5.4"
   },
   "devDependencies": {
     "@types/node": "24.3.0",
