@@ -24,7 +24,7 @@ try {
  server.listen(0,'127.0.0.1');await once(server,'listening');
  await advanceCandidate(test.pool,createSimulatorTransport(`http://127.0.0.1:${server.address().port}`,'development'),{candidateId:subject.id,stage:'api_validation',inputVersion:1});
  assert.deepEqual(captured.body.data.attributes.include_keywords,[keyword]);
- assert.deepEqual(captured.body.data.attributes.categories,['Kitchen & Dining']);
+ assert.equal('categories' in captured.body.data.attributes,false);
  assert.equal(captured.url.searchParams.get('marketplace'),'us');
  assert.equal(captured.url.searchParams.get('page[size]'),'100');
  assert.equal((await test.pool.query("SELECT outcome FROM evaluations WHERE candidate_id=$1 AND kind='api_validation' ORDER BY created_at DESC LIMIT 1",[subject.id])).rows[0]?.outcome,'hold','Actual worker must consume and classify the response');
@@ -59,5 +59,5 @@ try {
   await advanceCandidate(test.pool,createSimulatorTransport(`http://127.0.0.1:${server.address().port}`,'development'),{candidateId:deferredCandidate.id,stage:'api_validation',inputVersion:1});
   assert.equal(Number((await test.pool.query('SELECT count(*)::int count FROM api_retry_schedules WHERE operation_id=$1',[retrySchedule.operation_id])).rows[0].count),0);
 
-  console.log(JSON.stringify({scenario:'worker-replay',result:'PASS',staleJob:'no stage reset, no new events',query:'actual keyword, Kitchen & Dining, US, page100',callbackVersionGuard:true,deferredRetry:'durable pgboss job then due dispatch',paidCalls:0}));
+  console.log(JSON.stringify({scenario:'worker-replay',result:'PASS',staleJob:'no stage reset, no new events',query:'actual keyword, no category filter, US, page100',callbackVersionGuard:true,deferredRetry:'durable pgboss job then due dispatch',paidCalls:0}));
 }finally{if(server){server.closeAllConnections();await new Promise(r=>server.close(r));}await test.close();}

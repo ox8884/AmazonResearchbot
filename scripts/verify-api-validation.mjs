@@ -188,8 +188,8 @@ try {
     { marketplace: "us", "page[size]": "100", "page[cursor]": "page-two" },
   ]);
   assert.deepEqual(passRequests.map((item) => item.body), [
-    { data: { type: "product_database_query", attributes: { categories: ["Kitchen & Dining"], include_keywords: [passing.keyword] } } },
-    { data: { type: "product_database_query", attributes: { categories: ["Kitchen & Dining"], include_keywords: [passing.keyword] } } },
+    { data: { type: "product_database_query", attributes: { include_keywords: [passing.keyword] } } },
+    { data: { type: "product_database_query", attributes: { include_keywords: [passing.keyword] } } },
   ]);
 
   const cacheOnlySettings = await settings({ jsDailyWireCap: 0 });
