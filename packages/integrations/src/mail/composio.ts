@@ -116,7 +116,7 @@ function toolData(value: unknown): unknown {
 function gmailReceipt(raw: unknown): MailReceipt {
   const parsed = multiExecuteResultSchema.safeParse(raw);
   if (!parsed.success || parsed.data.error)
-    return { kind: "not_sent", reason: "COMPOSIO_TOOL_FAILED" };
+    return { kind: "unknown", reason: "COMPOSIO_SEND_OUTCOME_UNKNOWN" };
   const item = parsed.data.data.results[0];
   const result =
     "response" in item ? item.response : "result" in item ? item.result : item;

@@ -110,5 +110,12 @@ for(const mode of ['changed','unknown','recovery','recipient','legacy','disabled
  assert.equal(receipt.kind,'sent');
  if(receipt.kind==='sent')assert.equal(receipt.messageId,'gmail-message-1');
  assert.equal(requestCount,3);
+ const ambiguous=createComposioGmailTransport('api-key-fixture',{accountId:'account-fixture',recipient:'jay@fixture.invalid',isCurrent:async()=>true},async({body})=>{
+  const request=JSON.parse(body);
+  if(request.method==='initialize')return {status:200,body:{jsonrpc:'2.0',id:request.id,result:{protocolVersion:'2025-03-26'}},mcpSessionId:'summary-session'};
+  if(request.method==='notifications/initialized')return {status:202,body:null};
+  return {status:200,body:{jsonrpc:'2.0',id:request.id,result:{content:[{type:'text',text:JSON.stringify({successful:true,data:{results:[]}})}]}}};
+ });
+ assert.deepEqual(await ambiguous.send({recipient:'jay@fixture.invalid',subject:'Morning summary',body:'Approved facts only'},randomUUID()),{kind:'unknown',reason:'COMPOSIO_SEND_OUTCOME_UNKNOWN'});
  console.log(JSON.stringify({scenario:'summary-composio-transport',result:'PASS',requestCount}));
 }
