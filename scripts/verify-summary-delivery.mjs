@@ -78,8 +78,9 @@ for(const mode of ['changed','unknown','recovery','recipient','legacy','disabled
   const consent=await scope.call('/api/settings/proposals',{summaryEmail:scope.authFixture.email,summaryEmailEnabled:true});
   assert.equal((await scope.call(`/api/approvals/${consent.body.approvalId}/approve`,{})).status,200);
   const user=(await scope.pool.query('SELECT id FROM "user" WHERE lower(email)=lower($1)',[scope.authFixture.email])).rows[0];assert.ok(user?.id);
-  const fingerprint=createHash('sha256').update('mcp-v1:'+apiKey).digest('hex');
+ const fingerprint=createHash('sha256').update('mcp-v1:'+apiKey).digest('hex');
   await scope.pool.query("INSERT INTO composio_gmail_connections(user_id,key_fingerprint,session_ciphertext,mcp_ciphertext,account_id,status,email,checked_at) VALUES($1,$2,'fixture-session','fixture-mcp','account-fixture','active',$3,now())",[user.id,fingerprint,scope.authFixture.email]);
+  assert.equal(await resolveSummaryMailTransport(scope.pool,Buffer.from(scope.encryptionKeyHex,'hex'),'development','mailpit','disabled',apiKey),null,'Explicitly disabled summaries must not inherit the supplier mail transport');
   const transport=await resolveSummaryMailTransport(scope.pool,Buffer.from(scope.encryptionKeyHex,'hex'),'development','disabled','composio',apiKey,async()=>{throw new Error('WIRE_NOT_USED');});
   assert.equal(transport?.name,'composio-gmail');
   assert.deepEqual(await transport?.authorize({recipient:scope.authFixture.email,subject:'Summary',body:'Body'}),{allowed:true});

@@ -22,6 +22,7 @@ export async function resolveSummaryMailTransport(
   composioApiKey: string | undefined,
   wire?: ComposioMcpWire,
 ): Promise<MailTransport | null> {
+  if (summaryMode === "disabled") return null;
   if (summaryMode === "composio") {
     const apiKey = composioApiKey?.trim();
     if (!apiKey) return null;
@@ -68,5 +69,6 @@ export async function resolveSummaryMailTransport(
     };
     return createComposioGmailTransport(apiKey, access, wire);
   }
+  if (summaryMode !== undefined) return null;
   return resolveWorkMailTransport(pool, encryptionKey, appEnv, mailMode);
 }
