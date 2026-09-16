@@ -66,7 +66,12 @@ try{
  const source=await fixture('success'),queued=await queue(source,a);
  assert.equal(queued.kind,'queued');assert.equal((await queue(source,a)).kind,'existing');
  assert.equal((await machine('/api/bridge/tasks/claim',{},b.credential)).body.kind,'idle');
- assert.equal((await client.claimTask({deviceId:a.id})).taskId,queued.taskId);
+ const initialClaim=await client.claimTask({deviceId:a.id});
+ assert.equal(initialClaim.taskId,queued.taskId);
+ const futureObservation={...observation(source),observedAt:new Date(Date.now()+60_000).toISOString()};
+ const skewedResult=await machine('/api/bridge/tasks/'+queued.taskId+'/results',{taskHash:initialClaim.taskHash,observation:futureObservation},a.credential);
+ assert.equal(skewedResult.status,409,'A client clock skew must reject the observation without cancelling the delivered lease');
+ assert.equal((await test.pool.query('SELECT state FROM browser_tasks WHERE id=$1',[queued.taskId])).rows[0].state,'delivered');
  const firstDelivery=(await test.pool.query('SELECT first_delivered_at FROM browser_tasks WHERE id=$1',[queued.taskId])).rows[0].first_delivered_at;
  const claims=await Promise.all([machine('/api/bridge/tasks/claim',{},a.credential),machine('/api/bridge/tasks/claim',{},a.credential)]);
  assert.ok(claims.every(result=>result.status===200&&result.body.kind==='idle'),'An active delivery lease must prevent duplicate browser execution');

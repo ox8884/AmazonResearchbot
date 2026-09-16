@@ -63,9 +63,26 @@ try {
     );
     overnightTasks.push(taskId);
   }
-  const overnightClaim=(await machineCall('/api/bridge/tasks/claim',{})).body;
+  const settingsLock=await test.pool.connect();
+  await settingsLock.query('BEGIN');
+  await settingsLock.query("SELECT pg_advisory_xact_lock(hashtext('forge.settings'))");
+  const delayedClaim=machineCall('/api/bridge/tasks/claim',{});
+  const waitForBlockedClaim=async()=>{
+    for(let attempt=0;attempt<40;attempt++){
+      const waiting=Number((await test.pool.query("SELECT count(*)::int AS count FROM pg_locks WHERE locktype='advisory' AND granted=false")).rows[0].count);
+      if(waiting>0)return;
+      await new Promise(resolve=>setTimeout(resolve,25));
+    }
+    assert.fail('The claim did not reach the settings advisory lock');
+  };
+  await waitForBlockedClaim();
+  const lockReleasedAt=Date.now();
+  await settingsLock.query('COMMIT');
+  settingsLock.release();
+  const overnightClaim=(await delayedClaim).body;
   assert.equal(overnightClaim.kind,'task','A task queued before midnight may consume today\'s first delivery slot');
   const charged=(await test.pool.query('SELECT delivered_at,first_delivered_at FROM browser_tasks WHERE id=$1',[overnightClaim.taskId])).rows[0];
+  assert.ok(charged.first_delivered_at.getTime()>=lockReleasedAt,'First delivery must use wall-clock time after a delayed transaction acquires the lock');
   assert.ok(charged.first_delivered_at>=new Date(new Date().setHours(0,0,0,0)),'The cap must charge the first delivery date');
   assert.equal((await machineCall('/api/bridge/tasks/claim',{})).body.kind,'idle','A second pre-midnight task must be blocked after today\'s delivery cap is consumed');
   await test.pool.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1",[overnightTasks.find(id=>id!==overnightClaim.taskId)]);

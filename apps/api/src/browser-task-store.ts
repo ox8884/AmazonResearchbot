@@ -71,7 +71,7 @@ export async function claimBrowserTask(pool:Pool,deviceId:string) {
    if(!row){await db.query("COMMIT");return {kind:"idle" as const};}
    const source=row.search_run_id!==null?await lockSearchTaskSource(db,row):await lockTaskSource(db,row);
    if(!source){await db.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1",[row.id]);continue;}
-   const delivered=await db.query("UPDATE browser_tasks SET state='delivered',delivered_at=now(),first_delivered_at=COALESCE(first_delivered_at,now()) WHERE id=$1 AND (state='queued' OR (state='delivered' AND delivered_at<=clock_timestamp()-interval '150 seconds')) AND expires_at>clock_timestamp() RETURNING id",[row.id]);
+   const delivered=await db.query("UPDATE browser_tasks SET state='delivered',delivered_at=clock_timestamp(),first_delivered_at=COALESCE(first_delivered_at,clock_timestamp()) WHERE id=$1 AND (state='queued' OR (state='delivered' AND delivered_at<=clock_timestamp()-interval '150 seconds')) AND expires_at>clock_timestamp() RETURNING id",[row.id]);
    if(!delivered.rowCount){await db.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1 AND state IN ('queued','delivered')",[row.id]);continue;}
    await db.query("COMMIT");
    return {kind:"task" as const,taskId:row.id,taskHash:row.task_hash,envelope:row.envelope};
