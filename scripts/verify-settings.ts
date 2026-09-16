@@ -158,5 +158,7 @@ const mailDraft = {...summaryDraft, summaryEmail:'jay@fixture.invalid',summaryEm
 assert(Object.keys(validateSettingsDraft(mailDraft)).length===0,'Valid summary mail settings must pass');
 const mailPatch=patchFromDraft(mailDraft,summaryDraft);
 assert(mailPatch.summaryEmailEnabled===true && mailPatch.summaryEmail==='jay@fixture.invalid','Mail consent uses a boolean and exact recipient');
+const nullConsentChange=parseSettingsChange(mailPatch,{...INITIAL_SETTINGS,summaryEmail:'jay@fixture.invalid',summaryEmailEnabled:null});
+assert(nullConsentChange.kind==='valid'&&nullConsentChange.after.summaryEmailEnabled===true,'Legacy null consent can be enabled explicitly');
 assert(validateSettingsDraft({...mailDraft,summaryEmail:''}).summaryEmail==='value','Enabled summary requires a recipient');
 assert(patchFromDraft({...mailDraft,summaryEmail:'',summaryEmailEnabled:'false'},mailDraft).summaryEmail===null,'Clearing the recipient is explicit');

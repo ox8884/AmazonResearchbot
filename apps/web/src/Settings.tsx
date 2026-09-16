@@ -1,7 +1,13 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router";
-import { ApprovalError, approve, getSettings, proposeSettings } from "./api.ts";
+import {
+  ApprovalError,
+  approve,
+  getSettings,
+  proposeSettings,
+  SettingsProposalError,
+} from "./api.ts";
 import { pendingSettings, rejectSettings } from "./settings-api.ts";
 import {
   changedSettings,
@@ -47,6 +53,7 @@ export function Settings() {
       }
     : null;
   const [approved, setApproved] = useState(false);
+  const [requestNotice, setRequestNotice] = useState<"saved" | "refresh-failed" | null>(null);
   const snapshot = q.data?.snapshot;
   const version = q.data?.version;
 
@@ -65,9 +72,12 @@ export function Settings() {
   const valid = changed.length > 0 && Object.keys(errors).length === 0;
   const propose = useMutation({
     mutationFn: (request: ProposalRequest) => proposeSettings(request.patch),
-    onSuccess: async () => {
-      await pending.refetch();
+    onSuccess: () => {
+      setRequestNotice("saved");
       setApproved(false);
+      void pending.refetch().catch(() => {
+        setRequestNotice("refresh-failed");
+      });
     },
   });
   const decision = useMutation({
@@ -78,6 +88,7 @@ export function Settings() {
     onSuccess: async () => {
       setDraft(null);
       setDraftVersion(null);
+      setRequestNotice(null);
       setApproved(true);
       await Promise.all([q.refetch(), pending.refetch()]);
     },
@@ -87,11 +98,12 @@ export function Settings() {
     onSuccess: async () => {
       setDraft(null);
       setDraftVersion(null);
+      setRequestNotice(null);
       await Promise.all([q.refetch(), pending.refetch()]);
     },
   });
   if (q.isPending || pending.isPending) return <Loading />;
-  if (q.isError || pending.isError)
+  if (q.isError || (pending.isError && !pending.data))
     return (
       <LoadError
         retry={() => {
@@ -148,6 +160,7 @@ export function Settings() {
                 previous ? { ...previous, [key]: value } : previous,
               );
               setApproved(false);
+              setRequestNotice(null);
             }}
           />
           {!proposal && draft && changed.length > 0 && (
@@ -217,9 +230,39 @@ export function Settings() {
             </button>
           </div>
         )}
+        {requestNotice === "saved" && !proposal && (
+          <p className="banner" role="status">
+            {t(
+              "승인 요청을 저장했습니다. 오늘 처리할 일에서 검토하고 승인해 주세요.",
+              "Approval request saved. Review and approve it in Today’s approvals.",
+            )}
+          </p>
+        )}
+        {requestNotice === "refresh-failed" && !proposal && (
+          <p className="banner" role="status">
+            {t(
+              "승인 요청은 저장됐지만 목록을 새로고침하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+              "The approval request was saved, but the list could not refresh. Try again shortly.",
+            )}
+          </p>
+        )}
+        {pending.isError && pending.data && (
+          <p className="banner" role="status">
+            {t(
+              "승인 대기 목록을 새로고침하지 못했어요. 저장된 요청은 오늘 처리할 일에서 확인할 수 있습니다.",
+              "The approval list could not refresh. The saved request is available in Today’s approvals.",
+            )}
+          </p>
+        )}
         {(propose.isError || decision.isError || rejection.isError) && (
           <p className="banner" role="alert">
-            {decision.error instanceof ApprovalError && decision.error.code === "LAUNCH_BUDGET_RESERVED"
+            {propose.error instanceof SettingsProposalError && propose.error.code === "INVALID_SETTINGS"
+              ? t("입력값을 확인해 주세요. 이메일 발송을 켜려면 유효한 이메일 주소가 필요합니다.", "Check the inputs. Enabling email delivery requires a valid email address.")
+              : propose.error instanceof SettingsProposalError && propose.error.code === "NO_CHANGES"
+                ? t("변경된 값이 없습니다. 적용 중인 설정과 다른 값을 선택해 주세요.", "No changes were found. Choose a value different from the current settings.")
+                : propose.error instanceof SettingsProposalError && propose.error.code === "UNAUTHENTICATED"
+                  ? t("로그인 세션이 만료됐어요. 다시 로그인한 뒤 요청해 주세요.", "Your sign-in session expired. Sign in again and retry.")
+                  : decision.error instanceof ApprovalError && decision.error.code === "LAUNCH_BUDGET_RESERVED"
               ? t("이미 예약된 출시 현금보다 한도가 낮습니다. 예약을 검토한 뒤 다시 승인해 주세요.", "This limit is below reserved launch cash. Review reservations before approving again.")
               : t("처리 결과를 확인하지 못했어요. 현재 적용 버전을 확인해 주세요.", "Couldn’t confirm the result. Check the current version.")}
           </p>

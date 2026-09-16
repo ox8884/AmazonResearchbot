@@ -197,8 +197,24 @@ export async function proposeSettings(
     method: "POST",
     body: JSON.stringify(patch),
   });
-  if (!res.ok) throw new Error("proposal");
+  if (!res.ok) {
+    const body: unknown = await res.json().catch(() => null);
+    const code =
+      typeof body === "object" &&
+      body !== null &&
+      "code" in body &&
+      typeof body.code === "string"
+        ? body.code
+        : "PROPOSAL_FAILED";
+    throw new SettingsProposalError(code);
+  }
   return res.json();
+}
+
+export class SettingsProposalError extends Error {
+  constructor(readonly code: string) {
+    super(code);
+  }
 }
 
 export class ApprovalError extends Error {

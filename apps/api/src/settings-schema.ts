@@ -72,6 +72,7 @@ export const settingsBaselineSchema = z
     researchStartLocalTime: z.string().regex(/^(?:[01][0-9]|2[0-3]):[0-5][0-9]$/).optional(),
     supplierContactMode: z.literal("website").optional(),
     ...editableSettingsSchema.partial().shape,
+    summaryEmailEnabled: z.boolean().nullable().optional(),
   })
   .strict();
 
@@ -154,7 +155,11 @@ export function parseSettingsChange(
   const parsedPatch = settingsPatchSchema.safeParse(raw);
   if (!parsedPatch.success) return invalid("invalid_patch");
 
-  const after = { ...parsedCurrent.data, ...parsedPatch.data };
+  const after = {
+    ...parsedCurrent.data,
+    summaryEmailEnabled: parsedCurrent.data.summaryEmailEnabled ?? false,
+    ...parsedPatch.data,
+  };
   const parsedAfter = settingsSnapshotSchema.safeParse(after);
   if (!parsedAfter.success) return invalid("invalid_after_settings");
 
