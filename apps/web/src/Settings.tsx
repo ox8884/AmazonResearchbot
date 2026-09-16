@@ -75,9 +75,10 @@ export function Settings() {
     onSuccess: () => {
       setRequestNotice("saved");
       setApproved(false);
-      void pending.refetch().catch(() => {
-        setRequestNotice("refresh-failed");
-      });
+      void pending.refetch().then(
+        (result) => setRequestNotice(result.isError ? "refresh-failed" : "saved"),
+        () => setRequestNotice("refresh-failed"),
+      );
     },
   });
   const decision = useMutation({
