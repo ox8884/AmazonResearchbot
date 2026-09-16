@@ -28,7 +28,7 @@
 - 승인 후 API의 Composio를 켜는 경우 `COMPOSIO_ENABLED=true`와 `composio-api-key` credential이 필요함
 - 승인된 아침 요약을 Composio Gmail로 발송하는 경우 worker drop-in에 `SUMMARY_MAIL_TRANSPORT=composio`와 `composio-api-key` credential이 필요함. 이 설정은 공급처 연락과 수신함 transport에는 적용되지 않음
 
-기본 unit은 외부 transport를 disabled로 둔다. `runtime.env`에는 승인된 HTTPS `WEB_ORIGIN` 등 비밀이 아닌 값만 둔다. 개발용 `.env`를 복사하지 않는다. unit의 `--production` 인자는 환경파일로 모드를 development로 낮추는 실수를 차단한다.
+승인된 worker/scheduler unit은 Jungle Scout official transport와 systemd credential을 함께 선언한다. `runtime.env`에는 `JS_TRANSPORT`를 중복 선언하지 않는다. `EnvironmentFile=` 값이 unit의 `Environment=`를 덮어쓸 수 있기 때문이다. `runtime.env`에는 승인된 HTTPS `WEB_ORIGIN` 등 비밀이 아닌 값만 두고 개발용 `.env`를 복사하지 않는다. unit의 `--production` 인자는 환경파일로 모드를 development로 낮추는 실수를 차단한다.
 
 공식 근거: [systemd credentials](https://systemd.io/CREDENTIALS/), [PostgreSQL system_user](https://www.postgresql.org/docs/17/functions-info.html), [PostgreSQL peer 인증](https://www.postgresql.org/docs/17/auth-peer.html).
 
