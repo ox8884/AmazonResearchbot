@@ -25,7 +25,7 @@ export function openBrowserTaskLedger(configuration) {
    db.exec("CREATE TABLE task_receipts(task_id TEXT PRIMARY KEY,task_hash TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('started','completed')),receipt_id TEXT,created_at TEXT NOT NULL,completed_at TEXT,CHECK((state='started' AND receipt_id IS NULL AND completed_at IS NULL) OR (state='completed' AND receipt_id IS NOT NULL AND completed_at IS NOT NULL))) STRICT");
    db.exec('PRAGMA application_id='+applicationId+'; PRAGMA user_version=1');
    version=1;
-  }else if(marker!==applicationId||![1,2,3].includes(version))throw new Error('UNRECOGNIZED_TASK_LEDGER');
+  }else if(marker!==applicationId||![1,2,3,4].includes(version))throw new Error('UNRECOGNIZED_TASK_LEDGER');
   if(version===1){
    db.exec("ALTER TABLE task_receipts RENAME TO task_receipts_v1");
    db.exec("CREATE TABLE task_receipts(task_id TEXT PRIMARY KEY,task_hash TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('started','completed','cancelled','conflict')),receipt_id TEXT,created_at TEXT NOT NULL,completed_at TEXT,body_hash TEXT,ciphertext TEXT,CHECK((state='completed')=(receipt_id IS NOT NULL)),CHECK((state!='started')=(completed_at IS NOT NULL)),CHECK(ciphertext IS NULL OR body_hash IS NOT NULL)) STRICT");
@@ -38,6 +38,9 @@ export function openBrowserTaskLedger(configuration) {
    db.exec("CREATE TABLE task_receipts(task_id TEXT PRIMARY KEY,task_hash TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('started','completed','cancelled','conflict')),receipt_id TEXT,created_at TEXT NOT NULL,completed_at TEXT,body_hash TEXT,ciphertext TEXT,next_attempt_at TEXT,retry_count INTEGER NOT NULL DEFAULT 0 CHECK(retry_count>=0),CHECK((state='completed')=(receipt_id IS NOT NULL)),CHECK((state!='started')=(completed_at IS NOT NULL)),CHECK(ciphertext IS NULL OR body_hash IS NOT NULL),CHECK(next_attempt_at IS NULL OR state='started')) STRICT");
    db.exec("INSERT INTO task_receipts(task_id,task_hash,state,receipt_id,created_at,completed_at,body_hash,ciphertext) SELECT task_id,task_hash,state,receipt_id,created_at,completed_at,body_hash,ciphertext FROM task_receipts_v2");
    db.exec("DROP TABLE task_receipts_v2; PRAGMA user_version=3");
+  }
+  if(version<=3){
+   db.exec("CREATE TABLE task_retry_history(task_id TEXT PRIMARY KEY,task_hash TEXT NOT NULL,retry_count INTEGER NOT NULL CHECK(retry_count>=0)) STRICT; PRAGMA user_version=4");
   }
   db.exec('COMMIT');initializing=false;
   db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
@@ -63,7 +66,10 @@ export function openBrowserTaskLedger(configuration) {
      }
      return summary(row);
     }
-   db.prepare("INSERT INTO task_receipts(task_id,task_hash,state,created_at) VALUES(?,?,'started',?)").run(taskId,taskHash,new Date().toISOString());
+    const retryHistory=db.prepare('SELECT task_hash,retry_count FROM task_retry_history WHERE task_id=?').get(taskId);
+    if(retryHistory&&retryHistory.task_hash!==taskHash)throw new Error('TASK_PAYLOAD_CONFLICT');
+    db.prepare("INSERT INTO task_receipts(task_id,task_hash,state,created_at,retry_count) VALUES(?,?,'started',?,?)").run(taskId,taskHash,new Date().toISOString(),retryHistory?.retry_count??0);
+    if(retryHistory)db.prepare('DELETE FROM task_retry_history WHERE task_id=?').run(taskId);
     return {kind:'claimed',taskId,taskHash,task};
    });
   },
@@ -113,6 +119,9 @@ export function openBrowserTaskLedger(configuration) {
     const taskId=input.taskId.toLowerCase(),row=rowFor(taskId);
     if(!row||row.task_hash!==input.taskHash||row.state!=='started'||row.body_hash!==null)throw new Error('TASK_NOT_RETRYABLE');
     if(row.next_attempt_at!==null&&Date.parse(row.next_attempt_at)>now.getTime())throw new Error('TASK_RETRY_BACKOFF');
+    const history=db.prepare('SELECT task_hash FROM task_retry_history WHERE task_id=?').get(taskId);
+    if(history&&history.task_hash!==input.taskHash)throw new Error('TASK_PAYLOAD_CONFLICT');
+    db.prepare('INSERT INTO task_retry_history(task_id,task_hash,retry_count) VALUES(?,?,?) ON CONFLICT(task_id) DO UPDATE SET retry_count=excluded.retry_count').run(taskId,input.taskHash,row.retry_count);
     db.prepare('DELETE FROM task_receipts WHERE task_id=?').run(taskId);
     return {taskId,taskHash:input.taskHash,retryCount:row.retry_count};
    });
@@ -136,7 +145,7 @@ export function openBrowserTaskLedger(configuration) {
     const row=rowFor(input.taskId.toLowerCase());
     if(!row||row.task_hash!==input.taskHash)throw new Error('TASK_NOT_CLAIMED');
     if(row.state!==input.state&&row.state!=='started')throw new Error('TASK_ALREADY_SETTLED');
-    if(row.state==='started')db.prepare('UPDATE task_receipts SET state=?,completed_at=? WHERE task_id=?').run(input.state,new Date().toISOString(),row.task_id);
+    if(row.state==='started')db.prepare('UPDATE task_receipts SET state=?,completed_at=?,next_attempt_at=NULL,retry_count=0 WHERE task_id=?').run(input.state,new Date().toISOString(),row.task_id);
     return {state:input.state,taskId:row.task_id};
    });
   },

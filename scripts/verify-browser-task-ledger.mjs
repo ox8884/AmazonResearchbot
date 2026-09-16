@@ -115,6 +115,22 @@ try {
   assert.equal(missing.reconciled[0].kind,'conflict');
   assert.equal(policy.pending().some(row=>row.taskId===missingTask.id),false);
   assert.deepEqual(policy.staged(missingTask.id,credential),observation);
+  const settlementClock=Date.now();
+  const cancelledRetryTask={...task,id:randomUUID()},cancelledRetryEnvelope=signBrowserTask(cancelledRetryTask,privateKey),cancelledRetryClaim=policy.claim(cancelledRetryEnvelope);
+  const expiredRetryTask={...task,id:randomUUID()},expiredRetryEnvelope=signBrowserTask(expiredRetryTask,privateKey),expiredRetryClaim=policy.claim(expiredRetryEnvelope);
+  policy.defer(cancelledRetryClaim,new Date(settlementClock));
+  policy.defer(expiredRetryClaim,new Date(settlementClock));
+  let settlementFollowupClaims=0;
+  const settlementClient={
+   readTask:async({taskId})=>taskId===cancelledRetryTask.id
+    ?{taskHash:cancelledRetryClaim.taskHash,state:'cancelled',expiresAt:new Date(settlementClock+240000).toISOString()}
+    :{taskHash:expiredRetryClaim.taskHash,state:'delivered',expiresAt:new Date(settlementClock-1).toISOString()},
+   claimTask:async()=>{settlementFollowupClaims++;return {kind:'idle'};},
+  };
+  const settlementResult=await createRecoveryCycle({client:settlementClient,adapter:noBrowser,ledger:policy,deviceId:config.deviceId,readCredential:async()=>credential,now:()=>settlementClock+30000})();
+  assert.deepEqual(settlementResult.reconciled.map(item=>item.kind),['cancelled','cancelled'],'Cancelled and expired deferred tasks must settle without violating the ledger constraint');
+  assert.equal(settlementResult.kind,'idle','Recovery must continue to the next server claim after terminal settlement');
+  assert.equal(settlementFollowupClaims,1);
   const retryTask={...task,id:randomUUID()},retryEnvelope=signBrowserTask(retryTask,privateKey),retryHash=createHash('sha256').update(retryEnvelope.payload).digest('hex');
   const retryClock={value:Date.now()};
   const retryDelivery={kind:'task',taskId:retryTask.id,taskHash:retryHash,envelope:retryEnvelope};
@@ -137,6 +153,8 @@ try {
   assert.equal((await retryCycle()).kind,'retry_wait','Due retry must execute once and schedule the next backoff');
   assert.equal(retryClaims,2);
   assert.equal(retryCollections,2,'A due retry may perform one browser collection');
+  assert.equal(policy.retryWaiting().retryCount,2,'The second retry must preserve history and use the 120-second tier');
+  assert.equal(policy.retryWaiting().nextAttemptAt,new Date(retryClock.value+120000).toISOString());
   policy.close();
   policy=openBrowserTaskLedger({...config,directory:path.join(directory,'policy')});
   assert.equal(policy.retryWaiting().taskId,retryTask.id,'Retry schedule must survive a process restart');
@@ -147,6 +165,8 @@ try {
   assert.equal((await createRecoveryCycle({client:retryClient,adapter:retryAdapterFor(policy),ledger:policy,deviceId:config.deviceId,readCredential:async()=>credential,canClaim:async()=>retryCanClaim,now:()=>retryClock.value} )()).kind,'retry_wait');
   assert.equal(retryClaims,3,'Reconnection must resume the deferred task');
   assert.equal(retryCollections,3);
+  assert.equal(policy.retryWaiting().retryCount,3,'The third retry must preserve history and use the 300-second tier');
+  assert.equal(policy.retryWaiting().nextAttemptAt,new Date(retryClock.value+300000).toISOString());
   policy.close();
   const offlineLedger=openBrowserTaskLedger({...config,directory:path.join(directory,'offline')});
   const offlineClient={claimTask:async()=>{throw new Error('Offline client must not claim work');}};

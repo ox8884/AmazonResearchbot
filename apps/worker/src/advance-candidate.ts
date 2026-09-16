@@ -61,7 +61,8 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
       await client.query("COMMIT");
       return;
     }
-    if (candidate.input_version !== data.inputVersion || candidate.stage !== data.stage || candidate.blocked_reason === "web_session") {
+    const resumesCommittedSourcing = data.stage === "api_validation" && candidate.stage === "sourcing";
+    if (candidate.input_version !== data.inputVersion || (!resumesCommittedSourcing && candidate.stage !== data.stage) || candidate.blocked_reason === "web_session") {
       await client.query("COMMIT");
       return;
     }

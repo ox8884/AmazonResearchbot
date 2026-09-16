@@ -42,6 +42,7 @@ export async function acceptBrowserTaskResult(pool:Pool,input:{
      payload.id!==task.id||payload.deviceId!==task.device_id||request.candidateId!==task.candidate_id||
      (request.kind!=='amazon_package'&&request.kind!=='amazon_search'&&request.kind!=='product_database'&&request.kind!=='keyword_scout'&&request.kind!=='historical_data'&&request.kind!=='category_trends'&&request.kind!=='competitive_intelligence'&&request.specId!==task.spec_id)||request.inputVersion!==task.input_version||request.settingsVersion!==task.settings_version||
      observed>now||observed<Date.parse(payload.issuedAt)||observed>Date.parse(payload.expiresAt)){
+   if(task.state==='delivered')await db.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1",[task.id]);
    await db.query("COMMIT");return {kind:"stale" as const};
   }
   const receiptId=randomUUID(),captureIds:string[]=[];

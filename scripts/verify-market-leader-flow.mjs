@@ -81,7 +81,7 @@ try{
  assert.equal((await deviceCall('/api/bridge/capabilities',{connected:true,supportedTasks:['amazon_package','competitive_intelligence'],keyFingerprint:identity.fingerprint})).status,200);
  const ciTaskId=(await test.pool.query("INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,expires_at,task_kind) VALUES(gen_random_uuid(),$1,$2,NULL,$3,$4,'{}'::jsonb,repeat('c',64),now()+interval '5 minutes','competitive_intelligence') RETURNING id",[enrolled.body.id,automatic.context.candidateId,automatic.context.inputVersion,automatic.context.settingsVersion])).rows[0].id;
  const ciResultId=(await test.pool.query("INSERT INTO browser_task_results(id,task_id,body_sha256,body_ciphertext,capture_ids) VALUES(gen_random_uuid(),$1,repeat('d',64),'synthetic','{}'::uuid[]) RETURNING id",[ciTaskId])).rows[0].id;
- await test.pool.query("UPDATE browser_tasks SET state='completed',result_id=$2,delivered_at=now() WHERE id=$1",[ciTaskId,ciResultId]);
+ await test.pool.query("UPDATE browser_tasks SET state='completed',result_id=$2,delivered_at=now(),first_delivered_at=COALESCE(first_delivered_at,now()) WHERE id=$1",[ciTaskId,ciResultId]);
  assert.equal((await dispatchBrowserWork(test.pool,{origin:'http://localhost:5173',privateKey:keys.privateKey,fingerprint:identity.fingerprint})).queued,1);
  const packageTask=(await deviceCall('/api/bridge/tasks/claim',{})).body;
  const packageRequest=JSON.parse(Buffer.from(packageTask.envelope.payload,'base64url')).request;

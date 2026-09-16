@@ -110,6 +110,7 @@ try{
   }
   for(const failurePoint of ['before-submit','after-commit']){
    const fixture=await boundaryFixture('recovery-'+failurePoint);
+   await test.pool.query("UPDATE browser_tasks SET delivered_at=now()-interval '151 seconds' WHERE id=$1",[fixture.claim.taskId]);
    const stateDirectory=await mkdtemp(path.join(tmpdir(),'forge-detail-recovery-'));
    const config={directory:stateDirectory,origin,deviceId,publicKey:keys.publicKey.export({format:'pem',type:'spki'}).toString()};
    let ledger=openBrowserTaskLedger(config),reads=0;
@@ -143,7 +144,7 @@ try{
     const original=JSON.parse(Buffer.from(fixture.claim.envelope.payload,'base64url').toString('utf8')),now=Date.now(),id=randomUUID();
     const envelope=signBrowserTask({...original,id,issuedAt:new Date(now-120000).toISOString(),expiresAt:new Date(now-60000).toISOString()},keys.privateKey);
     const hash=createHash('sha256').update(envelope.payload).digest('hex');
-    await test.pool.query("INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,state,expires_at,delivered_at,source_capture_id,task_kind) VALUES($1,$2,$3,$4,1,$5,$6::jsonb,$7,'delivered',$8,$9,$10,'supplier_detail')",[id,deviceId,fixture.candidateId,fixture.specId,version,JSON.stringify(envelope),hash,new Date(now-60000),new Date(now-100000),fixture.sourceId]);
+    await test.pool.query("INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,state,expires_at,delivered_at,first_delivered_at,source_capture_id,task_kind) VALUES($1,$2,$3,$4,1,$5,$6::jsonb,$7,'delivered',$8,$9,$9,$10,'supplier_detail')",[id,deviceId,fixture.candidateId,fixture.specId,version,JSON.stringify(envelope),hash,new Date(now-60000),new Date(now-100000),fixture.sourceId]);
     fixture.claim={taskId:id,taskHash:hash,envelope};fixture.observation.observedAt=new Date(now-90000).toISOString();
    }
    const rejected=await call('/api/bridge/tasks/'+fixture.claim.taskId+'/results',{taskHash:fixture.claim.taskHash,observation:fixture.observation});

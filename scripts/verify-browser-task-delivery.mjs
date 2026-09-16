@@ -67,12 +67,16 @@ try{
  assert.equal(queued.kind,'queued');assert.equal((await queue(source,a)).kind,'existing');
  assert.equal((await machine('/api/bridge/tasks/claim',{},b.credential)).body.kind,'idle');
  assert.equal((await client.claimTask({deviceId:a.id})).taskId,queued.taskId);
+ const firstDelivery=(await test.pool.query('SELECT first_delivered_at FROM browser_tasks WHERE id=$1',[queued.taskId])).rows[0].first_delivered_at;
  const claims=await Promise.all([machine('/api/bridge/tasks/claim',{},a.credential),machine('/api/bridge/tasks/claim',{},a.credential)]);
  assert.ok(claims.every(result=>result.status===200&&result.body.kind==='idle'),'An active delivery lease must prevent duplicate browser execution');
  await test.pool.query("UPDATE browser_tasks SET delivered_at=now()-interval '151 seconds' WHERE id=$1",[queued.taskId]);
  const recoveryClaims=await Promise.all([machine('/api/bridge/tasks/claim',{},a.credential),machine('/api/bridge/tasks/claim',{},a.credential)]);
  assert.equal(recoveryClaims.filter(result=>result.body.taskId===queued.taskId).length,1,'An expired delivery lease permits exactly one recovery claimant');
  assert.equal(recoveryClaims.filter(result=>result.body.kind==='idle').length,1);
+ const recoveredDelivery=(await test.pool.query('SELECT delivered_at,first_delivered_at FROM browser_tasks WHERE id=$1',[queued.taskId])).rows[0];
+ assert.equal(recoveredDelivery.first_delivered_at.getTime(),firstDelivery.getTime(),'Recovery delivery must retain the original charge timestamp');
+ assert.ok(recoveredDelivery.delivered_at>firstDelivery,'Recovery delivery must refresh the active lease timestamp');
  const claim=recoveryClaims.find(result=>result.body.taskId===queued.taskId).body;
  const verify=createBrowserTaskVerifier({origin,deviceId:a.id,publicKey:keys.publicKey.export({format:'pem',type:'spki'}).toString()});
  assert.equal(verify(claim.envelope).request.candidateId,source.id);
@@ -116,7 +120,7 @@ try{
  const expired=await fixture('expired'),expiredId=randomUUID(),clock=Date.now();
  const expiredEnvelope=signBrowserTask({version:1,id:expiredId,issuerOrigin:origin,deviceId:b.id,issuedAt:new Date(clock-120000).toISOString(),expiresAt:new Date(clock-60000).toISOString(),request:{kind:'supplier_search',candidateId:expired.id,specId:expired.specId,inputVersion:expired.inputVersion,settingsVersion:expired.settingsVersion,query:expired.keyword}},keys.privateKey);
  const expiredHash=createHash('sha256').update(expiredEnvelope.payload).digest('hex');
- await test.pool.query("INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,state,expires_at,delivered_at) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,'delivered',$9,now()-interval '90 seconds')",[expiredId,b.id,expired.id,expired.specId,expired.inputVersion,expired.settingsVersion,JSON.stringify(expiredEnvelope),expiredHash,new Date(clock-60000)]);
+ await test.pool.query("INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,state,expires_at,delivered_at,first_delivered_at) VALUES($1,$2,$3,$4,$5,$6,$7::jsonb,$8,'delivered',$9,now()-interval '90 seconds',now()-interval '90 seconds')",[expiredId,b.id,expired.id,expired.specId,expired.inputVersion,expired.settingsVersion,JSON.stringify(expiredEnvelope),expiredHash,new Date(clock-60000)]);
  assert.equal((await machine('/api/bridge/tasks/'+expiredId+'/results',{taskHash:expiredHash,observation:observation(expired)},b.credential)).status,409);
  assert.equal((await machine('/api/bridge/tasks/claim',{},b.credential)).body.kind,'idle');
  assert.equal((await machine('/api/bridge/tasks/'+expiredId,undefined,b.credential)).body.state,'cancelled');

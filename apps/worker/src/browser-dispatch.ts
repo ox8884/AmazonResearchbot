@@ -21,8 +21,10 @@ async function readJungleScoutBrowserBudget(pool: Pool): Promise<number> {
   if (!Number.isSafeInteger(cap) || cap <= 0) return 0;
   const used = (await pool.query<{ used: number }>(
     `SELECT count(*)::int AS used FROM browser_tasks
-     WHERE task_kind=ANY($1::text[]) AND (state IN ('completed','delivered') OR (state='cancelled' AND delivered_at IS NOT NULL) OR (state='queued' AND expires_at>clock_timestamp()))
-       AND created_at>=date_trunc('day',clock_timestamp())`,
+     WHERE task_kind=ANY($1::text[]) AND (
+       ((state IN ('completed','delivered') OR (state='cancelled' AND delivered_at IS NOT NULL))
+         AND first_delivered_at>=date_trunc('day',clock_timestamp()))
+       OR (state='queued' AND expires_at>clock_timestamp() AND created_at>=date_trunc('day',clock_timestamp())))`,
     [jungleScoutBrowserTaskKinds],
   )).rows[0]?.used ?? 0;
   return Math.max(0, cap - used);

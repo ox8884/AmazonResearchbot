@@ -52,8 +52,8 @@ try{
    const task={version:1,id:taskId,issuerOrigin:'http://localhost:5173',deviceId,issuedAt:new Date(issuedAtMs-1_000).toISOString(),expiresAt:new Date(issuedAtMs+298_000).toISOString(),request};
    const envelope={version:1,payload:Buffer.from(JSON.stringify(task)).toString('base64url'),signature:'fixture'};
    const taskHash=createHash('sha256').update(envelope.payload).digest('hex');
-   await test.pool.query(`INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,state,expires_at,delivered_at,task_kind)
-    VALUES($1,$2,$3,NULL,1,$4,$5::jsonb,$6,'delivered',now()+interval '5 minutes',now(),$7)`,[taskId,deviceId,id,settings.version,JSON.stringify(envelope),taskHash,kind]);
+   await test.pool.query(`INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,state,expires_at,delivered_at,first_delivered_at,task_kind)
+    VALUES($1,$2,$3,NULL,1,$4,$5::jsonb,$6,'delivered',now()+interval '5 minutes',now(),now(),$7)`,[taskId,deviceId,id,settings.version,JSON.stringify(envelope),taskHash,kind]);
    const body=observations[kind];
    const ciphertext=corruptKind===kind?'invalid':encryptSecret(Buffer.from(JSON.stringify(body)),key,'browser-task-result:'+receiptId);
    await test.pool.query('INSERT INTO browser_task_results(id,task_id,body_sha256,body_ciphertext,capture_ids) VALUES($1,$2,$3,$4,ARRAY[]::uuid[])',[receiptId,taskId,exactPayloadHash(body),ciphertext]);

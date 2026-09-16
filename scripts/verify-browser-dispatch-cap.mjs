@@ -4,6 +4,8 @@ import { browserSigningFixture } from './support/browser-signing-fixture.mjs';
 import { publishBrowserSigningIdentity } from '../apps/worker/src/browser-signing-key.ts';
 import { dispatchBrowserWork } from '../apps/worker/src/browser-dispatch.ts';
 import { queueAmazonPackage, queueProductDatabase } from '../apps/worker/src/browser-task-producer.ts';
+import { signBrowserTask } from '../apps/worker/src/browser-task-signer.ts';
+import { createHash, randomUUID } from 'node:crypto';
 
 const test = await openAcceptance({ databaseKey: `browser-dispatch-cap-${Date.now()}` });
 try {
@@ -44,6 +46,29 @@ try {
   await test.pool.query(
     "INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) SELECT version+1,now(),'cap-fixture',jsonb_set(snapshot,'{jsDailyWireCap}','1'::jsonb) FROM settings_versions ORDER BY version DESC LIMIT 1",
   );
+  const overnightTasks=[];
+  const overnightSettingsVersion=Number((await test.pool.query('SELECT max(version)::int AS version FROM settings_versions')).rows[0].version);
+  for(const suffix of ['a','b']){
+    const keyword=`overnight-${suffix} ${test.runId}`;
+    const overnight=(await test.pool.query(
+      "INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id,input_version",
+      [keyword],
+    )).rows[0];
+    const taskId=randomUUID(),expiresAt=new Date(Date.now()+300000).toISOString();
+    const envelope=signBrowserTask({version:1,id:taskId,issuerOrigin:origin,deviceId,issuedAt:new Date().toISOString(),expiresAt,request:{kind:'product_database',candidateId:overnight.id,inputVersion:overnight.input_version,settingsVersion:overnightSettingsVersion,query:keyword,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100}},keys.privateKey);
+    const taskHash=createHash('sha256').update(envelope.payload).digest('hex');
+    await test.pool.query(
+      "INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,expires_at,task_kind,created_at) VALUES($1,$2,$3,NULL,$4,$5,$6::jsonb,$7,$8,'product_database',date_trunc('day',clock_timestamp())-interval '1 minute')",
+      [taskId,deviceId,overnight.id,overnight.input_version,overnightSettingsVersion,JSON.stringify(envelope),taskHash,expiresAt],
+    );
+    overnightTasks.push(taskId);
+  }
+  const overnightClaim=(await machineCall('/api/bridge/tasks/claim',{})).body;
+  assert.equal(overnightClaim.kind,'task','A task queued before midnight may consume today\'s first delivery slot');
+  const charged=(await test.pool.query('SELECT delivered_at,first_delivered_at FROM browser_tasks WHERE id=$1',[overnightClaim.taskId])).rows[0];
+  assert.ok(charged.first_delivered_at>=new Date(new Date().setHours(0,0,0,0)),'The cap must charge the first delivery date');
+  assert.equal((await machineCall('/api/bridge/tasks/claim',{})).body.kind,'idle','A second pre-midnight task must be blocked after today\'s delivery cap is consumed');
+  await test.pool.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1",[overnightTasks.find(id=>id!==overnightClaim.taskId)]);
   const queuedAtPositive = await queueProductDatabase(test.pool, { deviceId, candidateId: candidate.id }, signing);
   assert.equal(queuedAtPositive.kind, 'queued');
   await test.pool.query(
@@ -72,7 +97,7 @@ try {
     [ciTask.id],
   )).rows[0];
   await test.pool.query(
-    "UPDATE browser_tasks SET state='completed',result_id=$1,delivered_at=now() WHERE id=$2",
+    "UPDATE browser_tasks SET state='completed',result_id=$1,delivered_at=now(),first_delivered_at=COALESCE(first_delivered_at,now()) WHERE id=$2",
     [ciResult.id, ciTask.id],
   );
   const packageDispatch = await dispatchBrowserWork(test.pool, { ...signing, fingerprint: identity.fingerprint });
@@ -85,7 +110,7 @@ try {
 
   await test.pool.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1", [queuedAtPositive.taskId]);
   await test.pool.query(
-    "INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) SELECT version+1,now(),'cap-fixture',jsonb_set(snapshot,'{jsDailyWireCap}','2'::jsonb) FROM settings_versions ORDER BY version DESC LIMIT 1",
+    "INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) SELECT version+1,now(),'cap-fixture',jsonb_set(snapshot,'{jsDailyWireCap}','3'::jsonb) FROM settings_versions ORDER BY version DESC LIMIT 1",
   );
   const queuedAtOne = await queueProductDatabase(test.pool, { deviceId, candidateId: candidate.id }, signing);
   assert.equal(queuedAtOne.kind, 'queued');
@@ -115,6 +140,7 @@ try {
     result: 'PASS',
     zeroCapQueuedTaskUnclaimed: true,
     positiveCapBounded: true,
+    crossMidnightFirstDeliveryCharged: true,
     supplierAndAmazonPathsUntouched: true,
     paidApiCalls: 0,
     externalActions: 0,

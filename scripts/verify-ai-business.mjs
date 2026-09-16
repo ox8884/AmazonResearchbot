@@ -127,6 +127,22 @@ try{
  const proposedVersion=(await test.pool.query('SELECT max(version)::int AS v FROM settings_versions')).rows[0].v;
  await test.pool.query("INSERT INTO evaluations(candidate_id,settings_version,kind,outcome,payload) VALUES($1,$2,'api_validation','pass',$3::jsonb)",[proposedId,proposedVersion,JSON.stringify({synthetic:true,inputVersion:1})]);
  const target={material:'Proposed silicone',dimensions:'Proposed 30 cm',packaging:'Individual box',requirements:'Supplier must confirm the target before quoting',requestedQuantity:300,rationale:'Comparison target only, not a measured product',sourceRefs:['subject']};
+ const postValidationCrashId=await candidate('post-api-validation-commit-crash');
+ const postValidationVersion=(await test.pool.query('SELECT max(version)::int AS v FROM settings_versions')).rows[0].v;
+ await test.pool.query("INSERT INTO evaluations(candidate_id,settings_version,kind,outcome,payload) VALUES($1,$2,'api_validation','pass',$3::jsonb)",[postValidationCrashId,postValidationVersion,JSON.stringify({synthetic:true,inputVersion:1})]);
+ let recoveryCalls=0;
+ const recoveryTransport={kind:'ready',send:async input=>{
+  recoveryCalls++;
+  const request=JSON.parse(input.messages[1].content);
+  return response(input,request.role==='sourcing_analysis'?{targetSpecification:target}:{});
+ }};
+ await advanceCandidate(test.pool,resolveTransport({JS_TRANSPORT:'disabled'}),{candidateId:postValidationCrashId,stage:'api_validation',inputVersion:1},{transport:recoveryTransport,encryptionKey:key});
+ assert.deepEqual((await test.call(`/api/candidates/${postValidationCrashId}/ai-analysis`)).body.tasks.map(task=>task.role).sort(),['niche_analysis','sourcing_analysis'],'A retried api_validation job must resume sourcing work after the stage commit');
+ assert.equal((await test.call(`/api/candidates/${postValidationCrashId}/sourcing`)).body.specs.length,1,'Crash recovery must resume the proposed-spec path');
+ assert.equal(recoveryCalls,2);
+ await advanceCandidate(test.pool,resolveTransport({JS_TRANSPORT:'disabled'}),{candidateId:postValidationCrashId,stage:'api_validation',inputVersion:1},{transport:recoveryTransport,encryptionKey:key});
+ assert.equal(recoveryCalls,2,'Crash recovery retries must not duplicate AI provider calls');
+ assert.equal((await test.call(`/api/candidates/${postValidationCrashId}/sourcing`)).body.specs.length,1);
  let proposalCalls=0;
  const proposingTransport={kind:'ready',send:async input=>{proposalCalls++;return response(input,{targetSpecification:target});}};
  await runCandidateAiWork(test.pool,proposedId,'sourcing_analysis',{transport:proposingTransport,encryptionKey:key});

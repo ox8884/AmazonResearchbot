@@ -53,7 +53,7 @@ try{
  const updated=(await call('/api/bridge/tasks/claim',{})).body;assert.equal(updated.kind,'idle','Old package context is cancelled after representative change');
  const ciTask=(await test.pool.query("INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,expires_at,task_kind) VALUES(gen_random_uuid(),$1,$2,NULL,(SELECT input_version FROM candidates WHERE id=$2),(SELECT max(version) FROM settings_versions),'{}'::jsonb,repeat('a',64),now(),'competitive_intelligence') RETURNING id",[deviceId,id])).rows[0];
  const ciResult=(await test.pool.query("INSERT INTO browser_task_results(id,task_id,body_sha256,body_ciphertext,capture_ids) VALUES(gen_random_uuid(),$1,repeat('b',64),'synthetic','{}'::uuid[]) RETURNING id",[ciTask.id])).rows[0];
- await test.pool.query("UPDATE browser_tasks SET state='completed',result_id=$1,delivered_at=now() WHERE id=$2",[ciResult.id,ciTask.id]);
+ await test.pool.query("UPDATE browser_tasks SET state='completed',result_id=$1,delivered_at=now(),first_delivered_at=COALESCE(first_delivered_at,now()) WHERE id=$2",[ciResult.id,ciTask.id]);
  assert.equal((await dispatchBrowserWork(test.pool,{...signing,fingerprint:identity.fingerprint})).queued,2,'Both current package and market tasks remain eligible');
  await test.pool.query("UPDATE browser_tasks SET state='cancelled' WHERE state IN ('queued','delivered')");
  await test.pool.query("UPDATE candidates SET stage='rejected' WHERE id=$1",[id]);
