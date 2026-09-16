@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto';
-import {link, mkdir, readFile, rm, writeFile} from 'node:fs/promises';
+import {link, mkdir, readFile, rm, stat, writeFile} from 'node:fs/promises';
+import {uptime} from 'node:os';
 import path from 'node:path';
 
 export async function acquireBridgeProcessLock(directory, deviceId) {
@@ -31,7 +32,8 @@ export async function acquireBridgeProcessLock(directory, deviceId) {
       try {
         let existing;
         try { existing = JSON.parse(await readFile(lock, 'utf8')); } catch { incomplete = true; }
-        if (Number.isInteger(existing?.pid) && existing.pid > 0) {
+        const createdThisBoot=(await stat(lock)).mtimeMs>=Date.now()-uptime()*1000-60_000;
+        if (createdThisBoot&&Number.isInteger(existing?.pid)&&existing.pid>0) {
           try { process.kill(existing.pid, 0); active = true; } catch { /* stale owner */ }
         }
       } catch { incomplete = true; }
