@@ -24,7 +24,7 @@ try{
  const items=(await test.pool.query('SELECT candidate_id,ordinal,job_id FROM daily_planner_items ORDER BY ordinal')).rows;
  assert.deepEqual(items.map(row=>row.candidate_id),[old,next]);
  const queuedPayloads=(await test.pool.query('SELECT data FROM pgboss.job WHERE id=ANY($1::uuid[])',[items.map(row=>row.job_id)])).rows.map(row=>row.data);
- assert.deepEqual(queuedPayloads.map(data=>data.wireLimit),[2,2],'Each candidate receives a bounded official-call share');
+ assert.deepEqual(queuedPayloads.map(data=>data.candidateCallLimit),[2,2],'Each candidate receives a bounded official-call share');
  assert.ok(!items.some(row=>[api,web,unknown,human].includes(row.candidate_id)));
  assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM api_attempts')).rows[0].n,0);
  await boss.stop({graceful:false,timeout:2000});boss=new PgBoss({connectionString:test.databaseUrl,migrate:false,supervise:false,schedule:false});await boss.start();

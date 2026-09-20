@@ -31,7 +31,9 @@ export async function readOfficialSource(
   request: JungleScoutRequest,
 ): Promise<ApiReadResult> {
   const { pool, transport, context } = options;
-  const wireLimit = context.wireLimit ?? context.snapshot.jsDailyWireCap;
+  const wireLimit = context.snapshot.jsDailyWireCap;
+  if (context.callBudget?.remaining !== undefined && context.callBudget.remaining <= 0)
+    return { kind: "wait", blockedReason: "budget" };
   const result = await executeJsQuery(pool, transport, {
     endpoint: request.endpoint,
     marketplace: "us",
@@ -40,6 +42,9 @@ export async function readOfficialSource(
     accountScope: context.accountScope,
     wireLimit,
   });
+  if (result.kind === "succeeded" || result.kind === "http_failed" || result.kind === "outcome_unknown") {
+    if (context.callBudget !== undefined) context.callBudget.remaining -= 1;
+  }
   if (result.kind !== "cache" && result.kind !== "succeeded")
     return waitReason(pool, result, wireLimit);
   const source = await persistOfficialSource({

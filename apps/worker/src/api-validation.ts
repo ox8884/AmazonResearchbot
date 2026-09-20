@@ -52,7 +52,11 @@ async function collectProductDatabase(
   let pagesFetched = 0;
   while (true) {
     const result=await readOfficialSource({pool,transport,context},request);
-    if(result.kind!=="source")return result;
+    if(result.kind!=="source"){
+      if(result.kind==='wait'&&result.blockedReason==='budget'&&context.callBudget?.remaining===0)
+        return { kind: "collected", observations, complete: false, block: "CANDIDATE_CALL_LIMIT", sourceIds: [...sourceIds] };
+      return result;
+    }
     const source=result.source;
     sourceIds.add(source.sourceId);
     if (source.observedAt === null) return { kind: "collected", observations, complete: false, block: "CACHE_OBSERVED_AT_MISSING", sourceIds: [...sourceIds] };
@@ -87,7 +91,10 @@ export async function consumeOfficialValidation(
   context: ApiValidationContext,
   onDeferred?: (retryAt: Date) => Promise<void>,
 ): Promise<ApiValidationResult> {
-  const collection = await collectProductDatabase(pool, transport, context);
+  const readContext = context.candidateCallLimit === undefined
+    ? context
+    : { ...context, callBudget: context.callBudget ?? { remaining: context.candidateCallLimit } };
+  const collection = await collectProductDatabase(pool, transport, readContext);
   if (collection.kind === "deferred") {
     if (onDeferred !== undefined) await onDeferred(collection.retryAt);
     return applyApiValidationWait({ pool, context, blockedReason: "provider_unavailable" });
@@ -143,7 +150,7 @@ export async function consumeOfficialValidation(
     const anchor=(await pool.query<{anchor:Date|null}>("SELECT min(observed_at) AS anchor FROM api_validation_sources WHERE id=ANY($1::uuid[])",[collection.sourceIds.map(id=>id.slice('api-validation-source:'.length))])).rows[0]?.anchor;
     if(!anchor)supplementBlock='API_SOURCE_TIME_UNKNOWN';
     else{
-      const extra=await collectSupplementary({pool,transport,context},collection.observations,anchor);
+      const extra=await collectSupplementary({pool,transport,context:readContext},collection.observations,anchor);
       if(extra.kind==='stale')return 'stale';
       if(extra.kind==='wait')return applyApiValidationWait({pool,context,blockedReason:extra.blockedReason});
       if(extra.kind==='deferred'){if(onDeferred)await onDeferred(extra.retryAt);return applyApiValidationWait({pool,context,blockedReason:'provider_unavailable'});}
@@ -155,7 +162,7 @@ export async function consumeOfficialValidation(
         nicheInput={review700Count:aggregate.review700Count,review2000Count:aggregate.review2000Count,monthlyRevenueCompetitorCount:aggregate.monthlyRevenueCompetitorCount,...canonical,topPriceUsd:marketLeader.price};
         assessment=evaluateNiche(nicheInput,context.snapshot);
         if(context.firstPageSource){
-          const page=await collectFirstPageSales({pool,transport,context},context.firstPageSource);
+          const page=await collectFirstPageSales({pool,transport,context:readContext},context.firstPageSource);
           if(page.kind==='stale')return 'stale';
           if(page.kind==='wait')return applyApiValidationWait({pool,context,blockedReason:page.blockedReason});
           if(page.kind==='deferred'){if(onDeferred)await onDeferred(page.retryAt);return applyApiValidationWait({pool,context,blockedReason:'provider_unavailable'});}

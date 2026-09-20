@@ -11,7 +11,8 @@ export type ApiValidationContext = {
   readonly settingsVersion: number;
   readonly snapshot: SettingsSnapshot;
   readonly accountScope: string;
-  readonly wireLimit?: number;
+  readonly candidateCallLimit?: number;
+  readonly callBudget?: { remaining: number };
   readonly firstPageSource?: FirstPageSource;
 };
 

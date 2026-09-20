@@ -203,6 +203,25 @@ try {
     { data: { type: "product_database_query", attributes: { include_keywords: [passing.keyword] } } },
   ]);
 
+  const limitedSettings = await settings({ productDatabaseMaxPages: 3 });
+  const limited = await candidate("candidate-call-limit", limitedSettings);
+  scenarios.set(limited.keyword, {
+    pages: new Map([
+      ["first", fixture([product(77)], officialNext("page-two"))],
+      ["page-two", fixture([product(78)], null)],
+    ]),
+  });
+  assert.equal(
+    await consumeOfficialValidation(test.pool, transport, { ...limited, candidateCallLimit: 2 }),
+    "blocked",
+    "A candidate call limit blocks supplementary calls after the two-call test budget",
+  );
+  assert.equal(
+    requests.filter((item) => item.keyword === limited.keyword).length,
+    2,
+    "The candidate cannot consume more than its assigned call limit",
+  );
+
   const cacheOnlySettings = await settings({ jsDailyWireCap: 0 });
   await test.pool.query("UPDATE candidates SET stage='api_validation',blocked_reason=NULL WHERE id=$1",[passing.candidateId]);
   assert.equal((await test.call(`/api/candidates/${passing.candidateId}`)).body.validation.status,"stale");

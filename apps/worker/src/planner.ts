@@ -71,7 +71,7 @@ export async function runDailyPlanner(
           setting.snapshot.productDatabaseMaxPages > 0
             ? setting.snapshot.productDatabaseMaxPages
             : 1;
-        const wireLimit =
+        const candidateCallLimit =
           typeof cap === "number" && Number.isSafeInteger(cap) && cap > 0
             ? Math.max(1, Math.min(cap, productDatabaseMaxPages))
             : 0;
@@ -108,7 +108,7 @@ export async function runDailyPlanner(
               candidateId: candidate.id,
               stage: candidate.stage,
               inputVersion: candidate.input_version,
-              wireLimit,
+              candidateCallLimit,
             },
             {
               priority: candidates.length - index,
