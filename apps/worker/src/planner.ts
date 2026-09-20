@@ -119,6 +119,24 @@ export async function runDailyPlanner(
         }
         result.queued = candidates.length;
       } else {
+        const researchRun = (
+          await db.query<{ id: string }>(
+            "SELECT id FROM daily_runs WHERE schedule='research' AND local_date=$1",
+            [schedule.localDate],
+          )
+        ).rows[0];
+        if (researchRun) {
+          const pendingResearch = (
+            await db.query<{ count: number }>(
+              `SELECT count(*)::int AS count
+               FROM daily_planner_items i
+               JOIN pgboss.job j ON j.id=i.job_id
+               WHERE i.run_id=$1 AND j.state NOT IN ('completed','failed','cancelled')`,
+              [researchRun.id],
+            )
+          ).rows[0]?.count ?? 0;
+          if (pendingResearch > 0) continue;
+        }
         const payload = await buildDailySummary(db, now, setting.snapshot),
           summaryId = randomUUID();
         await db.query(

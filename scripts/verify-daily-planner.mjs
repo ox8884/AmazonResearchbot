@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {PgBoss} from 'pg-boss';
 import {openAcceptance} from './support/acceptance.mjs';
 import {runDailyPlanner} from '../apps/worker/src/planner.ts';
+import {summaryMailContent} from '../packages/domain/src/summary-mail.ts';
 const test=await openAcceptance({databaseKey:'daily-planner-'+Date.now()});
 let boss;
 try{
@@ -31,13 +32,20 @@ try{
  const nicheInput={...readNicheEvidence([]),review2000Count:measured(2,'synthetic-source','2026-09-07T12:00:00.000Z')};
  const assessment=evaluateNiche(nicheInput,snapshot);
  await test.pool.query("INSERT INTO evaluations(candidate_id,settings_version,kind,outcome,payload) VALUES($1,$2,'api_validation','reject',$3::jsonb)",[rejected,latest.version+1,JSON.stringify({inputVersion:1,assessment,input:nicheInput,sourceIds:['synthetic-source'],evidenceBlock:null})]);
- const summaryRuns=await Promise.all([runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-07T12:30:00Z')}),runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-07T12:30:00Z')})]);
+  const blockedSummaryRuns=await Promise.all([runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-07T12:30:00Z')}),runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-07T12:30:00Z')})]);
+  assert.equal(blockedSummaryRuns.filter(result=>result.created.includes('summary')).length,0,'Summary waits for research jobs to finish');
+  assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM daily_summaries')).rows[0].n,0);
+  await test.pool.query("UPDATE pgboss.job j SET state='completed',completed_on=now() FROM daily_planner_items i JOIN daily_runs r ON r.id=i.run_id WHERE j.id=i.job_id AND r.local_date='2026-09-07'");
+  await test.pool.query("INSERT INTO evidence(candidate_id,field,kind,value_numeric,source_id,observed_at,input_version,settings_version) VALUES($1,'top_price','measured',12.99,'synthetic-source','2026-09-07T12:00:00Z',1,$2)",[old,latest.version+1]);
+  const summaryRuns=await Promise.all([runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-07T12:31:00Z')}),runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-07T12:31:00Z')})]);
  assert.equal(summaryRuns.filter(result=>result.created.includes('summary')).length,1);
  const summary=(await test.pool.query('SELECT id,payload FROM daily_summaries')).rows[0];
  assert.equal(summary.payload.rejections.find(row=>row.candidateId===rejected).reasons.length,1);
  assert.equal(summary.payload.rejections.find(row=>row.candidateId===unresolvedRejection).reasons.length,0,'An unconfirmed rejection cannot invent a failed rule');
  assert.equal(summary.payload.delivery,'not_sent');assert.equal(summary.payload.apiBudget.billedUsd,null);assert.equal(summary.payload.aiCost.consumedUsd,null);assert.equal(summary.payload.launchCash.paidUsd,null);
- assert.ok(summary.payload.candidates.find(row=>row.id===old).unknowns.length>0);
+  assert.ok(summary.payload.candidates.find(row=>row.id===old).unknowns.length>0);
+  assert.match(summary.payload.candidates.find(row=>row.id===old).evidenceSummary,/1위 가격: 12\.99/);
+  assert.match(summaryMailContent({id:summary.id,localDate:'2026-09-07',timezone:'America/Chicago',settingsVersion:latest.version+1,generatedAt:'2026-09-07T12:31:00.000Z',payload:summary.payload}).body,/1위 가격: 12\.99/);
  const keyword=summary.payload.candidates.find(row=>row.id===old).keyword;
  await test.pool.query('UPDATE candidates SET keyword_display=$2 WHERE id=$1',[old,'Changed after summary']);
  assert.equal((await test.pool.query('SELECT payload FROM daily_summaries WHERE id=$1',[summary.id])).rows[0].payload.candidates.find(row=>row.id===old).keyword,keyword);
@@ -46,7 +54,8 @@ try{
  const detail=await test.call('/api/summaries/'+summary.id);assert.equal(detail.status,200);assert.equal(detail.body.payload.candidates.find(row=>row.id===old).keyword,keyword);
  assert.equal((await test.call('/api/summaries/invalid')).status,400);
  assert.equal((await test.call('/api/summaries/10000000-0000-4000-8000-000000000001')).status,404);
- await test.pool.query("INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) SELECT version+1,now(),'planner-fixture',jsonb_set(snapshot,'{launchBudgetUsd}','\"4000.00\"'::jsonb) FROM settings_versions ORDER BY version DESC LIMIT 1");
+  await test.pool.query("UPDATE pgboss.job SET state='created',completed_on=NULL WHERE data->>'candidateId'=ANY($1::text[])",[[old,next]]);
+  await test.pool.query("INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) SELECT version+1,now(),'planner-fixture',jsonb_set(snapshot,'{launchBudgetUsd}','\"4000.00\"'::jsonb) FROM settings_versions ORDER BY version DESC LIMIT 1");
  assert.deepEqual((await runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-07T14:00:00Z')})).created,[],'A settings revision does not duplicate today’s schedules');
 
  const nextDay=await runDailyPlanner(test.pool,boss,{apiAvailable:true,now:new Date('2026-09-08T08:00:00Z')});assert.equal(nextDay.queued,1);
@@ -61,7 +70,7 @@ try{
  assert.deepEqual(catchup.created,['research','summary']);
  const summaries=(await test.pool.query('SELECT payload FROM daily_summaries ORDER BY generated_at')).rows;
  assert.equal(summaries.length,2,'Downtime creates one current summary, not a backlog of daily deliveries');
- assert.equal(summaries[1].payload.since,'2026-09-07T12:30:00.000Z');
+  assert.equal(summaries[1].payload.since,'2026-09-07T12:31:00.000Z');
  assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM external_actions')).rows[0].n,0);
  await test.call('/api/auth/sign-out',{});assert.equal((await test.call('/api/summaries')).status,401);
 
