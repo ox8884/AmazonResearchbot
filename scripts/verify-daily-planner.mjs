@@ -50,8 +50,16 @@ try{
   assert.ok(summary.payload.candidates.find(row=>row.id===old).unknowns.length>0);
   assert.match(summary.payload.candidates.find(row=>row.id===old).evidenceSummary,/1위 가격: 12\.99/);
   assert.match(summary.payload.candidates.find(row=>row.id===old).evidenceSummary,/공식 카탈로그/);
-  assert.match(summaryMailContent({id:summary.id,localDate:'2026-09-07',timezone:'America/Chicago',settingsVersion:latest.version+1,generatedAt:'2026-09-07T12:31:00.000Z',payload:summary.payload}).body,/1위 가격: 12\.99/);
-  assert.match(summaryMailContent({id:summary.id,localDate:'2026-09-07',timezone:'America/Chicago',settingsVersion:latest.version+1,generatedAt:'2026-09-07T12:31:00.000Z',payload:summary.payload}).body,/공식 카탈로그/);
+   const mail=summaryMailContent({id:summary.id,localDate:'2026-09-07',timezone:'America/Chicago',settingsVersion:latest.version+1,generatedAt:'2026-09-07T12:31:00.000Z',payload:summary.payload});
+   assert.match(mail.body,/1위 가격: 12\.99/);
+   assert.match(mail.body,/공식 카탈로그/);
+   assert.match(mail.body,/근거 확인 후보/);
+   assert.match(mail.body,/대기 후보 \(숫자 근거 없음\)/);
+   assert.match(mail.body,/숫자 근거가 없는 후보 7개/);
+   const waitingSection=mail.body.slice(mail.body.indexOf('대기 후보'));
+   assert.ok(!waitingSection.includes(summary.payload.candidates.find(row=>row.id===next).keyword),'Candidates without numeric evidence are omitted from individual mail blocks');
+   assert.match(waitingSection,/자동 확인 중: 1개/);
+   assert.doesNotMatch(waitingSection,/근거:/,'Waiting candidates do not repeat empty evidence blocks');
  const keyword=summary.payload.candidates.find(row=>row.id===old).keyword;
  await test.pool.query('UPDATE candidates SET keyword_display=$2 WHERE id=$1',[old,'Changed after summary']);
  assert.equal((await test.pool.query('SELECT payload FROM daily_summaries WHERE id=$1',[summary.id])).rows[0].payload.candidates.find(row=>row.id===old).keyword,keyword);

@@ -4,6 +4,26 @@ export const summaryMailConsentSchema = z.object({
   summaryEmailEnabled: z.literal(true),
   summaryEmail: z.email().max(320),
 });
+
+function hasNumericEvidence(evidenceSummary: string): boolean {
+  return /\d/.test(evidenceSummary);
+}
+
+function waitingCandidateLines(
+  candidates: DailySummaryRecord["payload"]["candidates"],
+): string[] {
+  const byAction = new Map<string, number>();
+  for (const candidate of candidates) {
+    byAction.set(
+      candidate.nextAction.label,
+      (byAction.get(candidate.nextAction.label) ?? 0) + 1,
+    );
+  }
+  return [...byAction].map(
+    ([action, count]) => `${action}: ${count}개`,
+  );
+}
+
 export function summaryMailContent(summary: DailySummaryRecord) {
   const p = summary.payload;
   const labels = {
@@ -12,7 +32,13 @@ export function summaryMailContent(summary: DailySummaryRecord) {
     budget_or_criteria_change: "예산·기준 변경",
     provider_activation: "연결 활성화",
   };
-  const candidates = p.candidates.slice(0, 50);
+  const candidatesWithEvidence = p.candidates.filter((candidate) =>
+    hasNumericEvidence(candidate.evidenceSummary),
+  );
+  const waitingCandidates = p.candidates.filter(
+    (candidate) => !hasNumericEvidence(candidate.evidenceSummary),
+  );
+  const candidates = candidatesWithEvidence.slice(0, 50);
   return {
     subject: `Forge Kitchen · ${summary.localDate} 아침 요약`,
     body: [
@@ -23,7 +49,9 @@ export function summaryMailContent(summary: DailySummaryRecord) {
       ...p.approvals.map((a) => `${labels[a.kind]}: ${a.count}건`),
       ...(p.approvals.length ? [] : ["생성 당시 승인 대기가 없습니다."]),
       "",
-      "후보 진행",
+      "근거 확인 후보",
+      `숫자 근거가 있는 후보 ${candidatesWithEvidence.length}개`,
+      ...(candidatesWithEvidence.length ? [] : ["표시할 숫자 근거가 아직 없습니다."]),
       ...candidates.flatMap((c) => [
         `${c.keyword} · ${c.stageLabel}`,
         `근거: ${c.evidenceSummary}`,
@@ -31,11 +59,20 @@ export function summaryMailContent(summary: DailySummaryRecord) {
         `다음 행동: ${c.nextAction.label}`,
         "",
       ]),
-      ...(p.candidates.length > 50
+      ...(candidatesWithEvidence.length > 50
         ? [
-            `후보 ${p.candidates.length}개 중 50개를 표시했습니다. 나머지는 앱에서 확인하세요.`,
+            `근거 확인 후보 ${candidatesWithEvidence.length}개 중 50개를 표시했습니다. 나머지는 앱에서 확인하세요.`,
           ]
         : []),
+      "",
+      "대기 후보 (숫자 근거 없음)",
+      ...(waitingCandidates.length
+        ? [
+            `숫자 근거가 없는 후보 ${waitingCandidates.length}개`,
+            ...waitingCandidateLines(waitingCandidates),
+            "개별 후보는 앱에서 확인하세요.",
+          ]
+        : ["현재 대기 후보가 없습니다."]),
       "탈락 기록",
       ...p.rejections.map(
         (r) =>
