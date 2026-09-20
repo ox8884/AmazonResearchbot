@@ -21,8 +21,10 @@ try{
  const early=await runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-07T07:59:00Z')});assert.deepEqual(early.created,[]);
  const results=await Promise.all(Array.from({length:3},()=>runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-07T08:00:00Z')})));
  assert.equal(results.filter(result=>result.created.includes('research')).length,1);
- const items=(await test.pool.query('SELECT candidate_id,ordinal FROM daily_planner_items ORDER BY ordinal')).rows;
+ const items=(await test.pool.query('SELECT candidate_id,ordinal,job_id FROM daily_planner_items ORDER BY ordinal')).rows;
  assert.deepEqual(items.map(row=>row.candidate_id),[old,next]);
+ const queuedPayloads=(await test.pool.query('SELECT data FROM pgboss.job WHERE id=ANY($1::uuid[])',[items.map(row=>row.job_id)])).rows.map(row=>row.data);
+ assert.deepEqual(queuedPayloads.map(data=>data.wireLimit),[2,2],'Each candidate receives a bounded official-call share');
  assert.ok(!items.some(row=>[api,web,unknown,human].includes(row.candidate_id)));
  assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM api_attempts')).rows[0].n,0);
  await boss.stop({graceful:false,timeout:2000});boss=new PgBoss({connectionString:test.databaseUrl,migrate:false,supervise:false,schedule:false});await boss.start();
@@ -37,6 +39,8 @@ try{
   assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM daily_summaries')).rows[0].n,0);
   await test.pool.query("UPDATE pgboss.job j SET state='completed',completed_on=now() FROM daily_planner_items i JOIN daily_runs r ON r.id=i.run_id WHERE j.id=i.job_id AND r.local_date='2026-09-07'");
   await test.pool.query("INSERT INTO evidence(candidate_id,field,kind,value_numeric,source_id,observed_at,input_version,settings_version) VALUES($1,'top_price','measured',12.99,'synthetic-source','2026-09-07T12:00:00Z',1,$2)",[old,latest.version+1]);
+  await test.pool.query("INSERT INTO evidence(candidate_id,field,kind,value_numeric,source_id,observed_at,input_version,settings_version) VALUES($1,'api_catalog_price:B0TEST12345','measured',12.99,'synthetic-api','2026-09-07T12:00:00Z',1,$2)",[old,latest.version+1]);
+  await test.pool.query("INSERT INTO evidence(candidate_id,field,kind,value_numeric,source_id,observed_at,input_version,settings_version) VALUES($1,'api_catalog_reviews:B0TEST12345','measured',321,'synthetic-api','2026-09-07T12:00:00Z',1,$2)",[old,latest.version+1]);
   const summaryRuns=await Promise.all([runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-07T12:31:00Z')}),runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-07T12:31:00Z')})]);
  assert.equal(summaryRuns.filter(result=>result.created.includes('summary')).length,1);
  const summary=(await test.pool.query('SELECT id,payload FROM daily_summaries')).rows[0];
@@ -45,7 +49,9 @@ try{
  assert.equal(summary.payload.delivery,'not_sent');assert.equal(summary.payload.apiBudget.billedUsd,null);assert.equal(summary.payload.aiCost.consumedUsd,null);assert.equal(summary.payload.launchCash.paidUsd,null);
   assert.ok(summary.payload.candidates.find(row=>row.id===old).unknowns.length>0);
   assert.match(summary.payload.candidates.find(row=>row.id===old).evidenceSummary,/1위 가격: 12\.99/);
+  assert.match(summary.payload.candidates.find(row=>row.id===old).evidenceSummary,/공식 카탈로그/);
   assert.match(summaryMailContent({id:summary.id,localDate:'2026-09-07',timezone:'America/Chicago',settingsVersion:latest.version+1,generatedAt:'2026-09-07T12:31:00.000Z',payload:summary.payload}).body,/1위 가격: 12\.99/);
+  assert.match(summaryMailContent({id:summary.id,localDate:'2026-09-07',timezone:'America/Chicago',settingsVersion:latest.version+1,generatedAt:'2026-09-07T12:31:00.000Z',payload:summary.payload}).body,/공식 카탈로그/);
  const keyword=summary.payload.candidates.find(row=>row.id===old).keyword;
  await test.pool.query('UPDATE candidates SET keyword_display=$2 WHERE id=$1',[old,'Changed after summary']);
  assert.equal((await test.pool.query('SELECT payload FROM daily_summaries WHERE id=$1',[summary.id])).rows[0].payload.candidates.find(row=>row.id===old).keyword,keyword);

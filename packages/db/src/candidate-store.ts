@@ -15,6 +15,28 @@ function missing(input:NicheInput,locale:'ko'|'en'):string[]{
   ] as const;
   return checks.filter(([,unknown])=>unknown).map(([id])=>NICHE_RULE_LABELS[id][locale==='ko'?0:1]);
 }
+function catalogEvidenceSummary(rows:readonly StoredEvidence[],locale:'ko'|'en'):string{
+ const ko=locale==='ko';
+ const productIds=new Set<string>();
+ const numbers=(prefix:string)=>rows.flatMap(row=>{
+   if(!row.field.startsWith(prefix)||row.kind==='unknown'||row.value_numeric===null)return [];
+   const value=Number(row.value_numeric);return Number.isFinite(value)?[value]:[];
+ });
+ for(const row of rows){const match=/^api_catalog_[^:]+:(.+)$/.exec(row.field);if(match?.[1])productIds.add(match[1]);}
+ const prices=numbers('api_catalog_price:'),reviews=numbers('api_catalog_reviews:'),revenues=numbers('api_catalog_revenue_30d:'),ranks=numbers('api_catalog_rank:'),fees=numbers('api_catalog_fba_fee:');
+ const categories=[...new Set(rows.filter(row=>row.field.startsWith('api_catalog_category:')&&row.kind!=='unknown'&&row.value_text).map(row=>row.value_text as string))];
+ const number=(value:number)=>value.toLocaleString('en-US',{maximumFractionDigits:2});
+ const usd=(value:number)=>`$${value.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`;
+ const facts:string[]=[];
+ if(productIds.size)facts.push(`${productIds.size}${ko?'개 상품':' products'}`);
+ if(prices.length)facts.push(`${ko?'가격':'price'} ${usd(Math.min(...prices))}–${usd(Math.max(...prices))}`);
+ if(reviews.length)facts.push(`${ko?'리뷰 최대':'max reviews'} ${number(Math.max(...reviews))}`);
+ if(revenues.length)facts.push(`${ko?'30일 매출 추정 최대':'max estimated 30-day revenue'} ${usd(Math.max(...revenues))}`);
+ if(ranks.length)facts.push(`${ko?'BSR 최상위':'best BSR'} ${number(Math.min(...ranks))}`);
+ if(fees.length)facts.push(`${ko?'FBA 수수료':'FBA fee'} ${usd(Math.min(...fees))}–${usd(Math.max(...fees))}`);
+ if(categories.length)facts.push(`${ko?'카테고리':'categories'} ${categories.slice(0,3).join(', ')}${categories.length>3?' …':''}`);
+ return facts.length?`${ko?'공식 카탈로그':'Official catalog'}: ${facts.join(' · ')}`:'';
+}
 function summary(input:NicheInput,validation:CandidateValidationView,locale:'ko'|'en'):string{
   const ko=locale==='ko';
   if(validation.status==='stale')return ko?'이전 평가입니다. 현재 기준으로 다시 확인해야 합니다.':'Previous assessment; the current criteria need review.';
@@ -59,8 +81,9 @@ export async function loadCandidateDetails(db:Db,locale:'ko'|'en',id:string|null
     const market=validation.marketRisk?.concentration;
     if(!current||!market||[market.top1Pct,market.top3Pct,market.firstPageSalesUsd].some(value=>value.kind==='unknown'))
       unknowns.push(locale==='ko'?'첫 페이지·매출 점유율 미확인':'First-page sales and revenue share unconfirmed');
+    const evidenceSummary=[summary(input,validation,locale),catalogEvidenceSummary(rows,locale)].filter(Boolean).join(' · ');
     return {candidate:{id:row.id,keyword:row.keyword_display,stage:row.stage,stageLabel:stageLabel(row.stage,locale),blockedReason:row.blocked_reason,
-      evidenceSummary:summary(input,validation,locale),unknowns:[...new Set(unknowns)],nextAction:nextAction({stage:row.stage,blockedReason:row.blocked_reason,locale})},evidence:rows,validation};
+      evidenceSummary,unknowns:[...new Set(unknowns)],nextAction:nextAction({stage:row.stage,blockedReason:row.blocked_reason,locale})},evidence:rows,validation};
   });
 }
 export async function loadCandidates(db:Db,locale:'ko'|'en'):Promise<CandidateView[]>{return (await loadCandidateDetails(db,locale,null)).map(row=>row.candidate);}

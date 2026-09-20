@@ -143,7 +143,7 @@ try {
       ["first", fixture([
         product(1, { parent_asin: parent, is_variant: true }),
         product(2, { parent_asin: parent, is_variant: true, reviews: 600 }),
-        product(3, {length_value:3.5,width_value:7.9,height_value:9.2,dimensions_unit:'inches',weight_value:2.2906,weight_unit:'pounds'}),
+        product(3, {length_value:3.5,width_value:7.9,height_value:9.2,dimensions_unit:'inches',weight_value:2.2906,weight_unit:'pounds',product_rank:1234,fee_breakdown:{fba_fee:5.25}}),
       ], officialNext("page-two"))],
       ["page-two", fixture([product(4), product(5), product(6,{weight_value:1,weight_unit:'pounds'}), product(6,{weight_value:2,weight_unit:'pounds'})], null)],
     ]),
@@ -169,6 +169,17 @@ try {
   for(const [field,value] of [['api_catalog_dimensions:B0AA000003','3.5 × 7.9 × 9.2 inches'],['api_catalog_weight:B0AA000003','2.2906 pounds']]){
     const fact=visible.body.evidence.find(e=>e.field===field);
     assert.deepEqual([fact?.kind,fact?.value_text],['measured',value]);
+    assert.ok(fact.source_id.startsWith('api-validation-source:') && fact.observed_at);
+  }
+  for(const [field,kind,value] of [
+    ['api_catalog_price:B0AA000003','measured','25'],
+    ['api_catalog_units_30d:B0AA000003','estimate','100'],
+    ['api_catalog_revenue_30d:B0AA000003','estimate','9000'],
+    ['api_catalog_rank:B0AA000003','measured','1234'],
+    ['api_catalog_fba_fee:B0AA000003','measured','5.25'],
+  ]){
+    const fact=visible.body.evidence.find(e=>e.field===field);
+    assert.deepEqual([fact?.kind,fact?.value_numeric],[kind,value]);
     assert.ok(fact.source_id.startsWith('api-validation-source:') && fact.observed_at);
   }
   assert.equal(visible.body.evidence.find(e=>e.field==='api_catalog_dimensions:B0AA000001')?.kind,'unknown');

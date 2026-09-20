@@ -9,7 +9,7 @@ import type { JsTransport } from "@forge-ops/integrations/jungle-scout/transport
 import { PgBoss } from "pg-boss";
 import {consumeBrowserValidation,reserveOfficialValidation} from './browser-validation.ts';
 
-export type AdvanceJob = { candidateId: string; stage: string; inputVersion: number };
+export type AdvanceJob = { candidateId: string; stage: string; inputVersion: number; wireLimit?: number };
 
 async function scheduleDeferredAdvance(pool: Pool, job: AdvanceJob, retryAt: Date): Promise<void> {
   const boss = new PgBoss({
@@ -120,6 +120,11 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
   if (stageAfter === "api_validation" && settings && settingsVersion !== undefined && keyword !== undefined) {
     const market=ai?await readMarketSource(pool,data.candidateId,ai.encryptionKey):null;
     const firstPageSource=market?.state==='captured'&&market.inputVersion===data.inputVersion&&market.settingsVersion===settingsVersion?market:null;
+    const wireLimit = firstPageSource
+      ? settings.jsDailyWireCap
+      : data.wireLimit ?? (settings.jsDailyWireCap > 0
+        ? Math.max(1, Math.min(settings.jsDailyWireCap, settings.productDatabaseMaxPages))
+        : 0);
     const context={
         candidateId: data.candidateId,
         inputVersion: data.inputVersion,
@@ -127,9 +132,10 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
         settingsVersion,
         snapshot: settings,
         accountScope: "local",
+        wireLimit,
         ...(firstPageSource?{firstPageSource}:{}),
       };
-    const officialReady=transport.kind==='ready'&&context.snapshot.jsDailyWireCap>0;
+    const officialReady=transport.kind==='ready'&&context.wireLimit>0;
     const browserResult=officialReady?'not_ready':ai?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
     const officialReserved=browserResult==='not_ready'&&officialReady
       ?await reserveOfficialValidation(pool,context)

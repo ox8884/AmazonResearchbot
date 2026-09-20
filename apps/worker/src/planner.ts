@@ -65,6 +65,16 @@ export async function runDailyPlanner(
           Number.isSafeInteger(cap) &&
           cap > 0 &&
           (budget?.spent ?? 0) < cap;
+        const productDatabaseMaxPages =
+          typeof setting.snapshot.productDatabaseMaxPages === "number" &&
+          Number.isSafeInteger(setting.snapshot.productDatabaseMaxPages) &&
+          setting.snapshot.productDatabaseMaxPages > 0
+            ? setting.snapshot.productDatabaseMaxPages
+            : 1;
+        const wireLimit =
+          typeof cap === "number" && Number.isSafeInteger(cap) && cap > 0
+            ? Math.max(1, Math.min(cap, productDatabaseMaxPages))
+            : 0;
         const candidates = (
           await db.query<{ id: string; stage: string; input_version: number }>(
             `SELECT c.id,c.stage,c.input_version FROM candidates c
@@ -98,6 +108,7 @@ export async function runDailyPlanner(
               candidateId: candidate.id,
               stage: candidate.stage,
               inputVersion: candidate.input_version,
+              wireLimit,
             },
             {
               priority: candidates.length - index,

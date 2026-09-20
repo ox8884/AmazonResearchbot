@@ -22,6 +22,8 @@ export async function collectFirstPageSales(reader:ApiReaderContext,source:First
   price:unknown('FIRST_PAGE_SALES_ONLY',sourceId),
   reviews:unknown('FIRST_PAGE_SALES_ONLY',sourceId),
   category:unknown('CATEGORY_MEMBERSHIP_UNCONFIRMED',sourceId),
+  productRank:unknown('FIRST_PAGE_SALES_ONLY',sourceId),
+  fbaFee:unknown('FIRST_PAGE_SALES_ONLY',sourceId),
   catalogDimensions:unknown('CATALOG_DIMENSIONS_UNKNOWN',sourceId),
   catalogWeight:unknown('CATALOG_WEIGHT_UNKNOWN',sourceId),
   approximate30DayUnitsSold:unknown('SALES_PERIOD_INCOMPLETE',sourceId),

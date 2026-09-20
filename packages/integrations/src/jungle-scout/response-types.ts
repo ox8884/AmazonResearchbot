@@ -22,6 +22,8 @@ export type ProductObservation = {
   readonly price: Evidence<number>;
   readonly reviews: Evidence<number>;
   readonly category: Evidence<string>;
+  readonly productRank: Evidence<number>;
+  readonly fbaFee: Evidence<number>;
   readonly catalogDimensions: Evidence<CatalogDimensions>;
   readonly catalogWeight: Evidence<CatalogWeight>;
   readonly approximate30DayUnitsSold: Evidence<number>;

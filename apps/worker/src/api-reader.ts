@@ -31,16 +31,17 @@ export async function readOfficialSource(
   request: JungleScoutRequest,
 ): Promise<ApiReadResult> {
   const { pool, transport, context } = options;
+  const wireLimit = context.wireLimit ?? context.snapshot.jsDailyWireCap;
   const result = await executeJsQuery(pool, transport, {
     endpoint: request.endpoint,
     marketplace: "us",
     query: request.body?.data.attributes ?? null,
     parameters: request.query,
     accountScope: context.accountScope,
-    wireLimit: context.snapshot.jsDailyWireCap,
+    wireLimit,
   });
   if (result.kind !== "cache" && result.kind !== "succeeded")
-    return waitReason(pool, result, context.snapshot.jsDailyWireCap);
+    return waitReason(pool, result, wireLimit);
   const source = await persistOfficialSource({
     pool,
     context,

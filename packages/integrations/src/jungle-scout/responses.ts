@@ -16,6 +16,7 @@ import {
   estimatedNumber,
   measuredUpdatedAt,
   family,
+  isRecord,
 } from "./response-values.ts";
 import { measured, unknown } from "@forge-ops/domain";
 export type * from "./response-types.ts";
@@ -42,11 +43,14 @@ export function parseProductDatabaseResponse(
     const asin = productAsin(row["id"], source);
     const length=attrs["length_value"],width=attrs["width_value"],height=attrs["height_value"],dimensionUnit=attrs["dimensions_unit"];
     const weight=attrs["weight_value"],weightUnit=attrs["weight_unit"];
+    const feeBreakdown=attrs["fee_breakdown"];
     value.push({
       asin,
       price: measuredNumber(attrs["price"], source, "PRICE_UNKNOWN"),
       reviews: measuredInteger(attrs["reviews"], source, "REVIEWS_UNKNOWN"),
       category: measuredText(attrs["category"], source, "CATEGORY_UNKNOWN"),
+      productRank: measuredInteger(attrs["product_rank"], source, "PRODUCT_RANK_UNKNOWN"),
+      fbaFee: measuredNumber(isRecord(feeBreakdown) ? feeBreakdown["fba_fee"] : undefined, source, "FBA_FEE_UNKNOWN"),
       catalogDimensions: positiveMeasurement(length) && positiveMeasurement(width) && positiveMeasurement(height) && dimensionUnit === "inches"
         ? measured<CatalogDimensions>({length,width,height,unit:dimensionUnit},source.sourceId,source.observedAt)
         : unknown("CATALOG_DIMENSIONS_UNKNOWN",source.sourceId),

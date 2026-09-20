@@ -99,11 +99,18 @@ export async function consumeOfficialValidation(
     if(product.asin.kind === "unknown")continue;
     const dimensions=product.catalogDimensions,weight=product.catalogWeight;
     const variants=product.family.kind==='known'?product.family.variants:unknown('FAMILY_UNRESOLVED',product.asin.sourceId);
+    const asin=product.asin.value;
     const facts:ApiFact[]=[
-      {field:'api_catalog_reviews:'+product.asin.value,evidence:product.reviews},
-      {field:'api_catalog_reported_variants:'+product.asin.value,evidence:variants.kind==='unknown'?variants:{...variants,value:new Set(variants.value).size}},
-      {field:"api_catalog_dimensions:"+product.asin.value,evidence:dimensions.kind === "unknown" ? dimensions : {...dimensions,value:`${dimensions.value.length} × ${dimensions.value.width} × ${dimensions.value.height} ${dimensions.value.unit}`}},
-      {field:"api_catalog_weight:"+product.asin.value,evidence:weight.kind === "unknown" ? weight : {...weight,value:`${weight.value.value} ${weight.value.unit}`}},
+      {field:'api_catalog_price:'+asin,evidence:product.price},
+      {field:'api_catalog_reviews:'+asin,evidence:product.reviews},
+      {field:'api_catalog_units_30d:'+asin,evidence:product.approximate30DayUnitsSold},
+      {field:'api_catalog_revenue_30d:'+asin,evidence:product.approximate30DayRevenue},
+      {field:'api_catalog_category:'+asin,evidence:product.category},
+      {field:'api_catalog_rank:'+asin,evidence:product.productRank},
+      {field:'api_catalog_fba_fee:'+asin,evidence:product.fbaFee},
+      {field:'api_catalog_reported_variants:'+asin,evidence:variants.kind==='unknown'?variants:{...variants,value:new Set(variants.value).size}},
+      {field:"api_catalog_dimensions:"+asin,evidence:dimensions.kind === "unknown" ? dimensions : {...dimensions,value:`${dimensions.value.length} × ${dimensions.value.width} × ${dimensions.value.height} ${dimensions.value.unit}`}},
+      {field:"api_catalog_weight:"+asin,evidence:weight.kind === "unknown" ? weight : {...weight,value:`${weight.value.value} ${weight.value.unit}`}},
     ];
     for(const fact of facts){
       const previous=catalogFacts.get(fact.field);
