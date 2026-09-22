@@ -44,6 +44,8 @@ export function productDatabaseScript(query,marker){
    await page.getByRole('button',{name:'Search',exact:true}).click();
    const table=page.getByRole('table',{name:'Product Database Table',exact:true});
    await table.waitFor({state:'visible',timeout:30_000});
+   // The result footer renders after the table; wait for it instead of checking once.
+   await page.getByText(/Displaying/).first().waitFor({state:'visible',timeout:20_000}).catch(()=>{});
    const limitTriggers=page.locator('[data-testid="multi-select-trigger"]');
    const limitIndex=await limitTriggers.evaluateAll(triggers=>triggers.findIndex(trigger=>(trigger.parentElement?.parentElement?.innerText||'').includes('Displaying')));
    if(limitIndex<0)throw Error('RESULT_LIMIT_CONTROL_UNCONFIRMED');
