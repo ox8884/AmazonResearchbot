@@ -7,7 +7,7 @@ import {publishBrowserSigningIdentity} from '../apps/worker/src/browser-signing-
 import {queueProductDatabase} from '../apps/worker/src/browser-task-producer.ts';
 import {decryptSecret} from '../packages/security/src/secrets.ts';
 import {productDatabaseObservationSchema} from '../packages/domain/src/product-database.ts';
-import {confirmsKitchenDining,selectBrowserProductLeader} from '../packages/domain/src/product-database-leader.ts';
+import {confirmsKitchenDining,selectBrowserProductLeader,settleSortedPartialView} from '../packages/domain/src/product-database-leader.ts';
 import {INITIAL_SETTINGS} from '../packages/domain/src/settings.ts';
 
 // Given a screen row with all displayed product fields and an unavailable weight.
@@ -27,6 +27,18 @@ assert.equal(selectBrowserProductLeader({...productFixture,records:[{...productR
 assert.deepEqual(selectBrowserProductLeader({...productFixture,records:[{...productRecord,revenueMonthly:'$11,250 / $5,625'}]}),{kind:'pending',reason:'MONTHLY_REVENUE_AMBIGUOUS'},'Mixed revenue strings stay pending');
 assert.deepEqual(selectBrowserProductLeader({...productFixture,records:[{...productRecord,categoryPath:'Home & Kitchen'}]}),{kind:'pending',reason:'CATEGORY_UNCONFIRMED'},'Unconfirmed category membership stays pending');
 assert.equal(confirmsKitchenDining('Kitchen & Dining Accessories'),false,'A similarly named category is not Kitchen & Dining');
+// Revenue-sorted partial views: leader from the top eligible row, and only counts the view can settle.
+const row=(n,revenue,reviews,categoryPath='Kitchen & Dining > Utensils')=>{const asin='B0SORT'+String(n).padStart(4,'0');return {asin,title:'Sorted item '+n,categoryPath,revenueMonthly:revenue,reviews,sourceText:`${asin} Sorted item ${n} ${categoryPath} ${revenue} ${reviews}`};};
+const sortedView=records=>({...productFixture,coverage:'partial',displayedCount:records.length,totalCount:5000,revenueSort:'descending',records});
+const rules={review700Max:3,review2000HardFailCount:2,revenueFloorUsd:8000,revenueCompetitorsRequired:5};
+assert.equal(productDatabaseObservationSchema.safeParse(sortedView([row(1,'$9,000','10')])).success,true,'The schema accepts a revenue-sorted capture');
+assert.deepEqual(selectBrowserProductLeader(sortedView([row(1,'$50,000','10','Home & Kitchen > Storage'),row(2,'$40,000','10'),row(3,'$30,000','10')])),{kind:'selected',asin:'B0SORT0002',revenueText:'$40,000'},'A sorted partial view picks the top Kitchen & Dining row and skips other categories');
+assert.equal(selectBrowserProductLeader({...sortedView([row(1,'$40,000','10')]),revenueSort:undefined}).kind,'pending','An unsorted partial view still cannot pick a leader');
+assert.deepEqual(settleSortedPartialView(sortedView([row(1,'$90,000','2500'),row(2,'$80,000','2100'),row(3,'$70,000','10')]),rules),{review700:null,review2000:2,revenueCompetitors:null},'Two visible 2000+ review products settle the hard fail');
+assert.deepEqual(settleSortedPartialView(sortedView([1,2,3,4].map(n=>row(n,'$'+(50-n)+',000','800')).concat(row(5,'$1,000','10'))),rules),{review700:4,review2000:0,revenueCompetitors:4},'Four visible 700+ products settle the barrier, and a view ending below the floor counts competitors exactly');
+assert.deepEqual(settleSortedPartialView(sortedView([1,2,3,4,5].map(n=>row(n,'$'+(50-n)+',000','10'))),rules),{review700:null,review2000:null,revenueCompetitors:5},'Five visible competitors above the floor settle the revenue rule');
+assert.deepEqual(settleSortedPartialView(sortedView([row(1,'$50,000','10'),row(2,'$40,000','10')]),rules),{review700:null,review2000:null,revenueCompetitors:null},'A view that ends above the floor with too few competitors stays unknown');
+assert.deepEqual(settleSortedPartialView(sortedView([row(1,'$10,000','800'),row(2,'$40,000','800'),row(3,'$30,000','800'),row(4,'$20,000','800')]),rules),{review700:null,review2000:null,revenueCompetitors:null},'Out-of-order revenue is not trusted as sorted');
 
 const reserve=createServer();
 reserve.listen(0,'127.0.0.1');

@@ -59,6 +59,24 @@ export function productDatabaseScript(query,marker){
    }
    if(!/^100\b/.test((await resultLimit.evaluate(el=>(el.innerText||'').trim()))))throw Error('RESULT_LIMIT_UNCONFIRMED');
    await table.waitFor({state:'visible',timeout:30_000});
+   stage='SORT';
+   // Sort by monthly revenue, highest first, so a partial view still holds the overall leader. The sort is
+   // reported only when the visible revenues really come back in descending order; otherwise it is omitted.
+   const revenueColumn=()=>table.evaluate(table=>[...table.querySelectorAll('[role="row"]')].slice(1)
+    .filter(row=>row.getClientRects().length>0).map(row=>([...row.querySelectorAll('[role="cell"]')][6]?.innerText||'').replace(/\s+/g,' ').trim()));
+   const descending=values=>{
+    const numbers=values.map(value=>/^\$?\d[\d,]*(?:\.\d{1,2})?$/.test(value)?Number(value.replace(/[$,]/g,'')):null);
+    const known=numbers.filter(value=>value!==null);
+    return known.length>1&&numbers.slice(0,known.length).every(value=>value!==null)&&known.every((value,index)=>index===0||value<=known[index-1]);
+   };
+   let revenueSort;
+   const revenueHeader=page.getByRole('columnheader',{name:/revenue/i}).first();
+   for(let click=0;;click++){
+    if(descending(await revenueColumn())){revenueSort='descending';break;}
+    if(click===2||!(await revenueHeader.count()))break;
+    await revenueHeader.click();
+    for(let wait=0;wait<20&&!descending(await revenueColumn());wait++)await page.evaluate(()=>new Promise(resolve=>setTimeout(resolve,500)));
+   }
    const snapshotResult=await snapshot(page,{selector:'[role="table"]'});
    const records=await table.evaluate(table=>[...table.querySelectorAll('[role="row"]')].slice(1).flatMap(row=>{
     if(row.getClientRects().length===0||getComputedStyle(row).visibility!=='visible')return [];
@@ -81,8 +99,9 @@ export function productDatabaseScript(query,marker){
    const displayedCount=records.length,coverage=displayedCount===totalCount?'complete':'partial';
    const queryTokens=query.toLowerCase().match(/[a-z0-9]+/g)?.filter(token=>token.length>1)??[];
    if(queryTokens.length&&!records.some(record=>queryTokens.every(token=>record.sourceText.toLowerCase().includes(token))))throw Error('RESULT_QUERY_UNCONFIRMED');
-   if(await input.evaluate(el=>el.value)!==query||await destination()!==sourcePageUrl)throw Error('QUERY_CHANGED');
-   result={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100,displayedCount,totalCount,coverage,sourcePageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,records};
+   const finalPageUrl=await destination();
+   if(await input.evaluate(el=>el.value)!==query||!/^https:\/\/members\.junglescout\.com\/(?:#\/)?database(?:[/?#].*)?$/.test(finalPageUrl))throw Error('QUERY_CHANGED');
+   result={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100,displayedCount,totalCount,coverage,...(revenueSort?{revenueSort}:{}),sourcePageUrl:finalPageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,records};
   }catch(error){
    const reason=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:'PRODUCT_DATABASE_'+stage+'_UNCONFIRMED';
    result={protocol:1,kind:'unavailable',reason};

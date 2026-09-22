@@ -16,6 +16,8 @@ export const productDatabaseObservationSchema = z.object({
   displayedCount: z.number().int().positive().max(200).optional(),
   totalCount: z.number().int().positive().max(1_000_000).optional(),
   coverage: z.enum(["complete", "partial"]).optional(),
+  // Set only when the capture confirmed Jungle Scout sorted the whole result set by monthly revenue.
+  revenueSort: z.literal("descending").optional(),
   sourcePageUrl: z.string().url().max(4096).regex(/^https:\/\/members\.junglescout\.com\/(?:#\/)?database(?:[/?#].*)?$/),
   observedAt: z.string().datetime({ offset: true }),
   snapshot: z.string().min(1).max(1_000_000),

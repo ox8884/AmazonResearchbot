@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {browserObservationSchema,browserTaskSchema,categoryTrendsObservationSchema,evaluateNiche,measured,estimate,productDatabaseObservationSchema,selectBrowserProductLeader,unknown,type Evidence,type NicheInput} from '@forge-ops/domain';
+import {browserObservationSchema,browserTaskSchema,categoryTrendsObservationSchema,evaluateNiche,measured,estimate,productDatabaseObservationSchema,selectBrowserProductLeader,settleSortedPartialView,unknown,type Evidence,type NicheInput} from '@forge-ops/domain';
 import {decryptSecret,exactPayloadHash} from '@forge-ops/security';
 import type {Pool} from '@forge-ops/db';
 import {applyApiValidationDecision,loadCanonicalNicheEvidence,type ApiValidationContext} from './api-validation-store.ts';
@@ -106,12 +106,19 @@ export async function consumeBrowserValidation(pool:Pool,context:ApiValidationCo
  const sourceComplete=populationComplete&&categoriesKnown&&products.length===observation.records.length&&products.length>0;
  const reviewComplete=sourceComplete&&reviews.every(value=>value!==null);
  const revenueComplete=sourceComplete&&revenues.every(value=>value!==null);
- const review700Count:Evidence<number>=reviewComplete?measured(reviews.filter(value=>value!==null&&value>=700).length,sourceId,observedAt):unknown('BROWSER_REVIEW_POPULATION_INCOMPLETE',sourceId);
- const review2000Count:Evidence<number>=reviewComplete?measured(reviews.filter(value=>value!==null&&value>=2000).length,sourceId,observedAt):unknown('BROWSER_REVIEW_POPULATION_INCOMPLETE',sourceId);
  const minimumRevenue=Number(context.snapshot.monthlyRevenueMinUsd);
+ // Partial views: only counts a revenue-sorted capture can settle (see settleSortedPartialView).
+ const settled=Number.isFinite(minimumRevenue)&&minimumRevenue>=0?settleSortedPartialView(observation,{
+  review700Max:context.snapshot.review700Max,review2000HardFailCount:context.snapshot.review2000HardFailCount,
+  revenueFloorUsd:minimumRevenue,revenueCompetitorsRequired:context.snapshot.monthlyRevenueCompetitorCount,
+ }):{review700:null,review2000:null,revenueCompetitors:null};
+ const review700Count:Evidence<number>=reviewComplete?measured(reviews.filter(value=>value!==null&&value>=700).length,sourceId,observedAt)
+  :settled.review700!==null?estimate(settled.review700,sourceId,observedAt):unknown('BROWSER_REVIEW_POPULATION_INCOMPLETE',sourceId);
+ const review2000Count:Evidence<number>=reviewComplete?measured(reviews.filter(value=>value!==null&&value>=2000).length,sourceId,observedAt)
+  :settled.review2000!==null?estimate(settled.review2000,sourceId,observedAt):unknown('BROWSER_REVIEW_POPULATION_INCOMPLETE',sourceId);
  const monthlyRevenueCompetitorCount:Evidence<number>=revenueComplete&&Number.isFinite(minimumRevenue)&&minimumRevenue>=0
   ?estimate(revenues.filter(value=>value!==null&&value>=minimumRevenue).length,sourceId,observedAt)
-  :unknown('BROWSER_REVENUE_POPULATION_INCOMPLETE',sourceId);
+  :settled.revenueCompetitors!==null?estimate(settled.revenueCompetitors,sourceId,observedAt):unknown('BROWSER_REVENUE_POPULATION_INCOMPLETE',sourceId);
  const leader=selectBrowserProductLeader(observation);
  const leaderRecord=leader.kind==='selected'?observation.records.find(record=>record.asin===leader.asin):undefined;
  const leaderPrice=money(leaderRecord?.price);
