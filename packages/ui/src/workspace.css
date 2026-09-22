@@ -240,9 +240,47 @@
   box-shadow: inset 0 -2px 0 var(--action);
   color: var(--action);
 }
+.decision-summary-item:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
 .decision-summary-item.chip-ok { color: var(--ok); }
 .decision-summary-item.chip-warn { color: var(--warn); }
 .decision-summary-item.chip-danger { color: var(--danger); }
+.candidate-sections {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-32);
+}
+.candidate-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-16);
+}
+.candidate-section-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-16);
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-16);
+}
+.candidate-section-heading h2 {
+  margin: 0;
+  font-size: var(--body);
+}
+.candidate-waiting {
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-16);
+}
+.candidate-waiting summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-16);
+  cursor: pointer;
+  font-weight: 650;
+}
 .evidence-date-range {
   display: inline-block;
   white-space: nowrap;

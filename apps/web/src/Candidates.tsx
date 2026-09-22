@@ -129,18 +129,40 @@ export function Candidates() {
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
   const [decisionFilter, setDecisionFilter] = useState<string>("all");
+  const matchesToolbar = (candidate: CandidateView) =>
+    candidate.keyword.toLocaleLowerCase().includes(search.toLocaleLowerCase()) &&
+    (filter === "all" || candidate.nextAction.kind === filter);
+  const toolbarList = (q.data ?? []).filter(matchesToolbar);
   const counts = decisionFilters.reduce<Record<string, number>>(
     (result, decision) => {
-      result[decision] = (q.data ?? []).filter((candidate) => candidate.decision === decision).length;
+      result[decision] = toolbarList.filter((candidate) => candidate.decision === decision).length;
       return result;
     },
     {},
   );
-  const list = (q.data ?? []).filter(
-    (c) =>
-      c.keyword.toLocaleLowerCase().includes(search.toLocaleLowerCase()) &&
-      (decisionFilter === "all" || c.decision === decisionFilter) &&
-      (filter === "all" || c.nextAction.kind === filter),
+  const list = toolbarList.filter(
+    (candidate) => decisionFilter === "all" || candidate.decision === decisionFilter,
+  );
+  const actionableList = list.filter((candidate) => candidate.decision !== "waiting");
+  const waitingList = list.filter((candidate) => candidate.decision === "waiting");
+  const waitingReasons = [...waitingList.reduce((result, candidate) => {
+    const current = result.get(candidate.nextAction.target);
+    result.set(candidate.nextAction.target, {
+      label: candidate.nextAction.label,
+      count: (current?.count ?? 0) + 1,
+    });
+    return result;
+  }, new Map<string, { label: string; count: number }>()).values()];
+  const waitingReasonSummary = waitingReasons
+    .slice(0, 3)
+    .map((reason) => `${reason.label} ${reason.count}`)
+    .join(" · ");
+  const renderCards = (candidates: CandidateView[]) => (
+    <div className="stack">
+      {candidates.map((candidate) => (
+        <CandidateCard candidate={candidate} key={candidate.id} />
+      ))}
+    </div>
   );
   return (
     <>
@@ -164,7 +186,7 @@ export function Candidates() {
         {decisionFilters.map((decision) => {
           const meta = decisionMeta[decision];
           return (
-            <button key={decision} type="button" aria-pressed={decisionFilter === decision} className={`decision-summary-item ${meta.className}${decisionFilter === decision ? " selected" : ""}`} onClick={() => setDecisionFilter(decision)}>
+            <button key={decision} type="button" aria-pressed={decisionFilter === decision} disabled={!counts[decision]} className={`decision-summary-item ${meta.className}${decisionFilter === decision ? " selected" : ""}`} onClick={() => setDecisionFilter(decision)}>
               <strong>{counts[decision] ?? 0}</strong>
               <span>{meta.label[language === "ko" ? 0 : 1]}</span>
             </button>
@@ -202,12 +224,33 @@ export function Candidates() {
         <Loading />
       ) : q.isError ? (
         <LoadError retry={() => void q.refetch()} />
-      ) : list.length ? (
-        <div className="stack">
-          {list.map((c) => (
-            <CandidateCard candidate={c} key={c.id} />
-          ))}
+      ) : list.length && decisionFilter === "all" ? (
+        <div className="candidate-sections">
+          <section className="candidate-section" aria-labelledby="candidate-review-heading">
+            <div className="candidate-section-heading">
+              <h2 id="candidate-review-heading">
+                {t("우선 검토할 후보", "Candidates to review first")} <span className="muted">({actionableList.length})</span>
+              </h2>
+              <span className="muted">{t("GO·주의·No-Go만 표시", "GO, CAUTION, and NO-GO only")}</span>
+            </div>
+            {actionableList.length ? renderCards(actionableList) : (
+              <p className="muted">
+                {t("아직 근거가 충분한 판정 후보가 없습니다. 아래 대기 후보를 확인하세요.", "No candidates have enough evidence for a decision yet. Check the waiting candidates below.")}
+              </p>
+            )}
+          </section>
+          <details className="candidate-section candidate-waiting">
+            <summary>
+              <span>{t("대기 후보", "Waiting candidates")} <span className="muted">{waitingList.length}</span></span>
+              {waitingReasonSummary && <span className="muted">{waitingReasonSummary}</span>}
+            </summary>
+            {waitingList.length ? renderCards(waitingList) : (
+              <p className="muted">{t("대기 중인 후보가 없습니다.", "No candidates are waiting.")}</p>
+            )}
+          </details>
         </div>
+      ) : list.length ? (
+        renderCards(list)
       ) : (
         <Empty
           icon="candidate"
