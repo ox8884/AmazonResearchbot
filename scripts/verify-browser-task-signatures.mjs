@@ -27,4 +27,8 @@ assert.throws(()=>verifier({...envelope,payload:'a'.repeat(20000)}));
 assert.throws(()=>verifier(raw({...task,expiresAt:new Date(now+600000).toISOString()})));
 const exported={...task,request:{kind:'saved_search_export',searchRunId:randomUUID(),searchId:randomUUID(),revision:2,marketplace:'us',category:'Kitchen & Dining',filters:{priceMinUsd:'17.00',monthlySearchMin:0}}};
 assert.deepEqual(verifier(signBrowserTask(exported,keys.privateKey)),exported);
+const tunneled=createBrowserTaskVerifier({origin:'http://localhost:3302',issuerOrigin:origin,deviceId,publicKey,now:()=>now});
+assert.deepEqual(tunneled(envelope),task,'A client reaching the API through a local tunnel trusts the configured issuer origin');
+assert.throws(()=>createBrowserTaskVerifier({origin:'http://localhost:3302',deviceId,publicKey,now:()=>now})(envelope),'Without issuerOrigin the transport origin must still match');
+assert.throws(()=>createBrowserTaskVerifier({origin,issuerOrigin:'http://evil.example.com',deviceId,publicKey,now:()=>now}),'A non-HTTPS remote issuer is rejected');
 console.log(JSON.stringify({scenario:'browser-task-signatures',result:'PASS',genuineEd25519:true,wrongKeyDeviceOriginDenied:true,commandsAndExtraFieldsDenied:true,expiryAndSizeChecked:true,browserExecution:false,externalCalls:0}));

@@ -5,12 +5,13 @@ import {browserTaskSchema,BROWSER_TASK_SIGNATURE_PREFIX,MAX_BROWSER_TASK_BYTES} 
 export function createBrowserTaskVerifier(configuration) {
  let url,key;
  try {
-  url=new URL(configuration.origin);
+  // issuerOrigin: the origin that signs tasks, when the client reaches the API through a different (local) origin.
+  url=new URL(configuration.issuerOrigin??configuration.origin);
   if(typeof configuration.publicKey!=='string'||!configuration.publicKey.startsWith('-----BEGIN PUBLIC KEY-----'))throw new Error('KEY');
   key=createPublicKey(configuration.publicKey);
  }catch{throw new Error('INVALID_BROWSER_VERIFIER_CONFIG');}
  const local=url.protocol==='http:'&&['localhost','127.0.0.1','[::1]'].includes(url.hostname);
- if((!local&&url.protocol!=='https:')||url.origin!==configuration.origin||url.username||url.password||key.asymmetricKeyType!=='ed25519'||
+ if((!local&&url.protocol!=='https:')||url.origin!==(configuration.issuerOrigin??configuration.origin)||url.username||url.password||key.asymmetricKeyType!=='ed25519'||
     typeof configuration.deviceId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(configuration.deviceId))throw new Error('INVALID_BROWSER_VERIFIER_CONFIG');
  const origin=url.origin,deviceId=configuration.deviceId,now=configuration.now??Date.now;
  if(typeof now!=='function')throw new Error('INVALID_BROWSER_VERIFIER_CONFIG');

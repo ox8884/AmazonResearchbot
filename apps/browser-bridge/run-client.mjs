@@ -15,7 +15,7 @@ try{
  const {values}=parseArgs({options:{config:{type:'string'},once:{type:'boolean',default:false}}});
  if(!values.config)throw new Error('BRIDGE_CONFIG_REQUIRED');
  const configuration=JSON.parse(await readFile(values.config,'utf8'));
- if(!configuration||Object.keys(configuration).some(key=>!['origin','deviceId','publicKey','directory','cliPath','accountId'].includes(key)))throw new Error('INVALID_BRIDGE_CONFIG');
+ if(!configuration||Object.keys(configuration).some(key=>!['origin','issuerOrigin','deviceId','publicKey','directory','cliPath','accountId'].includes(key)))throw new Error('INVALID_BRIDGE_CONFIG');
  const client=createBridgeClient({origin:configuration.origin});
  const readCredential=()=>deviceVault('read',{origin:configuration.origin,deviceId:configuration.deviceId});
  if(!await readCredential())throw new Error('DEVICE_CREDENTIAL_MISSING');
