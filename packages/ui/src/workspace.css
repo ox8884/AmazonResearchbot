@@ -108,6 +108,45 @@
   flex-direction: column;
   gap: var(--space-4);
 }
+.unknowns-checklist {
+  border-top: 1px solid var(--line);
+  padding-top: var(--space-8);
+}
+.unknowns-checklist summary {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: var(--space-16);
+  min-height: var(--control);
+  padding-block: var(--space-8);
+  color: var(--action);
+  cursor: pointer;
+  font-weight: 500;
+}
+.unknowns-checklist summary:focus-visible {
+  outline: 2px solid var(--action);
+  outline-offset: 2px;
+}
+.unknowns-checklist ul {
+  display: grid;
+  gap: var(--space-8);
+  list-style: none;
+  margin: 0;
+  padding: var(--space-8) 0 var(--space-8) var(--space-16);
+}
+.unknowns-checklist li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-8);
+}
+.unknowns-checklist li .icon {
+  flex: 0 0 auto;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.candidate-waiting-note {
+  margin: calc(var(--space-8) * -1) 0 0;
+}
 .market-observation {
   display: grid;
   gap: var(--space-4);

@@ -4,7 +4,7 @@ import { useState } from "react";
 import { NavLink } from "react-router";
 import { listCandidates, type CandidateView } from "./api.ts";
 import { loadMarket, type MarketView } from "./MarketSource.tsx";
-import { evidenceText } from "./evidence.ts";
+import { evidenceText, unknownLabel } from "./evidence.ts";
 import { contactReason } from "./contact-labels.ts";
 import {
   Empty,
@@ -60,6 +60,9 @@ export function CandidateCard({
   const blockedReason = c.blockedReason
     ? contactReason(c.blockedReason, language)
     : null;
+  const unknownValues = c.unknowns.filter(
+    (value) => value !== "지금 모르는 것은 없습니다" && value !== "None right now",
+  );
   const decision = decisionMeta[c.decision];
   return (
     <article className={`card candidate-card${selected ? " selected" : ""}`}>
@@ -93,6 +96,35 @@ export function CandidateCard({
         <span className="muted">{t("모르는 것", "Unknown")}</span>
         <Unknowns values={c.unknowns} />
       </div>
+      {unknownValues.length > 0 && (
+        <details className="unknowns-checklist">
+          <summary>
+            <span>
+              {t(
+                `확인할 항목 ${unknownValues.length}개`,
+                `${unknownValues.length} items to verify`,
+              )}
+            </span>
+            <span className="muted">
+              {t("판정에 필요한 근거", "Evidence needed for a decision")}
+            </span>
+          </summary>
+          <ul>
+            {unknownValues.map((value) => (
+              <li key={value}>
+                <Icon name="unknown" />
+                <span>{unknownLabel(value, language)}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="muted">
+            {t(
+              "확인되면 이 후보를 다시 평가해 GO 또는 No-Go를 표시합니다.",
+              "Once checked, this candidate is reevaluated and shown as GO or No-Go.",
+            )}
+          </p>
+        </details>
+      )}
       <div className="card-actions">
         {approvalPath ? (
           <NavLink className="btn btn-primary" to={approvalPath}>
@@ -244,6 +276,12 @@ export function Candidates() {
               <span>{t("대기 후보", "Waiting candidates")} <span className="muted">{waitingList.length}</span></span>
               {waitingReasonSummary && <span className="muted">{waitingReasonSummary}</span>}
             </summary>
+            <p className="muted candidate-waiting-note">
+              {t(
+                "대기는 탈락이 아닙니다. 후보별 ‘확인할 항목’을 펼치면 무엇이 부족한지 볼 수 있습니다.",
+                "Waiting is not a rejection. Expand each candidate’s ‘Items to verify’ to see what is missing.",
+              )}
+            </p>
             {waitingList.length ? renderCards(waitingList) : (
               <p className="muted">{t("대기 중인 후보가 없습니다.", "No candidates are waiting.")}</p>
             )}
