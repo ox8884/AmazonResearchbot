@@ -18,3 +18,22 @@ export async function runCandidateAiWork(pool:Pool,candidateId:string,role:AiBus
  if(role==='sourcing_analysis'||role==='niche_analysis')await materializeProposedSpec(pool,task.id);
  return result;
 }
+
+// A niche proposal counts as differentiation evidence only when it cites customer reviews of the representative
+// product (parseAiBusinessOutput already checks the refs); seller feature claims alone never pass. It is an AI
+// estimate for the current candidate version. Returns whether new evidence was recorded.
+export async function recordDifferentiationEvidence(pool:Pool,candidateId:string):Promise<boolean>{
+ const row=(await pool.query<{id:string;input_version:number;settings_version:number;proposal:{status?:unknown;reviewRefs?:unknown}|null}>(
+  `SELECT t.id,t.input_version,t.settings_version,o.result_payload->'differentiationProposal' AS proposal
+   FROM ai_business_tasks t JOIN ai_execution_operations o ON o.id=t.id JOIN candidates c ON c.id=t.candidate_id
+   WHERE t.candidate_id=$1 AND t.role='niche_analysis' AND o.state='succeeded' AND t.input_version=c.input_version
+     AND t.settings_version=(SELECT max(version) FROM settings_versions)
+   ORDER BY t.created_at DESC LIMIT 1`,[candidateId])).rows[0];
+ const reviewRefs=row?.proposal?.reviewRefs;
+ if(!row||row.proposal?.status!=='proposed'||!Array.isArray(reviewRefs)||!reviewRefs.length)return false;
+ const inserted=await pool.query(`INSERT INTO evidence(candidate_id,field,kind,value_text,source_id,observed_at,input_version,settings_version)
+   SELECT $1,'differentiation','estimate','true',$2,now(),$3,$4
+   WHERE NOT EXISTS(SELECT 1 FROM evidence WHERE candidate_id=$1 AND field='differentiation' AND source_id=$2)`,
+  [candidateId,'ai-business-task:'+row.id,row.input_version,row.settings_version]);
+ return (inserted.rowCount??0)>0;
+}

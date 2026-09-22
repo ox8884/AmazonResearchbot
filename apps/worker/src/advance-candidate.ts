@@ -1,4 +1,4 @@
-import { runCandidateAiWork } from "./ai-business.ts";
+import { recordDifferentiationEvidence, runCandidateAiWork } from "./ai-business.ts";
 import type { AiTransport } from "@forge-ops/integrations/ai/transport";
 import type { AiBusinessInput } from "@forge-ops/domain";
 import { consumeOfficialValidation } from "./api-validation.ts";
@@ -119,6 +119,8 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
     client.release();
   }
 
+  // Re-judges from the cached first-page lookup (no new call) after the AI records differentiation evidence.
+  let revalidate:(()=>Promise<unknown>)|null=null;
   if (stageAfter === "api_validation" && settings && settingsVersion !== undefined && keyword !== undefined) {
     const market=ai?await readMarketSource(pool,data.candidateId,ai.encryptionKey):null;
     const firstPageSource=market?.state==='captured'&&market.inputVersion===data.inputVersion&&market.settingsVersion===settingsVersion?market:null;
@@ -154,6 +156,9 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
         context,
         (retryAt) => scheduleDeferredAdvance(pool, { ...data, stage: "api_validation" }, retryAt),
       );
+    if(firstPageSource&&officialReady)revalidate=async()=>{
+      if(await reserveOfficialValidation(pool,context))await consumeOfficialValidation(pool,transport,{...context,callBudget:{remaining:1}});
+    };
   }
   if(ai?.transport.kind==='ready'){
     const current=(await pool.query<{stage:string}>('SELECT stage FROM candidates WHERE id=$1',[data.candidateId])).rows[0];
@@ -162,7 +167,10 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
     if(current&&['api_validation','sourcing'].includes(current.stage))roles.push('niche_analysis');
     if(current?.stage==='sourcing')roles.push('sourcing_analysis');
     if(current&&['rfq_draft','awaiting_contact_approval'].includes(current.stage))roles.push('rfq_draft');
-    for(const role of roles)await runCandidateAiWork(pool,data.candidateId,role,ai);
+    for(const role of roles){
+      await runCandidateAiWork(pool,data.candidateId,role,ai);
+      if(role==="niche_analysis"&&await recordDifferentiationEvidence(pool,data.candidateId)&&revalidate)await revalidate();
+    }
   }
 
 }
