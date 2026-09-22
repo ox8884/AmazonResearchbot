@@ -14,18 +14,20 @@ const jungleScoutBrowserTaskKinds = [
 ] as const;
 
 async function readJungleScoutBrowserBudget(pool: Pool): Promise<number> {
-  const setting = (await pool.query<{ cap: number | null }>(
-    "SELECT (snapshot->>'jsDailyWireCap')::int AS cap FROM settings_versions ORDER BY version DESC LIMIT 1",
+  const setting = (await pool.query<{ cap: number | null; tz: string }>(
+    "SELECT (snapshot->>'jsDailyWireCap')::int AS cap, COALESCE(snapshot->>'timezone','UTC') AS tz FROM settings_versions ORDER BY version DESC LIMIT 1",
   )).rows[0];
   const cap = setting?.cap ?? 0;
-  if (!Number.isSafeInteger(cap) || cap <= 0) return 0;
+  if (!setting || !Number.isSafeInteger(cap) || cap <= 0) return 0;
+  // The daily cap resets at local midnight in the approved settings timezone.
   const used = (await pool.query<{ used: number }>(
-    `SELECT count(*)::int AS used FROM browser_tasks
+    `WITH day AS (SELECT date_trunc('day',clock_timestamp() AT TIME ZONE $2) AT TIME ZONE $2 AS start)
+     SELECT count(*)::int AS used FROM browser_tasks, day
      WHERE task_kind=ANY($1::text[]) AND (
        ((state IN ('completed','delivered') OR (state='cancelled' AND delivered_at IS NOT NULL))
-         AND first_delivered_at>=date_trunc('day',clock_timestamp()))
-       OR (state='queued' AND expires_at>clock_timestamp() AND created_at>=date_trunc('day',clock_timestamp())))`,
-    [jungleScoutBrowserTaskKinds],
+         AND first_delivered_at>=day.start)
+       OR (state='queued' AND expires_at>clock_timestamp() AND created_at>=day.start))`,
+    [jungleScoutBrowserTaskKinds, setting.tz],
   )).rows[0]?.used ?? 0;
   return Math.max(0, cap - used);
 }

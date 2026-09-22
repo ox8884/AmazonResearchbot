@@ -13,7 +13,9 @@ export function GmailConnection() {
   const q = useQuery({
     queryKey: ["gmail-connection"],
     queryFn: gmailStatus,
-    retry: false,
+    retry: (failureCount, error) =>
+      failureCount < 2 &&
+      !(error instanceof ConnectionError && error.status < 500),
   });
   const [busy, setBusy] = useState(false),
     [error, setError] = useState<string | null>(null);

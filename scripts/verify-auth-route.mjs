@@ -6,6 +6,7 @@ try {
  const signed=await test.call('/api/auth/sign-in/email',{email:test.authFixture.email,password:test.authFixture.password});
  assert.equal(signed.status,200);assert.equal(signed.body.twoFactorRedirect,true);
  assert.equal((await test.call('/api/session')).status,401);
+ for(const path of ['/api/candidates','/%61pi/candidates','/%61%70%69/candidates'])assert.equal((await test.call(path)).status,401,`Encoded path bypassed session check: ${path}`);
  for(let i=0;i<5;i++){const wrong=await test.call('/api/auth/two-factor/verify-totp',{code:'not-a-code'});assert.ok(wrong.status>=400&&wrong.status!==423);}
  assert.equal((await test.call('/api/auth/two-factor/verify-totp',{code:'not-a-code'})).status,423);
  assert.equal((await test.call('/api/auth/two-factor/verify-backup-code',{code:'invalid-backup'})).status,423,'Backup path must not bypass account throttle');
@@ -18,6 +19,12 @@ try {
  const results=await Promise.all(Array.from({length:10},()=>test.app.inject({method:'POST',url:'/api/auth/sign-in/email',headers:{host:'localhost:5173',origin:'http://localhost:5173'},payload:{email,password:'synthetic-wrong-password'}})));
  assert.equal(results.filter(r=>r.statusCode===423).length,5);
  assert.equal((await test.pool.query('SELECT count(*)::int n FROM login_attempts WHERE email_normalized=$1 AND success=false',[email])).rows[0].n,5);
+
+ const edgeEmail=`edge-ip-${test.runId}@fixture.invalid`;
+ const viaEdge=ip=>test.app.inject({method:'POST',url:'/api/auth/sign-in/email',headers:{host:'localhost:5173',origin:'http://localhost:5173','x-forge-client-ip':ip},payload:{email:edgeEmail,password:'synthetic-wrong-password'}});
+ for(let i=0;i<5;i++)assert.equal((await viaEdge('203.0.113.7')).statusCode,401);
+ assert.equal((await viaEdge('203.0.113.7')).statusCode,423);
+ assert.equal((await viaEdge('203.0.113.8')).statusCode,401,'Another client IP must not inherit the lock');
 
  const lockedEmail=`window-${test.runId}@fixture.invalid`;
  await test.pool.query("INSERT INTO login_attempts(email_normalized,ip,success,created_at) SELECT $1,'127.0.0.1',false,now()-interval '28 minutes' FROM generate_series(1,4)",[lockedEmail]);

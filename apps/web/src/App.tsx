@@ -40,7 +40,6 @@ function Workspace() {
   const session = useQuery({
     queryKey: ["session"],
     queryFn: getSession,
-    retry: false,
   });
   if (session.isPending)
     return (

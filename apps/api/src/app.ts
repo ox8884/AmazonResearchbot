@@ -33,7 +33,8 @@ import cookie from "@fastify/cookie";
 import cors from "@fastify/cors";
 import multipart from "@fastify/multipart";
 import { fromNodeHeaders } from "better-auth/node";
-import Fastify from "fastify";
+import Fastify, { type FastifyRequest } from "fastify";
+import { isIP } from "node:net";
 import { createDb, type Pool } from "@forge-ops/db";
 import { parseKey, PINO_REDACT_PATHS } from "@forge-ops/security";
 import { createAuth } from "./auth.ts";
@@ -42,6 +43,14 @@ import { createAuthThrottle } from "./auth-throttle.ts";
 import { createProducer } from "./queue.ts";
 import {importCsvWithinTransaction,ImportMappingConflict} from "./import-store.ts";
 
+
+// Behind cloudflared every socket is loopback; the edge Worker forwards the real client IP.
+// ponytail: local processes can spoof this header, so per-IP lockout is only as strong as host isolation.
+function clientIp(request: FastifyRequest): string {
+  const forwarded = request.headers["x-forge-client-ip"];
+  const loopback = request.ip === "127.0.0.1" || request.ip === "::1" || request.ip === "::ffff:127.0.0.1";
+  return loopback && typeof forwarded === "string" && isIP(forwarded) ? forwarded : request.ip;
+}
 
 export async function buildApp(env: ApiEnv, pool: Pool, options: { aiTransport?: AiTransport } = {}) {
   if (options.aiTransport && env.appEnv !== "development") throw new Error("TEST_TRANSPORT_NOT_ALLOWED");
@@ -101,7 +110,7 @@ export async function buildApp(env: ApiEnv, pool: Pool, options: { aiTransport?:
         ...(request.body ? { body: JSON.stringify(request.body) } : {}),
       });
       const outcome = await throttle.run({
-        method: request.method, pathname: url.pathname, ip: request.ip,
+        method: request.method, pathname: url.pathname, ip: clientIp(request),
         cookieHeader: request.headers.cookie, sessionHeaders: headers, body: request.body,
       }, () => auth.handler(req));
       if (outcome.kind !== "handled") return reply.status(outcome.status).send(outcome.body);
@@ -131,8 +140,10 @@ export async function buildApp(env: ApiEnv, pool: Pool, options: { aiTransport?:
   });
 
   app.addHook("preHandler", async (request, reply) => {
-    if (!request.url.startsWith("/api/")) return;
-    if (request.url.startsWith("/api/auth") || request.url === "/api/health" || request.url === "/api/session") {
+    // Match on the routed pattern: request.url is raw, so /%61pi/... would skip a prefix check.
+    const route = request.routeOptions.url;
+    if (!route?.startsWith("/api/")) return;
+    if (route === "/api/auth/*" || route === "/api/health" || route === "/api/session") {
       return;
     }
     if ((request.method === "POST" && request.routeOptions.url === "/api/bridge/pair") ||

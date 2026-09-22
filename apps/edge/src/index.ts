@@ -77,6 +77,9 @@ export async function handleEdgeRequest(
     const value = request.headers.get(name);
     if (value !== null) headers.set(name, value);
   }
+  // Set by Cloudflare, not the browser; the API uses it for per-IP sign-in lockout.
+  const clientIp = request.headers.get("cf-connecting-ip");
+  if (clientIp) headers.set("x-forge-client-ip", clientIp);
   headers.set("CF-Access-Client-Id", env.ACCESS_CLIENT_ID);
   headers.set("CF-Access-Client-Secret", env.ACCESS_CLIENT_SECRET);
   try {

@@ -6,7 +6,7 @@ export type GmailConnectionState = {
   checkedAt: string | null;
 };
 export class ConnectionError extends Error {
-  constructor(readonly code: string) {
+  constructor(readonly code: string, readonly status = 0) {
     super(code);
   }
 }
@@ -31,6 +31,7 @@ async function request(action?: "connect" | "refresh") {
         typeof data.code === "string"
         ? data.code
         : "CONNECTION_FAILED",
+      response.status,
     );
   }
   return response;
