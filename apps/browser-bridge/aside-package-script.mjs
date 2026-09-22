@@ -51,7 +51,11 @@ export function amazonPackageScript(asin,marker) {
    const productEvidence=await p.locator('body').evaluate(readProduct);
    checkPage();
    result={protocol:1,kind:'captured',scope:'amazon_product_page',asin,sourcePageUrl:p.url(),observedAt:new Date().toISOString(),snapshot:snapshots.join('\n'),pageText,rows,productEvidence};
-  }catch{result={protocol:1,kind:'unavailable',reason:'ASIDE_SITE_OR_LAYOUT_UNAVAILABLE'};}
+  }catch(error){
+   // Report the failing step (e.g. EXPANSION_UNCONFIRMED) so layout changes can be located.
+   const reason=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:'ASIDE_SITE_OR_LAYOUT_UNAVAILABLE';
+   result={protocol:1,kind:'unavailable',reason};
+  }
   finally{if(p)await closeTab(p);}
   console.log(marker+JSON.stringify(result));
  }
