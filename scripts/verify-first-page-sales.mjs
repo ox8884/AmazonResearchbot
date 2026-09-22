@@ -47,11 +47,12 @@ const server=createServer(async(req,res)=>{
  const text=Buffer.concat(chunks).toString(),body=text?JSON.parse(text):null;
  const url=new URL(req.url,'http://127.0.0.1');
  if(url.pathname!=='/api/sales_estimates_query'){
-  // A first-page ASIN lookup returns one row per requested ASIN; a and b are variants of one parent family.
+  // A first-page ASIN lookup returns one row per requested ASIN; a and b are variants of one parent family,
+  // each with its own estimate (the family sums to 18000).
   const requested=body?.data?.attributes?.include_keywords??[];
   const pdRow=asin=>({id:'us/'+asin,type:'product_database_result',attributes:{price:30,reviews:100,category:'Kitchen & Dining',
    parent_asin:asin===a||asin===b?parent:null,is_variant:asin===a||asin===b,is_parent:false,variants:asin===a||asin===b?[a,b]:[],
-   approximate_30_day_units_sold:600,approximate_30_day_revenue:18000,updated_at:new Date().toISOString()}});
+   approximate_30_day_units_sold:600,approximate_30_day_revenue:asin===a||asin===b?9000:18000,updated_at:new Date().toISOString()}});
   const result=url.pathname==='/api/product_database_query'?{data:(requested.every(value=>/^B0FP/.test(value))&&requested.length?requested:[c]).map(pdRow),links:{next:null}}:auxiliaryFixture(url,body);
   assert.ok(result);if(url.pathname==='/api/product_database_query'&&replaceReceipt){const replace=replaceReceipt;replaceReceipt=null;await replace();}
   res.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify(result));return;

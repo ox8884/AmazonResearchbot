@@ -1,5 +1,5 @@
 import { collectSupplementary } from "./api-supplementary.ts";
-import {selectMarketLeader} from './market-leader.ts';
+import {selectFirstPageLeader,selectMarketLeader,withFamilyTotals} from './market-leader.ts';
 import {collectFirstPageSales,type FirstPageSales} from './first-page-sales.ts';
 import { storeApiFacts, type ApiFact } from "./api-facts-store.ts";
 import { readOfficialSource } from "./api-reader.ts";
@@ -151,10 +151,10 @@ export async function consumeOfficialValidation(
   const firstPageComplete=firstPageMode&&context.firstPageSource?.observation.coverage==='complete'&&collection.complete&&
     collection.block===null&&firstPageAsins.every(asin=>returned.has(asin));
   let marketLeader=firstPageMode
-    ? selectMarketLeader(kitchen,{complete:firstPageComplete,period:trailingPeriod(kitchen)})
+    ? selectFirstPageLeader(kitchen,{complete:firstPageComplete,period:trailingPeriod(kitchen)})
     : selectMarketLeader([],{complete:false,period:null});
   let aggregate = aggregateProductDatabase({
-    observations: firstPageMode ? kitchen : collection.observations,
+    observations: firstPageMode ? withFamilyTotals(kitchen) : collection.observations,
     populationComplete: firstPageMode ? firstPageComplete : collection.complete,
     review2000HardFailCount: context.snapshot.review2000HardFailCount,
     monthlyRevenueMinUsd: context.snapshot.monthlyRevenueMinUsd,
@@ -176,7 +176,7 @@ export async function consumeOfficialValidation(
     const {shareTop1MustBeBelowPct,shareTop3MustBeBelowPct,firstPageSalesMinUsd}=context.snapshot;
     // Market identity comes from the first-page receipt; revenue and family come from the lookup.
     const pageSourceId='browser-task-result:'+receiptId;
-    const pageRows=collection.observations.flatMap(product=>product.asin.kind==='unknown'||!firstPageAsins.includes(product.asin.value)?[]
+    const pageRows=withFamilyTotals(collection.observations).flatMap(product=>product.asin.kind==='unknown'||!firstPageAsins.includes(product.asin.value)?[]
       :[{...product,asin:measured(product.asin.value,pageSourceId,observation.observedAt)}]);
     const concentration=assessMarketConcentration({rows:marketRevenueRows(pageRows),expectedAsins:firstPageAsins,period,
       sourceId:pageSourceId,observedAt:observation.observedAt},context.snapshot);

@@ -41,3 +41,37 @@ export function selectMarketLeader(products:readonly ProductObservation[],scope:
  if(prices.size!==1||price===undefined||!source||source.kind==='unknown')return {...metadata,price:unknown('LEADER_PRICE_AMBIGUOUS',origin.sourceId)};
  return {...metadata,price:estimate(price,source.sourceId,source.observedAt)};
 }
+
+// Product Database estimates each variant separately. A family's first-page revenue is the sum of its listed
+// variants; rows keep their own price. A family with any unknown variant revenue stays unknown.
+export function withFamilyTotals(products:readonly ProductObservation[]):ProductObservation[]{
+ const key=(product:ProductObservation)=>product.family.kind==='known'&&product.family.key.kind!=='unknown'?product.family.key.value:null;
+ const totals=new Map<string,number|null>();
+ for(const product of products){
+  const family=key(product);if(family===null)continue;
+  const revenue=product.approximate30DayRevenue,prior=totals.get(family);
+  totals.set(family,prior===null||revenue.kind==='unknown'||!Number.isFinite(revenue.value)?null:(prior??0)+revenue.value);
+ }
+ return products.map(product=>{
+  const family=key(product),total=family===null?undefined:totals.get(family),revenue=product.approximate30DayRevenue;
+  if(total===undefined||revenue.kind==='unknown')return product;
+  return {...product,approximate30DayRevenue:total===null?unknown('FAMILY_REVENUE_INCOMPLETE',revenue.sourceId):estimate(Math.round(total*100)/100,revenue.sourceId,revenue.observedAt)};
+ });
+}
+
+// Leader of a first-page lookup: the family with the largest summed revenue, priced at its best-selling variant.
+export function selectFirstPageLeader(products:readonly ProductObservation[],scope:{readonly complete:boolean;readonly period:QueryPeriod|null}):MarketLeader{
+ const best=new Map<string,ProductObservation>();
+ for(const product of products){
+  if(product.family.kind!=='known'||product.family.key.kind==='unknown'||product.approximate30DayRevenue.kind==='unknown')continue;
+  const prior=best.get(product.family.key.value);
+  if(!prior||(prior.approximate30DayRevenue.kind!=='unknown'&&product.approximate30DayRevenue.value>prior.approximate30DayRevenue.value))best.set(product.family.key.value,product);
+ }
+ const totals=withFamilyTotals(products);
+ const leader=selectMarketLeader(totals.map(product=>{
+  const family=product.family.kind==='known'&&product.family.key.kind!=='unknown'?product.family.key.value:null;
+  const top=family===null?undefined:best.get(family);
+  return top?{...product,price:top.price}:product;
+ }),scope);
+ return leader;
+}

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {selectMarketLeader} from '../apps/worker/src/market-leader.ts';
+import {selectFirstPageLeader,selectMarketLeader,withFamilyTotals} from '../apps/worker/src/market-leader.ts';
 import {parseProductDatabaseResponse} from '../packages/integrations/src/jungle-scout/responses.ts';
 const source={sourceId:'synthetic-source',observedAt:'2026-09-09T00:00:00.000Z'};
 const scope={complete:true,period:{startDate:'2026-08-10',endDate:'2026-09-08'}};
@@ -27,4 +27,13 @@ assert.equal(selectMarketLeader([a,child1,child2],scope).price.value,'27.00');
 const ambiguous=selectMarketLeader([a,child1,row('B0QA000004',30000,29,{is_variant:true,parent_asin:parent})],scope);
 assert.equal(ambiguous.family.value,parent);assert.equal(ambiguous.price.kind,'unknown');
 assert.equal(selectMarketLeader([child1,row('B0QA000004',20000,27,{is_variant:true,parent_asin:parent})],scope).price.kind,'unknown','Conflicting family sales cannot be summed or picked');
+// First-page lookups: Product Database estimates each variant separately, so a family sums its listed variants
+// and is priced at its best-selling variant.
+const v1=row('B0QA000005',6000,19,{is_variant:true,parent_asin:'B0QA888888'}),v2=row('B0QA000006',9000,24,{is_variant:true,parent_asin:'B0QA888888'});
+assert.deepEqual(withFamilyTotals([v1,v2,a]).map(p=>p.approximate30DayRevenue.value),[15000,15000,10000],'Variant revenues add up per family');
+assert.equal(selectMarketLeader([a,v1,v2],scope).price.kind,'unknown','The family-level rule still rejects per-variant estimates');
+const firstPage=selectFirstPageLeader([a,v1,v2],scope);
+assert.equal(firstPage.family.value,'B0QA888888','The family with the larger summed revenue leads');assert.equal(firstPage.price.value,'24.00','Priced at its best-selling variant');
+assert.equal(selectFirstPageLeader([a,v1,row('B0QA000006',null,24,{is_variant:true,parent_asin:'B0QA888888'})],scope).price.kind,'unknown','An unknown variant revenue leaves the family unknown');
+assert.equal(selectFirstPageLeader([row('B0QA000007',15000),v1,v2],scope).price.kind,'unknown','Tied family totals stay unknown');
 console.log(JSON.stringify({scenario:'market-leader',result:'PASS',completeScope:true,tiesUnknown:true,familyDedup:true,priceConflictsUnknown:true,externalCalls:0}));
