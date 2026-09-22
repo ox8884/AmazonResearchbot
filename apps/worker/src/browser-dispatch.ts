@@ -13,11 +13,12 @@ const jungleScoutBrowserTaskKinds = [
   'competitive_intelligence',
 ] as const;
 
-async function readJungleScoutBrowserBudget(pool: Pool): Promise<number> {
+// browserCap: JS_DAILY_BROWSER_CAP, a dashboard-only cap; unset shares the API wire cap.
+async function readJungleScoutBrowserBudget(pool: Pool, browserCap?: number): Promise<number> {
   const setting = (await pool.query<{ cap: number | null; tz: string }>(
     "SELECT (snapshot->>'jsDailyWireCap')::int AS cap, COALESCE(snapshot->>'timezone','UTC') AS tz FROM settings_versions ORDER BY version DESC LIMIT 1",
   )).rows[0];
-  const cap = setting?.cap ?? 0;
+  const cap = browserCap ?? setting?.cap ?? 0;
   if (!setting || !Number.isSafeInteger(cap) || cap <= 0) return 0;
   // The daily cap resets at local midnight in the approved settings timezone.
   const used = (await pool.query<{ used: number }>(
@@ -32,8 +33,8 @@ async function readJungleScoutBrowserBudget(pool: Pool): Promise<number> {
   return Math.max(0, cap - used);
 }
 
-export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin: string; readonly privateKey: KeyObject; readonly fingerprint: string }) {
-  let researchRemaining = await readJungleScoutBrowserBudget(pool);
+export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin: string; readonly privateKey: KeyObject; readonly fingerprint: string }, browserCap?: number) {
+  let researchRemaining = await readJungleScoutBrowserBudget(pool, browserCap);
   const searches=researchRemaining > 0
     ? await dispatchSearchExports(pool,signing,researchRemaining)
     : {queued:0,deviceReady:false};

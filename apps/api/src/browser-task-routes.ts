@@ -8,7 +8,7 @@ import { acceptBrowserTaskResult } from "./browser-task-result.ts";
 const idParams=z.object({id:z.string().uuid()});
 const resultBody=z.object({taskHash:z.string().regex(/^[a-f0-9]{64}$/),observation:z.unknown()}).strict();
 
-export function registerBrowserTaskRoutes(app:FastifyInstance,pool:Pool,options:{readonly boss:PgBoss;readonly encryptionKey:Buffer;readonly webOrigin:string}) {
+export function registerBrowserTaskRoutes(app:FastifyInstance,pool:Pool,options:{readonly boss:PgBoss;readonly encryptionKey:Buffer;readonly webOrigin:string;readonly browserCap?:number}) {
  const identity=async(request:FastifyRequest)=>{
   const match=/^Bearer (fbd_[a-f0-9]{64})$/.exec(request.headers.authorization??"");
   return match?.[1]?readBridgeIdentity(pool,match[1]):null;
@@ -18,7 +18,7 @@ export function registerBrowserTaskRoutes(app:FastifyInstance,pool:Pool,options:
   if(!originAllowed(request))return reply.status(403).send({code:"ORIGIN_REJECTED"});
   const device=await identity(request);
   if(!device)return reply.status(401).send({code:"DEVICE_REJECTED"});
-  const result=await claimBrowserTask(pool,device.id);
+  const result=await claimBrowserTask(pool,device.id,options.browserCap);
   return result.kind==="rejected"?reply.status(401).send({code:"DEVICE_REJECTED"}):result;
  });
  app.get("/api/bridge/tasks/:id",async(request,reply)=>{

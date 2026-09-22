@@ -127,11 +127,18 @@ function planDailyWork(): void {
 const plannerTimer=setInterval(planDailyWork,60000);
 planDailyWork();
 
+const browserCap = (() => {
+  const value = source.JS_DAILY_BROWSER_CAP?.trim();
+  if (!value) return undefined;
+  const cap = Number(value);
+  if (!Number.isSafeInteger(cap) || cap < 0) throw new Error("JS_DAILY_BROWSER_CAP must be a non-negative integer");
+  return cap;
+})();
 let browserTask: Promise<void> | null = null;
 let browserFailed = false;
 function dispatchBrowserTasks(): void {
   if (!browserSigning || browserTask) return;
-  browserTask = dispatchBrowserWork(pool, browserSigning).then(result => {
+  browserTask = dispatchBrowserWork(pool, browserSigning, browserCap).then(result => {
     if (result.queued) console.log("Browser read tasks prepared", { queued: result.queued });
     browserFailed = false;
   }).catch(() => {

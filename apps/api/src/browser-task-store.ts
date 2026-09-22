@@ -18,9 +18,10 @@ const jungleScoutBrowserTaskKinds = [
  'competitive_intelligence',
 ] as const;
 
-async function readJungleScoutBrowserBudget(db:QueryConnection):Promise<number>{
+// browserCap: JS_DAILY_BROWSER_CAP, a dashboard-only cap; unset shares the API wire cap.
+async function readJungleScoutBrowserBudget(db:QueryConnection,browserCap?:number):Promise<number>{
  const setting=(await db.query<{cap:number|null;tz:string}>("SELECT (snapshot->>'jsDailyWireCap')::int AS cap,COALESCE(snapshot->>'timezone','UTC') AS tz FROM settings_versions ORDER BY version DESC LIMIT 1")).rows[0];
- const cap=setting?.cap??0;
+ const cap=browserCap??setting?.cap??0;
  if(!setting||!Number.isSafeInteger(cap)||cap<=0)return 0;
  // The daily cap resets at local midnight in the approved settings timezone.
  const used=(await db.query<{used:number}>(`SELECT count(*)::int AS used FROM browser_tasks
@@ -47,14 +48,14 @@ export async function lockTaskSource(db:QueryConnection,task:CandidateBrowserTas
  const sourceCapture=task.source_capture_id?await readSupplierSearchSource(db,task.source_capture_id,source):null;
  return task.source_capture_id&&!sourceCapture?null:{...source,sourceCapture,readKind:'supplier' as const};
 }
-export async function claimBrowserTask(pool:Pool,deviceId:string) {
+export async function claimBrowserTask(pool:Pool,deviceId:string,browserCap?:number) {
  const db=await pool.connect();
  try{
   await db.query("BEGIN");
   await db.query("SELECT pg_advisory_xact_lock(hashtext('forge.settings'))");
   if(!await lockActiveBridgeDevice(db,deviceId)){await db.query("COMMIT");return {kind:"rejected" as const};}
   await db.query("UPDATE browser_tasks SET state='cancelled' WHERE device_id=$1 AND state IN ('queued','delivered') AND expires_at<=clock_timestamp()",[deviceId]);
-  const researchRemaining=await readJungleScoutBrowserBudget(db);
+  const researchRemaining=await readJungleScoutBrowserBudget(db,browserCap);
   for(let checked=0;checked<20;checked++){
    const row=(await db.query<BrowserTaskRow>(`SELECT t.* FROM browser_tasks t
     WHERE t.device_id=$1 AND (t.state='queued' OR (t.state='delivered' AND t.delivered_at<=clock_timestamp()-interval '150 seconds'))

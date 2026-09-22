@@ -171,7 +171,7 @@ export async function buildApp(env: ApiEnv, pool: Pool, options: { aiTransport?:
   registerImportPreviewRoutes(app);
   registerBridgeDeviceRoutes(app,pool,{auth,webOrigin:env.webOrigin});
   registerBrowserCapabilityRoutes(app,pool,env.webOrigin);
-  registerBrowserTaskRoutes(app,pool,{boss,encryptionKey:encKey,webOrigin:env.webOrigin});
+  registerBrowserTaskRoutes(app,pool,{boss,encryptionKey:encKey,webOrigin:env.webOrigin,...(env.jsDailyBrowserCap!==undefined?{browserCap:env.jsDailyBrowserCap}:{})});
   registerSummaryRoutes(app,pool);
   registerQuoteRoutes(app,pool,env.webOrigin);
   registerOrderRoutes(app,pool);
