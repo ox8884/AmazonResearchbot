@@ -95,11 +95,14 @@ function period(now: Date, lengthDays: number): ContractResult<{
     : failure("INVALID_CLOCK");
 }
 
+// asins: look up exactly these products (include_keywords accepts ASINs) instead of the keyword.
 export function buildProductDatabaseRequest(
-  input: KeywordInput,
+  input: KeywordInput & { readonly asins?: readonly string[] },
 ): ContractResult<JungleScoutRequest> {
   const keyword = text(input.keyword, "INVALID_KEYWORD");
   if (!keyword.ok) return keyword;
+  if (input.asins && (!input.asins.length || input.asins.length > 100 || input.asins.some((asin) => !/^[A-Z0-9]{10}$/.test(asin))))
+    return failure("INVALID_ASINS");
   return post(
     "product_database_query",
     "/api/product_database_query",
@@ -107,7 +110,7 @@ export function buildProductDatabaseRequest(
       data: {
         type: "product_database_query",
         attributes: {
-          include_keywords: [keyword.value],
+          include_keywords: input.asins ? [...input.asins] : [keyword.value],
         },
       },
     },

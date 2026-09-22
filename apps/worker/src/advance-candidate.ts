@@ -122,8 +122,9 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
   if (stageAfter === "api_validation" && settings && settingsVersion !== undefined && keyword !== undefined) {
     const market=ai?await readMarketSource(pool,data.candidateId,ai.encryptionKey):null;
     const firstPageSource=market?.state==='captured'&&market.inputVersion===data.inputVersion&&market.settingsVersion===settingsVersion?market:null;
+    // A captured first page is validated with one official lookup of its ASINs (see consumeOfficialValidation).
     const candidateCallLimit = firstPageSource
-      ? settings.jsDailyWireCap
+      ? 1
       : data.candidateCallLimit ?? (settings.jsDailyWireCap > 0
         ? Math.max(1, Math.min(settings.jsDailyWireCap, settings.productDatabaseMaxPages))
         : 0);
@@ -138,8 +139,12 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
       ...(firstPageSource?{firstPageSource}:{}),
       };
     const officialReady=transport.kind==='ready'&&settings.jsDailyWireCap>0;
-    const browserResult=ai?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
-    const canRetryOfficial=browserResult==='not_ready'&&blockedReason!=='evidence';
+    // The dashboard route is only used without a first page. A hold is re-checked once per new first-page capture.
+    const lastFirstPage=firstPageSource?(await pool.query<{receipt:string|null}>(
+      "SELECT detail->>'validationFirstPageReceipt' AS receipt FROM candidate_events WHERE candidate_id=$1 AND stage='api_validation' AND input_version=$2",
+      [data.candidateId,data.inputVersion])).rows[0]?.receipt??null:null;
+    const browserResult=ai&&!firstPageSource?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
+    const canRetryOfficial=browserResult==='not_ready'&&(blockedReason!=='evidence'||(firstPageSource!==null&&lastFirstPage!==firstPageSource.receiptId));
     const officialReserved=canRetryOfficial&&officialReady
       ?await reserveOfficialValidation(pool,context)
       :canRetryOfficial;

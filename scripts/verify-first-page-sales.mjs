@@ -47,8 +47,14 @@ const server=createServer(async(req,res)=>{
  const text=Buffer.concat(chunks).toString(),body=text?JSON.parse(text):null;
  const url=new URL(req.url,'http://127.0.0.1');
  if(url.pathname!=='/api/sales_estimates_query'){
-  const result=url.pathname==='/api/product_database_query'?{data:[{id:'us/'+c,type:'product_database_result',attributes:{price:30,reviews:100,category:'Kitchen & Dining',parent_asin:null,is_variant:false,is_parent:false,variants:[],approximate_30_day_units_sold:600,approximate_30_day_revenue:18000,updated_at:new Date().toISOString()}}],links:{next:null}}:auxiliaryFixture(url,body);
-  assert.ok(result);res.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify(result));return;
+  // A first-page ASIN lookup returns one row per requested ASIN; a and b are variants of one parent family.
+  const requested=body?.data?.attributes?.include_keywords??[];
+  const pdRow=asin=>({id:'us/'+asin,type:'product_database_result',attributes:{price:30,reviews:100,category:'Kitchen & Dining',
+   parent_asin:asin===a||asin===b?parent:null,is_variant:asin===a||asin===b,is_parent:false,variants:asin===a||asin===b?[a,b]:[],
+   approximate_30_day_units_sold:600,approximate_30_day_revenue:18000,updated_at:new Date().toISOString()}});
+  const result=url.pathname==='/api/product_database_query'?{data:(requested.every(value=>/^B0FP/.test(value))&&requested.length?requested:[c]).map(pdRow),links:{next:null}}:auxiliaryFixture(url,body);
+  assert.ok(result);if(url.pathname==='/api/product_database_query'&&replaceReceipt){const replace=replaceReceipt;replaceReceipt=null;await replace();}
+  res.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify(result));return;
  }
  const asin=url.searchParams.get('asin');calls.push(Object.fromEntries(url.searchParams));
  const result=auxiliaryFixture(url,null),attrs=result.data[0].attributes;
@@ -130,7 +136,7 @@ try{
  assert.equal(readMarketRiskView({firstPageSales:{...assessment.firstPageSales,period:{startDate:'2026-09-01',endDate:'2026-09-08'}}}),null);
  assert.equal(readMarketRiskView({firstPageSales:{...assessment.firstPageSales,marketReceiptId:'00000000-0000-0000-0000-000000000000'}}),null,'Mismatched receipt provenance must not be shown as valid');
  assert.deepEqual(assessment.firstPageSales.marketAsins,[a,b,c]);
- assert.deepEqual(calls.slice(start).map(call=>call.asin).sort(),[a,b,c,parent].sort(),'Worker includes ASINs absent from Product Database and reuses the overlapping ASIN cache');
+ assert.equal(calls.length,start,'First-page validation uses one Product Database lookup and no per-ASIN sales calls');
  const evaluations=async()=>(await test.pool.query('SELECT count(*)::int n FROM evaluations WHERE candidate_id=$1',[id])).rows[0].n;
  const priorEvaluations=await evaluations();
  assert.equal((await queueAmazonSearch(test.pool,{deviceId:enrolled.body.id,candidateId:id},signing)).kind,'existing','Completed source is immutable within the same candidate version');

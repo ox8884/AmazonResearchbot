@@ -167,9 +167,9 @@ export async function reserveOfficialValidation(pool:Pool,context:ApiValidationC
     [context.candidateId,context.inputVersion,context.settingsVersion])).rows[0]?.valid??false;
   if(!current){await client.query('COMMIT');return false;}
   await client.query(`INSERT INTO candidate_events(candidate_id,stage,input_version,detail)
-    VALUES($1,'api_validation',$2,jsonb_build_object('validationTransport','official','validationSettingsVersion',$3::int))
+    VALUES($1,'api_validation',$2,jsonb_build_object('validationTransport','official','validationSettingsVersion',$3::int,'validationFirstPageReceipt',$4::text))
     ON CONFLICT(candidate_id,stage,input_version) DO UPDATE SET detail=candidate_events.detail||EXCLUDED.detail`,
-    [context.candidateId,context.inputVersion,context.settingsVersion]);
+    [context.candidateId,context.inputVersion,context.settingsVersion,context.firstPageSource?.receiptId??null]);
   await client.query('COMMIT');return true;
  }catch(error){await client.query('ROLLBACK');throw error;}finally{client.release();}
 }

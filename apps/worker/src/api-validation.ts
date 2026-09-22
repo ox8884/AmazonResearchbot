@@ -3,7 +3,7 @@ import {selectMarketLeader} from './market-leader.ts';
 import {collectFirstPageSales,type FirstPageSales} from './first-page-sales.ts';
 import { storeApiFacts, type ApiFact } from "./api-facts-store.ts";
 import { readOfficialSource } from "./api-reader.ts";
-import { evaluateNiche, isKnown, unknown, type NicheAssessment, type NicheInput } from "@forge-ops/domain";
+import { assessMarketConcentration, evaluateNiche, isKnown, marketRevenueRows, measured, unknown, type NicheAssessment, type NicheInput } from "@forge-ops/domain";
 import type { Pool } from "@forge-ops/db";
 import { nextPostPage, readJsonApiNext } from "@forge-ops/integrations/jungle-scout/pagination";
 import { buildProductDatabaseRequest, type JsonApiRequestBody, type JungleScoutRequest } from "@forge-ops/integrations/jungle-scout/requests";
@@ -41,8 +41,9 @@ async function collectProductDatabase(
   pool: Pool,
   transport: JsTransport,
   context: ApiValidationContext,
+  asins?: readonly string[],
 ): Promise<ProductCollection> {
-  const built = buildProductDatabaseRequest({ keyword: context.keyword });
+  const built = buildProductDatabaseRequest({ keyword: context.keyword, ...(asins ? { asins } : {}) });
   if (!built.ok || built.value.body === null) return { kind: "collected", observations: [], complete: false, block: "PRODUCT_DATABASE_REQUEST_INVALID", sourceIds: [] };
   const body = built.value.body;
   let request: ProductDatabaseRequest = { ...built.value, body };
@@ -79,6 +80,15 @@ async function collectProductDatabase(
   }
 }
 
+// Product Database's 30-day estimates trail each product's update date; use the latest one as the window.
+function trailingPeriod(products: readonly ProductObservation[]): { readonly startDate: string; readonly endDate: string } | null {
+  const updated = products.flatMap((product) => product.updatedAt.kind === "unknown" ? [] : [Date.parse(product.updatedAt.value)]).filter(Number.isFinite);
+  if (!updated.length) return null;
+  const end = new Date(Math.max(...updated));
+  const start = new Date(end.getTime() - 29 * 86_400_000);
+  return { startDate: start.toISOString().slice(0, 10), endDate: end.toISOString().slice(0, 10) };
+}
+
 function finalOutcome(input: { readonly assessment: NicheAssessment; readonly complete: boolean; readonly block: string | null; readonly reviewKnown: boolean }): "pass" | "reject" | "hold" {
   if (input.assessment.hardFail) return "reject";
   if (!input.complete || input.block !== null || !input.reviewKnown) return "hold";
@@ -94,13 +104,20 @@ export async function consumeOfficialValidation(
   const readContext = context.candidateCallLimit === undefined
     ? context
     : { ...context, callBudget: context.callBudget ?? { remaining: context.candidateCallLimit } };
-  const collection = await collectProductDatabase(pool, transport, readContext);
+  // With a captured Amazon first page, the market is its non-sponsored products, looked up in one call.
+  // Product Database's keyword search returns products unrelated to the first page, so it is only the fallback.
+  const firstPageAsins = context.firstPageSource
+    ? [...new Set(context.firstPageSource.observation.slots.flatMap(slot => slot.adStatus === "not_marked" && slot.asin !== null ? [slot.asin] : []))].sort().slice(0, 100)
+    : [];
+  const firstPageMode = firstPageAsins.length > 0;
+  const collection = await collectProductDatabase(pool, transport, readContext, firstPageMode ? firstPageAsins : undefined);
   if (collection.kind === "deferred") {
     if (onDeferred !== undefined) await onDeferred(collection.retryAt);
     return applyApiValidationWait({ pool, context, blockedReason: "provider_unavailable" });
   }
   if (collection.kind === "wait") return applyApiValidationWait({ pool, context, blockedReason: collection.blockedReason });
-  const categoryConfirmed=collection.observations.length>0&&collection.observations.every(product=>product.category.kind!=='unknown'&&product.category.value==='Kitchen & Dining');
+  const kitchen=collection.observations.filter(product=>product.category.kind!=='unknown'&&product.category.value==='Kitchen & Dining');
+  const categoryConfirmed=firstPageMode?kitchen.length>0:collection.observations.length>0&&kitchen.length===collection.observations.length;
   const catalogFacts=new Map<string,ApiFact["evidence"]>();
   for(const product of collection.observations){
     if(product.asin.kind === "unknown")continue;
@@ -128,10 +145,17 @@ export async function consumeOfficialValidation(
   }
   if(!await storeApiFacts(pool,context,[...catalogFacts].map(([field,evidence])=>({field,evidence}))))return "stale";
   const canonical = await loadCanonicalNicheEvidence(pool, context.candidateId);
-  let marketLeader=selectMarketLeader([],{complete:false,period:null});
+  // First-page mode: the population is complete only when every requested ASIN came back; rules count
+  // its Kitchen & Dining products, and the leader uses Product Database's trailing 30-day estimates.
+  const returned=new Set(collection.observations.flatMap(product=>product.asin.kind==='unknown'?[]:[product.asin.value]));
+  const firstPageComplete=firstPageMode&&context.firstPageSource?.observation.coverage==='complete'&&collection.complete&&
+    collection.block===null&&firstPageAsins.every(asin=>returned.has(asin));
+  let marketLeader=firstPageMode
+    ? selectMarketLeader(kitchen,{complete:firstPageComplete,period:trailingPeriod(kitchen)})
+    : selectMarketLeader([],{complete:false,period:null});
   let aggregate = aggregateProductDatabase({
-    observations: collection.observations,
-    populationComplete: collection.complete,
+    observations: firstPageMode ? kitchen : collection.observations,
+    populationComplete: firstPageMode ? firstPageComplete : collection.complete,
     review2000HardFailCount: context.snapshot.review2000HardFailCount,
     monthlyRevenueMinUsd: context.snapshot.monthlyRevenueMinUsd,
   });
@@ -145,8 +169,23 @@ export async function consumeOfficialValidation(
   let assessment = evaluateNiche(nicheInput, context.snapshot);
   let supplementBlock:string|null=null;
   let firstPageSales:FirstPageSales|undefined;
+  if(firstPageMode&&context.firstPageSource){
+    // First-page sales and share come from the same lookup's 30-day estimates; no extra calls.
+    const period=trailingPeriod(collection.observations);
+    const {receiptId,observation}=context.firstPageSource;
+    const {shareTop1MustBeBelowPct,shareTop3MustBeBelowPct,firstPageSalesMinUsd}=context.snapshot;
+    // Market identity comes from the first-page receipt; revenue and family come from the lookup.
+    const pageSourceId='browser-task-result:'+receiptId;
+    const pageRows=collection.observations.flatMap(product=>product.asin.kind==='unknown'||!firstPageAsins.includes(product.asin.value)?[]
+      :[{...product,asin:measured(product.asin.value,pageSourceId,observation.observedAt)}]);
+    const concentration=assessMarketConcentration({rows:marketRevenueRows(pageRows),expectedAsins:firstPageAsins,period,
+      sourceId:pageSourceId,observedAt:observation.observedAt},context.snapshot);
+    if(firstPageComplete)firstPageSales={kind:'complete',observations:pageRows,sourceIds:[...collection.sourceIds],period,
+      marketReceiptId:receiptId,marketAsins:firstPageAsins,concentration,criteria:{shareTop1MustBeBelowPct,shareTop3MustBeBelowPct,firstPageSalesMinUsd}};
+  }
   const sourceIds=new Set(collection.sourceIds);
-  if(categoryConfirmed&&!assessment.hardFail&&collection.complete&&collection.block===null){
+  // The per-ASIN sales follow-ups cost one call per product; first-page mode stays at one call.
+  if(!firstPageMode&&categoryConfirmed&&!assessment.hardFail&&collection.complete&&collection.block===null){
     const anchor=(await pool.query<{anchor:Date|null}>("SELECT min(observed_at) AS anchor FROM api_validation_sources WHERE id=ANY($1::uuid[])",[collection.sourceIds.map(id=>id.slice('api-validation-source:'.length))])).rows[0]?.anchor;
     if(!anchor)supplementBlock='API_SOURCE_TIME_UNKNOWN';
     else{
