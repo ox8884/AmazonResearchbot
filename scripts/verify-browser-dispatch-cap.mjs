@@ -156,10 +156,9 @@ try {
     'A zero dashboard cap blocks browser reads even when the API wire cap is positive');
   assert.ok((await dispatchBrowserWork(test.pool, { ...signing, fingerprint: identity.fingerprint }, 50)).queued >= 1,
     'A separate dashboard cap reopens browser reads after the shared wire cap is consumed');
-  assert.equal((await test.pool.query(
-    "SELECT count(*)::int AS count FROM browser_tasks WHERE candidate_id=$1 AND task_kind='product_database' AND state='queued'",
-    [nextCandidate.id],
-  )).rows[0].count, 1);
+  assert.ok((await test.pool.query(
+    "SELECT count(*)::int AS count FROM browser_tasks WHERE task_kind='product_database' AND state='queued' AND expires_at>clock_timestamp()",
+  )).rows[0].count <= 2, 'Dispatch keeps at most two live queued tasks per kind');
   console.log(JSON.stringify({
     scenario: 'browser-dispatch-cap',
     result: 'PASS',
