@@ -1,12 +1,23 @@
 import { z } from "zod";
 import type { DailySummaryRecord } from "./daily-summary.ts";
+const legacyNumericEvidencePattern =
+  /(?:가격|price|리뷰|reviews?|매출|revenue|bsr|rank|수수료|fee)\D{0,24}\d/i;
 export const summaryMailConsentSchema = z.object({
   summaryEmailEnabled: z.literal(true),
   summaryEmail: z.email().max(320),
 });
 
-function hasNumericEvidence(evidenceSummary: string): boolean {
-  return /\d/.test(evidenceSummary);
+function hasNumericEvidence(
+  candidate: DailySummaryRecord["payload"]["candidates"][number],
+): boolean {
+  return (
+    candidate.hasNumericEvidence ??
+    legacyNumericEvidencePattern.test(candidate.evidenceSummary)
+  );
+}
+
+function mailLine(value: string): string {
+  return value.replace(/[\r\n]+/g, " ").trim();
 }
 
 function waitingCandidateLines(
@@ -14,9 +25,10 @@ function waitingCandidateLines(
 ): string[] {
   const byAction = new Map<string, number>();
   for (const candidate of candidates) {
+    const action = mailLine(candidate.nextAction.label);
     byAction.set(
-      candidate.nextAction.label,
-      (byAction.get(candidate.nextAction.label) ?? 0) + 1,
+      action,
+      (byAction.get(action) ?? 0) + 1,
     );
   }
   return [...byAction].map(
@@ -33,10 +45,10 @@ export function summaryMailContent(summary: DailySummaryRecord) {
     provider_activation: "연결 활성화",
   };
   const candidatesWithEvidence = p.candidates.filter((candidate) =>
-    hasNumericEvidence(candidate.evidenceSummary),
+    hasNumericEvidence(candidate),
   );
   const waitingCandidates = p.candidates.filter(
-    (candidate) => !hasNumericEvidence(candidate.evidenceSummary),
+    (candidate) => !hasNumericEvidence(candidate),
   );
   const candidates = candidatesWithEvidence.slice(0, 50);
   return {
@@ -53,10 +65,10 @@ export function summaryMailContent(summary: DailySummaryRecord) {
       `숫자 근거가 있는 후보 ${candidatesWithEvidence.length}개`,
       ...(candidatesWithEvidence.length ? [] : ["표시할 숫자 근거가 아직 없습니다."]),
       ...candidates.flatMap((c) => [
-        `${c.keyword} · ${c.stageLabel}`,
-        `근거: ${c.evidenceSummary}`,
-        `모르는 것: ${c.unknowns.length ? c.unknowns.join(" · ") : "현재 기록에 없음"}`,
-        `다음 행동: ${c.nextAction.label}`,
+        `${mailLine(c.keyword)} · ${mailLine(c.stageLabel)}`,
+        `근거: ${mailLine(c.evidenceSummary)}`,
+        `모르는 것: ${c.unknowns.length ? c.unknowns.map(mailLine).join(" · ") : "현재 기록에 없음"}`,
+        `다음 행동: ${mailLine(c.nextAction.label)}`,
         "",
       ]),
       ...(candidatesWithEvidence.length > 50
@@ -73,10 +85,11 @@ export function summaryMailContent(summary: DailySummaryRecord) {
             "개별 후보는 앱에서 확인하세요.",
           ]
         : ["현재 대기 후보가 없습니다."]),
+      "",
       "탈락 기록",
       ...p.rejections.map(
         (r) =>
-          `${r.keyword}: ${r.reasons.length ? r.reasons.join(" · ") : "탈락 근거 미확인"}`,
+          `${mailLine(r.keyword)}: ${r.reasons.length ? r.reasons.map(mailLine).join(" · ") : "탈락 근거 미확인"}`,
       ),
       ...(p.rejections.length ? [] : ["집계 기간에 탈락 기록이 없습니다."]),
       "",

@@ -26,7 +26,16 @@ export async function buildDailySummary(
   ).rows.map((row) => row.candidate_id);
   const changed = new Set(progress);
   const candidates = details
-    .map((row) => row.candidate)
+    .map(({ candidate, evidence }) => ({
+      ...candidate,
+      hasNumericEvidence: evidence.some(
+        (item) =>
+          (item.kind === "measured" ||
+            item.kind === "estimate" ||
+            item.kind === "quote") &&
+          item.value_numeric !== null,
+      ),
+    }))
     .filter(
       (row) =>
         !["rejected", "decision_recorded"].includes(row.stage) ||

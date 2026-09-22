@@ -7,6 +7,7 @@ const candidate = z.object({
   stage: z.enum(STAGES),
   stageLabel: z.string(),
   evidenceSummary: z.string(),
+  hasNumericEvidence: z.boolean().optional(),
   unknowns: z.array(z.string()),
   blockedReason: z.enum(BLOCKED_REASONS).nullable(),
   nextAction: z.object({

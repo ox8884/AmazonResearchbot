@@ -49,7 +49,9 @@ try{
  assert.equal(summary.payload.delivery,'not_sent');assert.equal(summary.payload.apiBudget.billedUsd,null);assert.equal(summary.payload.aiCost.consumedUsd,null);assert.equal(summary.payload.launchCash.paidUsd,null);
   assert.ok(summary.payload.candidates.find(row=>row.id===old).unknowns.length>0);
   assert.match(summary.payload.candidates.find(row=>row.id===old).evidenceSummary,/1위 가격: 12\.99/);
-  assert.match(summary.payload.candidates.find(row=>row.id===old).evidenceSummary,/공식 카탈로그/);
+   assert.match(summary.payload.candidates.find(row=>row.id===old).evidenceSummary,/공식 카탈로그/);
+   assert.equal(summary.payload.candidates.find(row=>row.id===old).hasNumericEvidence,true,'New summaries persist structured numeric-evidence classification');
+   assert.equal(summary.payload.candidates.find(row=>row.id===next).hasNumericEvidence,false,'Waiting candidates do not infer evidence from prose');
    const mail=summaryMailContent({id:summary.id,localDate:'2026-09-07',timezone:'America/Chicago',settingsVersion:latest.version+1,generatedAt:'2026-09-07T12:31:00.000Z',payload:summary.payload});
    assert.match(mail.body,/1위 가격: 12\.99/);
    assert.match(mail.body,/공식 카탈로그/);
@@ -60,6 +62,15 @@ try{
    assert.ok(!waitingSection.includes(summary.payload.candidates.find(row=>row.id===next).keyword),'Candidates without numeric evidence are omitted from individual mail blocks');
    assert.match(waitingSection,/자동 확인 중: 1개/);
    assert.doesNotMatch(waitingSection,/근거:/,'Waiting candidates do not repeat empty evidence blocks');
+   const unsafeMail=summaryMailContent({...summary,payload:{...summary.payload,candidates:[{...summary.payload.candidates[0],keyword:'unsafe\nkeyword',unknowns:['missing\nvalue'],nextAction:{...summary.payload.candidates[0].nextAction,label:'action\nvalue'}}]}});
+   assert.doesNotMatch(unsafeMail.body,/unsafe\nkeyword/,'Candidate fields stay on one mail line');
+   assert.match(unsafeMail.body,/unsafe keyword/);
+   const categoryOnlyMail=summaryMailContent({...summary,payload:{...summary.payload,candidates:[{...summary.payload.candidates[0],evidenceSummary:'Official catalog: 3 products · categories 3D Printing',hasNumericEvidence:false}]}});
+   assert.match(categoryOnlyMail.body,/숫자 근거가 없는 후보 1개/,'Numeric category text does not promote a waiting candidate');
+   const legacyCategoryCandidate={...summary.payload.candidates[0],evidenceSummary:'Official catalog: 3 products · categories 3D Printing'};
+   delete legacyCategoryCandidate.hasNumericEvidence;
+   const legacyCategoryMail=summaryMailContent({...summary,payload:{...summary.payload,candidates:[legacyCategoryCandidate]}});
+   assert.match(legacyCategoryMail.body,/숫자 근거가 없는 후보 1개/,'Legacy category text stays in the waiting group');
  const keyword=summary.payload.candidates.find(row=>row.id===old).keyword;
  await test.pool.query('UPDATE candidates SET keyword_display=$2 WHERE id=$1',[old,'Changed after summary']);
  assert.equal((await test.pool.query('SELECT payload FROM daily_summaries WHERE id=$1',[summary.id])).rows[0].payload.candidates.find(row=>row.id===old).keyword,keyword);
