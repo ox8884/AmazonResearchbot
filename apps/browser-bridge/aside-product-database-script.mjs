@@ -1,5 +1,6 @@
-export function productDatabaseScript(query,marker){
- async function collect(query,marker){
+// asins: Amazon first-page ASINs to look up instead of the keyword (no category or tier filters then).
+export function productDatabaseScript(query,marker,asins=null){
+ async function collect(query,marker,asins){
   let page,result,owned=false,stage='OPEN';
   try{
    const existing=(await listBrowserTabs()).find(tab=>typeof tab.targetId==='string'&&typeof tab.url==='string'&&/^https:\/\/members\.junglescout\.com\//.test(tab.url));
@@ -33,13 +34,20 @@ export function productDatabaseScript(query,marker){
     if(!state.checked){await label.click();state=await stateFor(label);}
     if(!state.checked)throw Error(reason);
    };
-   await ensureChecked('Home & Kitchen','CATEGORY_FILTER_UNCONFIRMED');
-   await ensureChecked('Standard','PRODUCT_TIER_FILTER_UNCONFIRMED');
+   if(asins){
+    // An ASIN lookup must not be narrowed by leftover filters.
+    await page.getByRole('button',{name:'Reset Filters',exact:true}).click();
+    for(const name of ['Home & Kitchen','Standard'])if((await stateFor(page.getByText(name,{exact:true}).first())).checked)throw Error('FILTER_RESET_UNCONFIRMED');
+   }else{
+    await ensureChecked('Home & Kitchen','CATEGORY_FILTER_UNCONFIRMED');
+    await ensureChecked('Standard','PRODUCT_TIER_FILTER_UNCONFIRMED');
+   }
    stage='QUERY';
    const input=page.getByRole('textbox',{name:'Enter words and/or ASINs separated by commas',exact:true}).first();
    await input.waitFor({state:'visible',timeout:20_000});
-   await input.fill(query);
-   if(await input.evaluate(el=>el.value)!==query)throw Error('QUERY_NOT_APPLIED');
+   const searchText=asins?asins.join(', '):query;
+   await input.fill(searchText);
+   if(await input.evaluate(el=>el.value)!==searchText)throw Error('QUERY_NOT_APPLIED');
    stage='RESULTS';
    await page.getByRole('button',{name:'Search',exact:true}).click();
    const table=page.getByRole('table',{name:'Product Database Table',exact:true});
@@ -98,10 +106,11 @@ export function productDatabaseScript(query,marker){
    if(!Number.isSafeInteger(totalCount)||totalCount<records.length)throw Error('RESULT_COUNT_UNCONFIRMED');
    const displayedCount=records.length,coverage=displayedCount===totalCount?'complete':'partial';
    const queryTokens=query.toLowerCase().match(/[a-z0-9]+/g)?.filter(token=>token.length>1)??[];
-   if(queryTokens.length&&!records.some(record=>queryTokens.every(token=>record.sourceText.toLowerCase().includes(token))))throw Error('RESULT_QUERY_UNCONFIRMED');
+   if(asins&&records.some(record=>!asins.includes(record.asin)))throw Error('RESULT_SCOPE_UNCONFIRMED');
+   if(!asins&&queryTokens.length&&!records.some(record=>queryTokens.every(token=>record.sourceText.toLowerCase().includes(token))))throw Error('RESULT_QUERY_UNCONFIRMED');
    const finalPageUrl=await destination();
-   if(await input.evaluate(el=>el.value)!==query||!/^https:\/\/members\.junglescout\.com\/(?:#\/)?database(?:[/?#].*)?$/.test(finalPageUrl))throw Error('QUERY_CHANGED');
-   result={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100,displayedCount,totalCount,coverage,...(revenueSort?{revenueSort}:{}),sourcePageUrl:finalPageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,records};
+   if(await input.evaluate(el=>el.value)!==searchText||!/^https:\/\/members\.junglescout\.com\/(?:#\/)?database(?:[/?#].*)?$/.test(finalPageUrl))throw Error('QUERY_CHANGED');
+   result={protocol:1,kind:'captured',scope:'jungle_scout_product_database',query,marketplace:'us',...(asins?{requestedAsins:asins}:{category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard'}),resultLimit:100,displayedCount,totalCount,coverage,...(revenueSort?{revenueSort}:{}),sourcePageUrl:finalPageUrl,observedAt:new Date().toISOString(),snapshot:snapshotResult.tree,records};
   }catch(error){
    const reason=error instanceof Error&&/^[A-Z0-9_]+$/.test(error.message)?error.message:'PRODUCT_DATABASE_'+stage+'_UNCONFIRMED';
    result={protocol:1,kind:'unavailable',reason};
@@ -110,5 +119,6 @@ export function productDatabaseScript(query,marker){
   console.log(marker+JSON.stringify(result));
  }
  if(typeof query!=='string'||!query.trim()||query.length>500)throw Error('INVALID_PRODUCT_DATABASE_QUERY');
- return 'await ('+collect.toString()+')('+JSON.stringify(query)+','+JSON.stringify(marker)+')';
+ if(asins!==null&&(!Array.isArray(asins)||!asins.length||asins.length>100||asins.some(asin=>typeof asin!=='string'||!/^[A-Z0-9]{10}$/.test(asin))))throw Error('INVALID_PRODUCT_DATABASE_ASINS');
+ return 'await ('+collect.toString()+')('+JSON.stringify(query)+','+JSON.stringify(marker)+','+JSON.stringify(asins)+')';
 }

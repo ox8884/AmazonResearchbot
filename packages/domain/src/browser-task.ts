@@ -50,10 +50,12 @@ export const browserTaskSchema = z.object({
       settingsVersion: z.number().int().positive(),
       query: z.string().trim().min(1).max(500),
       marketplace: z.literal("us"),
-      category: z.literal("Kitchen & Dining"),
-      discoveryCategory: z.literal("Home & Kitchen"),
-      productTier: z.literal("Standard"),
+      // Keyword searches filter by category and tier; first-page ASIN lookups send asins and no filters.
+      category: z.literal("Kitchen & Dining").optional(),
+      discoveryCategory: z.literal("Home & Kitchen").optional(),
+      productTier: z.literal("Standard").optional(),
       resultLimit: z.literal(100),
+      asins: z.array(z.string().regex(/^[A-Z0-9]{10}$/)).min(1).max(100).optional(),
     }).strict(),
     z.object({
       kind: z.literal("keyword_scout"),

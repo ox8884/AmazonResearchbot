@@ -1,5 +1,5 @@
 import {createHash} from 'node:crypto';
-import {browserObservationSchema,browserTaskSchema,categoryTrendsObservationSchema,evaluateNiche,measured,estimate,productDatabaseObservationSchema,selectBrowserProductLeader,settleSortedPartialView,unknown,type Evidence,type NicheInput} from '@forge-ops/domain';
+import {browserObservationSchema,browserTaskSchema,categoryTrendsObservationSchema,evaluateNiche,measured,estimate,productDatabaseObservationSchema,selectBrowserProductLeader,settleSortedPartialView,sameFirstPageAsins,unknown,type Evidence,type NicheInput} from '@forge-ops/domain';
 import {decryptSecret,exactPayloadHash} from '@forge-ops/security';
 import type {Pool} from '@forge-ops/db';
 import {applyApiValidationDecision,loadCanonicalNicheEvidence,type ApiValidationContext} from './api-validation-store.ts';
@@ -77,7 +77,8 @@ export async function consumeBrowserValidation(pool:Pool,context:ApiValidationCo
   if(request.kind==='product_database'){
    if(observation.scope!=='jungle_scout_product_database'||observation.query!==context.keyword||observation.query!==request.query||
       observation.marketplace!==request.marketplace||observation.category!==request.category||observation.discoveryCategory!==request.discoveryCategory||
-      observation.productTier!==request.productTier||observation.resultLimit!==request.resultLimit)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
+      observation.productTier!==request.productTier||observation.resultLimit!==request.resultLimit||
+      !sameFirstPageAsins(request.asins,observation))throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
   }else if(request.kind==='keyword_scout'){
    if(observation.scope!=='jungle_scout_keyword_scout'||observation.query!==context.keyword||observation.query!==request.query)throw new Error('BROWSER_VALIDATION_SOURCE_INVALID');
   }else if(request.kind==='historical_data'){
@@ -103,7 +104,9 @@ export async function consumeBrowserValidation(pool:Pool,context:ApiValidationCo
  const products=categoriesKnown?observation.records.filter(record=>exactCategory(record.categoryPath)):[];
  const reviews=products.map(record=>integer(record.reviews));
  const revenues=products.map(record=>money(record.revenueMonthly));
- const sourceComplete=populationComplete&&categoriesKnown&&products.length===observation.records.length&&products.length>0;
+ // A first-page lookup can include neighbouring categories; count only its Kitchen & Dining products.
+ const sourceComplete=populationComplete&&categoriesKnown&&products.length>0&&
+  (observation.requestedAsins!==undefined||products.length===observation.records.length);
  const reviewComplete=sourceComplete&&reviews.every(value=>value!==null);
  const revenueComplete=sourceComplete&&revenues.every(value=>value!==null);
  const minimumRevenue=Number(context.snapshot.monthlyRevenueMinUsd);

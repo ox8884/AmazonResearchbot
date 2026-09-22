@@ -18,6 +18,8 @@ export const productDatabaseObservationSchema = z.object({
   coverage: z.enum(["complete", "partial"]).optional(),
   // Set only when the capture confirmed Jungle Scout sorted the whole result set by monthly revenue.
   revenueSort: z.literal("descending").optional(),
+  // The Amazon first-page ASINs that were looked up, when the capture used ASINs instead of the keyword.
+  requestedAsins: z.array(asin).min(1).max(100).optional(),
   sourcePageUrl: z.string().url().max(4096).regex(/^https:\/\/members\.junglescout\.com\/(?:#\/)?database(?:[/?#].*)?$/),
   observedAt: z.string().datetime({ offset: true }),
   snapshot: z.string().min(1).max(1_000_000),
@@ -49,3 +51,12 @@ export const productDatabaseObservationSchema = z.object({
 });
 
 export type ProductDatabaseObservation = z.infer<typeof productDatabaseObservationSchema>;
+
+// A first-page ASIN lookup must echo exactly the requested ASINs and return only those products;
+// a keyword search must not claim to be one.
+export function sameFirstPageAsins(requested: readonly string[] | undefined, observation: ProductDatabaseObservation): boolean {
+  if (requested === undefined) return observation.requestedAsins === undefined;
+  const echoed = observation.requestedAsins;
+  return echoed !== undefined && echoed.length === requested.length && echoed.every((asin, index) => asin === requested[index]) &&
+    observation.records.every((record) => requested.includes(record.asin));
+}

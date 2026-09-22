@@ -7,7 +7,7 @@ import path from 'node:path';
 import {openAcceptance} from './support/acceptance.mjs';
 import {browserSigningFixture} from './support/browser-signing-fixture.mjs';
 import {publishBrowserSigningIdentity} from '../apps/worker/src/browser-signing-key.ts';
-import {queueAmazonSearch,queueAmazonPackage} from '../apps/worker/src/browser-task-producer.ts';
+import {queueAmazonSearch,queueAmazonPackage,queueProductDatabase} from '../apps/worker/src/browser-task-producer.ts';
 import {dispatchBrowserWork} from '../apps/worker/src/browser-dispatch.ts';
 import {loadCanonicalNicheEvidence} from '../apps/worker/src/api-validation-store.ts';
 import {createAsideAdapter} from '../apps/browser-bridge/aside-adapter.mjs';
@@ -47,6 +47,12 @@ try{
  assert.deepEqual(JSON.parse(decryptSecret(stored.body_ciphertext,Buffer.from(test.encryptionKeyHex,'hex'),'browser-task-result:'+accepted.body.receiptId)),observation);
  const visible=(await test.call('/api/candidates/'+id+'/market-source')).body;assert.equal(visible.state,'captured');assert.equal(visible.slots.length,2);assert.equal(visible.slots[1].price.kind,'unknown');assert.equal(visible.snapshot,undefined);assert.equal(visible.slots[0].sourceText,undefined);
  assert.equal((await loadCanonicalNicheEvidence(test.pool,id)).topPriceUsd.kind,'unknown','A displayed listing price is not a market leader price');
+ // Product Database looks up the captured first page's non-sponsored ASINs instead of the keyword.
+ assert.equal((await call('/api/bridge/capabilities',{connected:true,supportedTasks:['amazon_search','amazon_package','product_database'],keyFingerprint:identity.fingerprint})).status,200);
+ const lookup=await queueProductDatabase(test.pool,{deviceId,candidateId:id,encryptionKey:Buffer.from(test.encryptionKeyHex,'hex')},signing);assert.equal(lookup.kind,'queued');
+ const lookupRequest=JSON.parse(Buffer.from((await test.pool.query('SELECT envelope FROM browser_tasks WHERE id=$1',[lookup.taskId])).rows[0].envelope.payload,'base64url')).request;
+ assert.deepEqual(lookupRequest.asins,[asin],'Only non-sponsored first-page ASINs are looked up');assert.equal(lookupRequest.category,undefined,'An ASIN lookup carries no category filter');
+ await test.pool.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1",[lookup.taskId]);
  const choices=(await test.call('/api/candidates/'+id+'/representative')).body;assert.ok(choices.availableAsins.includes(asin),'Current observed unmarked ASINs can be selected without fabricated API catalog facts');assert.equal(choices.titles[asin],item.title);
  assert.equal((await test.call('/api/candidates/'+id+'/representative',{asin,inputVersion:1})).status,200);
  assert.equal((await test.call('/api/candidates/'+id+'/market-source')).body.state,'stale');

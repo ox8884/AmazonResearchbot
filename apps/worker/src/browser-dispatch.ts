@@ -44,7 +44,7 @@ async function queueRoom(pool: Pool, kind: string): Promise<number> {
   return Math.max(0, QUEUED_PER_KIND - queued);
 }
 
-export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin: string; readonly privateKey: KeyObject; readonly fingerprint: string }, browserCap?: number) {
+export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin: string; readonly privateKey: KeyObject; readonly fingerprint: string }, browserCap?: number, encryptionKey?: Buffer) {
   let researchRemaining = await readJungleScoutBrowserBudget(pool, browserCap);
   const searches=researchRemaining > 0
     ? await dispatchSearchExports(pool,signing,researchRemaining)
@@ -75,11 +75,13 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
     const candidates=(await pool.query<{id:string}>(`
       SELECT c.id FROM candidates c JOIN LATERAL(SELECT version FROM settings_versions ORDER BY version DESC LIMIT 1) v ON true
       WHERE c.marketplace='us' AND c.stage='api_validation' AND length(c.normalized_keyword) BETWEEN 1 AND 500
+       AND ($2::boolean IS FALSE OR EXISTS(SELECT 1 FROM browser_tasks market WHERE market.candidate_id=c.id AND market.task_kind='amazon_search'
+        AND market.input_version=c.input_version AND market.settings_version=v.version AND market.state='completed'))
        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='product_database'
         AND t.input_version=c.input_version AND t.settings_version=v.version
         AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[Math.min(await queueRoom(pool,'product_database'),researchRemaining)])).rows;
-    for(const candidate of candidates)if((await queueProductDatabase(pool,{deviceId:productDatabaseDevice.id,candidateId:candidate.id},signing)).kind==='queued'){queued++;researchRemaining--;}
+      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[Math.min(await queueRoom(pool,'product_database'),researchRemaining),encryptionKey!==undefined])).rows;
+    for(const candidate of candidates)if((await queueProductDatabase(pool,{deviceId:productDatabaseDevice.id,candidateId:candidate.id,...(encryptionKey?{encryptionKey}:{})},signing)).kind==='queued'){queued++;researchRemaining--;}
   }
   const keywordScoutDevice=devices.find(device=>device.capability==='keyword_scout');
   if(keywordScoutDevice && researchRemaining > 0){

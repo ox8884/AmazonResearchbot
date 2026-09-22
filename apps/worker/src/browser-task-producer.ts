@@ -3,10 +3,12 @@ import { lockActiveBridgeDevice, lockSourcingContext, lockPackageContext, lockMa
 import type { BrowserReadTask } from "@forge-ops/domain";
 import { alibabaCompanyKey, alibabaProductKey } from "@forge-ops/integrations/sourcing/capture";
 import { signBrowserTask } from "./browser-task-signer.ts";
+import { readMarketSource } from "@forge-ops/integrations/amazon/market-source";
 
 type Signing = { readonly origin: string; readonly privateKey: KeyObject };
 type Target = { readonly deviceId: string; readonly candidateId: string } & (
-  { readonly kind: "supplier_search" | "amazon_package" | "amazon_search" | "product_database" | "keyword_scout" | "historical_data" | "category_trends" | "competitive_intelligence" } | { readonly kind: "supplier_detail"; readonly sourceCaptureId: string }
+  { readonly kind: "supplier_search" | "amazon_package" | "amazon_search" | "keyword_scout" | "historical_data" | "category_trends" | "competitive_intelligence" } | { readonly kind: "supplier_detail"; readonly sourceCaptureId: string }
+  | { readonly kind: "product_database"; readonly encryptionKey?: Buffer }
 );
 const researchPrerequisite = {
   keyword_scout: "product_database",
@@ -31,6 +33,17 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
           WHERE c.id=$1 AND c.blocked_reason='evidence')) AS reserved`,
         [source.id,source.input_version,source.settings_version])).rows[0]?.reserved??false;
       if(official){await db.query('COMMIT');return {kind:'not_ready' as const};}
+    }
+    // Product Database's keyword field matches a multi-word keyword as a strict phrase, so the market is
+    // looked up by the Amazon first-page ASINs instead: the non-sponsored products shown for the keyword.
+    let firstPageAsins: string[] | null = null;
+    if (target.kind === "product_database" && target.encryptionKey) {
+      const market = await readMarketSource(db, source.id, target.encryptionKey);
+      if (market.state !== "captured" || market.inputVersion !== source.input_version || market.settingsVersion !== source.settings_version) {
+        await db.query("COMMIT"); return { kind: "not_ready" as const };
+      }
+      firstPageAsins = [...new Set(market.observation.slots.filter(slot => slot.adStatus !== "sponsored" && slot.asin !== null).map(slot => slot.asin as string))].slice(0, 100);
+      if (!firstPageAsins.length) { await db.query("COMMIT"); return { kind: "not_ready" as const }; }
     }
     const captured = target.kind === "supplier_detail" && source.spec_id !== null ? await readSupplierSearchSource(db, target.sourceCaptureId, source) : null;
     if (target.kind === "supplier_detail" && (!captured || !alibabaCompanyKey(captured.company_url) || !alibabaProductKey(captured.product_url))) {
@@ -73,6 +86,8 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
       ? {kind:'historical_data',...scope,query:source.market_query,representativeAsin:source.representative_asin}
       : target.kind==='keyword_scout' && 'market_query' in source
       ? {kind:'keyword_scout',...scope,query:source.market_query}
+      : target.kind==='product_database' && 'market_query' in source && firstPageAsins
+      ? {kind:'product_database',...scope,query:source.market_query,marketplace:'us',resultLimit:100,asins:firstPageAsins}
       : target.kind==='product_database' && 'market_query' in source
       ? {kind:'product_database',...scope,query:source.market_query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100}
       : 'market_query' in source
@@ -102,7 +117,8 @@ export function queueAmazonPackage(pool: Pool, target: { readonly deviceId: stri
 export function queueAmazonSearch(pool:Pool,target:{readonly deviceId:string;readonly candidateId:string},signing:Signing){
  return queueBrowserRead(pool,{...target,kind:'amazon_search'},signing);
 }
-export function queueProductDatabase(pool:Pool,target:{readonly deviceId:string;readonly candidateId:string},signing:Signing){
+// With encryptionKey, the lookup uses the candidate's Amazon first-page ASINs (see queueBrowserRead).
+export function queueProductDatabase(pool:Pool,target:{readonly deviceId:string;readonly candidateId:string;readonly encryptionKey?:Buffer},signing:Signing){
  return queueBrowserRead(pool,{...target,kind:'product_database'},signing);
 }
 export function queueKeywordScout(pool:Pool,target:{readonly deviceId:string;readonly candidateId:string},signing:Signing){

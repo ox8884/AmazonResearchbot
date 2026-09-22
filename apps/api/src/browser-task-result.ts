@@ -2,7 +2,7 @@ import type { PgBoss } from "pg-boss";
 import { JOB_ADVANCE, txAdapter } from "./queue.ts";
 import { randomUUID } from "node:crypto";
 import { lockActiveBridgeDevice, type Pool } from "@forge-ops/db";
-import { browserObservationSchema, browserTaskSchema, supplierCaptureSchema, supplierDetailCapture, parseAmazonPackageMeasurements, assessStandardSize, STANDARD_SIZE_POLICY, selectBrowserProductLeader, type SupplierCapture } from "@forge-ops/domain";
+import { browserObservationSchema, sameFirstPageAsins, browserTaskSchema, supplierCaptureSchema, supplierDetailCapture, parseAmazonPackageMeasurements, assessStandardSize, STANDARD_SIZE_POLICY, selectBrowserProductLeader, type SupplierCapture } from "@forge-ops/domain";
 import { insertSupplierCapture, alibabaCompanyKey, alibabaProductKey } from "@forge-ops/integrations/sourcing/capture";
 import { encryptSecret, exactPayloadHash } from "@forge-ops/security";
 import { lockTaskSource, type BrowserTaskRow } from "./browser-task-store.ts";
@@ -59,7 +59,7 @@ export async function acceptBrowserTaskResult(pool:Pool,input:{
    if(source.readKind!=='product_database'||observation.scope!=='jungle_scout_product_database'||observation.query!==request.query||
       observation.marketplace!==request.marketplace||observation.category!==request.category||
       observation.discoveryCategory!==request.discoveryCategory||observation.productTier!==request.productTier||
-      observation.resultLimit!==request.resultLimit){await db.query('COMMIT');return {kind:'invalid' as const};}
+      observation.resultLimit!==request.resultLimit||!sameFirstPageAsins(request.asins,observation)){await db.query('COMMIT');return {kind:'invalid' as const};}
    const current=(await db.query<{asin:string|null}>(`SELECT detail->>'representativeAsin' AS asin
     FROM candidate_events WHERE candidate_id=$1 AND stage='api_validation' AND input_version=$2
     LIMIT 1`,[task.candidate_id,task.input_version])).rows[0];

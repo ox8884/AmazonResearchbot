@@ -138,7 +138,7 @@ let browserTask: Promise<void> | null = null;
 let browserFailed = false;
 function dispatchBrowserTasks(): void {
   if (!browserSigning || browserTask) return;
-  browserTask = dispatchBrowserWork(pool, browserSigning, browserCap).then(result => {
+  browserTask = dispatchBrowserWork(pool, browserSigning, browserCap, encryptionKey).then(result => {
     if (result.queued) console.log("Browser read tasks prepared", { queued: result.queued });
     browserFailed = false;
   }).catch(() => {

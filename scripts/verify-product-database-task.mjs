@@ -6,7 +6,8 @@ import {browserSigningFixture} from './support/browser-signing-fixture.mjs';
 import {publishBrowserSigningIdentity} from '../apps/worker/src/browser-signing-key.ts';
 import {queueProductDatabase} from '../apps/worker/src/browser-task-producer.ts';
 import {decryptSecret} from '../packages/security/src/secrets.ts';
-import {productDatabaseObservationSchema} from '../packages/domain/src/product-database.ts';
+import {productDatabaseObservationSchema,sameFirstPageAsins} from '../packages/domain/src/product-database.ts';
+import {productDatabaseScript} from '../apps/browser-bridge/aside-product-database-script.mjs';
 import {confirmsKitchenDining,selectBrowserProductLeader,settleSortedPartialView} from '../packages/domain/src/product-database-leader.ts';
 import {INITIAL_SETTINGS} from '../packages/domain/src/settings.ts';
 
@@ -39,6 +40,16 @@ assert.deepEqual(settleSortedPartialView(sortedView([1,2,3,4].map(n=>row(n,'$'+(
 assert.deepEqual(settleSortedPartialView(sortedView([1,2,3,4,5].map(n=>row(n,'$'+(50-n)+',000','10'))),rules),{review700:null,review2000:null,revenueCompetitors:5},'Five visible competitors above the floor settle the revenue rule');
 assert.deepEqual(settleSortedPartialView(sortedView([row(1,'$50,000','10'),row(2,'$40,000','10')]),rules),{review700:null,review2000:null,revenueCompetitors:null},'A view that ends above the floor with too few competitors stays unknown');
 assert.deepEqual(settleSortedPartialView(sortedView([row(1,'$10,000','800'),row(2,'$40,000','800'),row(3,'$30,000','800'),row(4,'$20,000','800')]),rules),{review700:null,review2000:null,revenueCompetitors:null},'Out-of-order revenue is not trusted as sorted');
+// First-page ASIN lookups: the capture must echo the requested ASINs and return nothing else.
+const lookupFixture={...productFixture,category:undefined,discoveryCategory:undefined,productTier:undefined,requestedAsins:[productRecord.asin,'B0PD000009']};
+assert.equal(productDatabaseObservationSchema.safeParse(lookupFixture).success,true,'The schema accepts an ASIN lookup without category filters');
+assert.equal(sameFirstPageAsins([productRecord.asin,'B0PD000009'],lookupFixture),true,'Echoed ASINs with in-scope records match');
+assert.equal(sameFirstPageAsins([productRecord.asin],lookupFixture),false,'A different ASIN list does not match');
+assert.equal(sameFirstPageAsins(['B0PD000009','B0PD000008'],{...lookupFixture,requestedAsins:['B0PD000009','B0PD000008']}),false,'A record outside the requested ASINs does not match');
+assert.equal(sameFirstPageAsins(undefined,lookupFixture),false,'A keyword search cannot claim to be an ASIN lookup');
+assert.equal(sameFirstPageAsins(undefined,productFixture),true,'A keyword search without requested ASINs matches');
+assert.match(productDatabaseScript('garlic press','@@',['B0PD000001','B0PD000002']),/"B0PD000001","B0PD000002"/,'The script receives the ASIN list as data');
+assert.throws(()=>productDatabaseScript('garlic press','@@',['bad']),/INVALID_PRODUCT_DATABASE_ASINS/);
 
 const reserve=createServer();
 reserve.listen(0,'127.0.0.1');
