@@ -1,4 +1,6 @@
 import { STAGE_LABEL_EN, STAGE_LABEL_KO, type BlockedReason, type Stage } from "./stages.ts";
+import { marketRiskMatchesSettings, marketRiskOutcome, type MarketRiskView } from "./market-risk-view.ts";
+import type { SettingsSnapshot } from "./settings.ts";
 
 export type NextActionKind = "automatic" | "approval" | "waiting";
 
@@ -7,6 +9,8 @@ export type NextAction = {
   label: string;
   target: string;
 };
+
+export type CandidateDecision = "go" | "caution" | "no_go" | "waiting";
 
 export type CandidateView = {
   id: string;
@@ -17,7 +21,24 @@ export type CandidateView = {
   unknowns: string[];
   nextAction: NextAction;
   blockedReason: BlockedReason;
+  decision: CandidateDecision;
 };
+
+export function candidateDecision(input: {
+  phase: "screening" | "api_validation" | null;
+  status: "unconfirmed" | "pass" | "reject" | "hold" | "stale";
+  marketRisk: MarketRiskView | null | undefined;
+  settings: Pick<SettingsSnapshot, "shareTop1MustBeBelowPct" | "shareTop3MustBeBelowPct" | "firstPageSalesMinUsd"> | null | undefined;
+}): CandidateDecision {
+  if (input.status === "reject") return "no_go";
+  if (input.phase !== "api_validation" || input.status !== "pass") return "waiting";
+  const risk = marketRiskOutcome(input.marketRisk);
+  if (risk === "CAUTION") return "caution";
+  if (risk !== "GO" || !input.settings || !input.marketRisk || !marketRiskMatchesSettings(input.marketRisk, input.settings)) {
+    return "waiting";
+  }
+  return "go";
+}
 
 export function nextAction(input: {
   stage: Stage;

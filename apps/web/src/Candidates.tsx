@@ -17,6 +17,14 @@ import {
   useLocale,
 } from "./ui.tsx";
 
+const decisionMeta = {
+  go: { label: ["GO", "GO"] as const, className: "chip-ok", icon: "check" as const },
+  caution: { label: ["주의", "CAUTION"] as const, className: "chip-warn", icon: "warning" as const },
+  no_go: { label: ["No-Go", "NO-GO"] as const, className: "chip-danger", icon: "warning" as const },
+  waiting: { label: ["대기", "WAITING"] as const, className: "chip-unknown", icon: "clock" as const },
+} as const;
+const decisionFilters = ["go", "caution", "no_go", "waiting"] as const;
+
 export function useCandidates() {
   const { language } = useLocale();
   return useQuery({
@@ -52,9 +60,14 @@ export function CandidateCard({
   const blockedReason = c.blockedReason
     ? contactReason(c.blockedReason, language)
     : null;
+  const decision = decisionMeta[c.decision];
   return (
     <article className={`card candidate-card${selected ? " selected" : ""}`}>
       <div className="chips candidate-statuses">
+        <span className={`chip ${decision.className}`}>
+          <Icon name={decision.icon} />
+          {decision.label[language === "ko" ? 0 : 1]}
+        </span>
         <Stage>{c.stageLabel}</Stage>
         {blockedReason && (
           <span className="chip chip-warn">
@@ -112,12 +125,21 @@ export function CandidateCard({
 }
 export function Candidates() {
   const q = useCandidates();
-  const { t } = useLocale();
+  const { t, language } = useLocale();
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState("all");
+  const [decisionFilter, setDecisionFilter] = useState<string>("all");
+  const counts = decisionFilters.reduce<Record<string, number>>(
+    (result, decision) => {
+      result[decision] = (q.data ?? []).filter((candidate) => candidate.decision === decision).length;
+      return result;
+    },
+    {},
+  );
   const list = (q.data ?? []).filter(
     (c) =>
       c.keyword.toLocaleLowerCase().includes(search.toLocaleLowerCase()) &&
+      (decisionFilter === "all" || c.decision === decisionFilter) &&
       (filter === "all" || c.nextAction.kind === filter),
   );
   return (
@@ -134,6 +156,21 @@ export function Candidates() {
           {t("제품 가져오기", "Import products")}
         </NavLink>
       </PageHeader>
+      <div className="decision-summary" aria-label={t("판정별 후보 수", "Candidates by decision")}>
+        <button type="button" aria-pressed={decisionFilter === "all"} className={`decision-summary-item${decisionFilter === "all" ? " selected" : ""}`} onClick={() => setDecisionFilter("all")}>
+          <strong>{q.data?.length ?? 0}</strong>
+          <span>{t("전체", "All")}</span>
+        </button>
+        {decisionFilters.map((decision) => {
+          const meta = decisionMeta[decision];
+          return (
+            <button key={decision} type="button" aria-pressed={decisionFilter === decision} className={`decision-summary-item ${meta.className}${decisionFilter === decision ? " selected" : ""}`} onClick={() => setDecisionFilter(decision)}>
+              <strong>{counts[decision] ?? 0}</strong>
+              <span>{meta.label[language === "ko" ? 0 : 1]}</span>
+            </button>
+          );
+        })}
+      </div>
       <div className="list-toolbar">
         <div className="field search-field">
           <label htmlFor="search">{t("키워드 검색", "Search keywords")}</label>

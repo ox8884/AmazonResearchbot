@@ -1,4 +1,4 @@
-import {NICHE_RULE_LABELS,nextAction,readNicheEvidence,stageLabel,type BlockedReason,type CandidateValidationView,type CandidateView,type NicheInput,type Stage,type StoredEvidence} from '@forge-ops/domain';
+import {candidateDecision,NICHE_RULE_LABELS,nextAction,readNicheEvidence,stageLabel,type BlockedReason,type CandidateValidationView,type CandidateView,type NicheInput,type Stage,type StoredEvidence} from '@forge-ops/domain';
 import type {Pool} from './client.ts';
 import {validationView,marketRiskMatchesSettings,type ValidationRow,type SettingsSnapshot} from '@forge-ops/domain';
 type Db=Pick<Pool,'query'>;
@@ -83,7 +83,8 @@ export async function loadCandidateDetails(db:Db,locale:'ko'|'en',id:string|null
       unknowns.push(locale==='ko'?'첫 페이지·매출 점유율 미확인':'First-page sales and revenue share unconfirmed');
     const evidenceSummary=[summary(input,validation,locale),catalogEvidenceSummary(rows,locale)].filter(Boolean).join(' · ');
     return {candidate:{id:row.id,keyword:row.keyword_display,stage:row.stage,stageLabel:stageLabel(row.stage,locale),blockedReason:row.blocked_reason,
-      evidenceSummary,unknowns:[...new Set(unknowns)],nextAction:nextAction({stage:row.stage,blockedReason:row.blocked_reason,locale})},evidence:rows,validation};
+      evidenceSummary,unknowns:[...new Set(unknowns)],nextAction:nextAction({stage:row.stage,blockedReason:row.blocked_reason,locale}),
+      decision:candidateDecision({phase:validation.phase,status:validation.status,marketRisk:validation.marketRisk,settings:activeSettings?.snapshot})},evidence:rows,validation};
   });
 }
 export async function loadCandidates(db:Db,locale:'ko'|'en'):Promise<CandidateView[]>{return (await loadCandidateDetails(db,locale,null)).map(row=>row.candidate);}

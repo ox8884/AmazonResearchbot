@@ -24,8 +24,10 @@ try{
  assert.equal(koReady.nextAction.kind,'approval');
  assert.equal(koReady.nextAction.target,'supplier_contact');
  assert.equal(koReady.nextAction.label,'견적 요청 보내기');
+ assert.equal(koReady.decision,'go');
  assert.equal(koHeld.nextAction.kind,'waiting');
  assert.equal(koHeld.nextAction.target,'web_session');
+ assert.equal(koHeld.decision,'waiting');
  const en=await test.call('/api/candidates',undefined,{'accept-language':'en'});
  assert.equal(en.body.candidates.find(c=>c.id===ready.id).nextAction.label,'Send quote requests');
  const detail=await test.call('/api/candidates/'+ready.id);
