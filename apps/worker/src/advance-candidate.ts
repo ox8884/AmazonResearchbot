@@ -136,7 +136,7 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
       ...(firstPageSource?{firstPageSource}:{}),
       };
     const officialReady=transport.kind==='ready'&&settings.jsDailyWireCap>0;
-    const browserResult=officialReady?'not_ready':ai?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
+    const browserResult=ai?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
     const officialReserved=browserResult==='not_ready'&&officialReady
       ?await reserveOfficialValidation(pool,context)
       :browserResult==='not_ready';

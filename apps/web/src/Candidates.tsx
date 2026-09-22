@@ -64,12 +64,15 @@ export function CandidateCard({
     (value) => value !== "지금 모르는 것은 없습니다" && value !== "None right now",
   );
   const decision = decisionMeta[c.decision];
+  const decisionLabel = c.decisionBasis === "insufficient_evidence"
+    ? t("No-Go · 근거 부족", "NO-GO · insufficient evidence")
+    : decision.label[language === "ko" ? 0 : 1];
   return (
     <article className={`card candidate-card${selected ? " selected" : ""}`}>
       <div className="chips candidate-statuses">
         <span className={`chip ${decision.className}`}>
           <Icon name={decision.icon} />
-          {decision.label[language === "ko" ? 0 : 1]}
+          {decisionLabel}
         </span>
         <Stage>{c.stageLabel}</Stage>
         {blockedReason && (
@@ -110,10 +113,20 @@ export function CandidateCard({
             </span>
           </summary>
           <ul>
-            {unknownValues.map((value) => (
-              <li key={value}>
+            {(c.evidencePlan.length ? c.evidencePlan : unknownValues.map((value) => ({
+              id: value,
+              label: unknownLabel(value, language),
+              source: "jungle_scout_api" as const,
+              sourceLabel: t("확인 경로 미정", "Route not assigned"),
+              action: t("추가 확인이 필요합니다.", "Further verification is needed."),
+            }))).map((item) => (
+              <li key={item.id}>
                 <Icon name="unknown" />
-                <span>{unknownLabel(value, language)}</span>
+                <span className="evidence-plan-copy">
+                  <strong>{item.label}</strong>
+                  <span className="muted">{item.sourceLabel}</span>
+                  <span>{item.action}</span>
+                </span>
               </li>
             ))}
           </ul>

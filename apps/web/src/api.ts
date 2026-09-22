@@ -1,5 +1,5 @@
 import type { CandidateValidationView } from "../../../packages/domain/src/validation-view.ts";
-import type { CandidateDecision } from "../../../packages/domain/src/candidate-view.ts";
+import type { CandidateDecision, CandidateDecisionBasis, EvidencePlanItem } from "../../../packages/domain/src/candidate-view.ts";
 import type { CsvMapping } from "../../../packages/domain/src/csv-import.ts";
 export type NextAction = {
   kind: "automatic" | "approval" | "waiting";
@@ -17,6 +17,8 @@ export type CandidateView = {
   nextAction: NextAction;
   blockedReason: string | null;
   decision: CandidateDecision;
+  decisionBasis: CandidateDecisionBasis;
+  evidencePlan: readonly EvidencePlanItem[];
 };
 
 export type Session = {

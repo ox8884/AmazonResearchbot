@@ -1,4 +1,4 @@
-import {candidateDecision,NICHE_RULE_LABELS,nextAction,readNicheEvidence,stageLabel,type BlockedReason,type CandidateValidationView,type CandidateView,type NicheInput,type Stage,type StoredEvidence} from '@forge-ops/domain';
+import {candidateDecision,NICHE_RULE_LABELS,nextAction,readNicheEvidence,stageLabel,type BlockedReason,type CandidateDecisionBasis,type CandidateValidationView,type CandidateView,type EvidencePlanItem,type NicheInput,type Stage,type StoredEvidence} from '@forge-ops/domain';
 import type {Pool} from './client.ts';
 import {validationView,marketRiskMatchesSettings,type ValidationRow,type SettingsSnapshot} from '@forge-ops/domain';
 type Db=Pick<Pool,'query'>;
@@ -53,6 +53,20 @@ function summary(input:NicheInput,validation:CandidateValidationView,locale:'ko'
   const known=facts.flatMap(([label,evidence])=>evidence.kind==='unknown'?[]:[`${label}: ${evidence.value}`]);
   return known.join(' · ')||(ko?'시장 근거 확인 전':'Market evidence has not been confirmed');
 }
+function evidencePlan(input:NicheInput,validation:CandidateValidationView,rows:readonly StoredEvidence[],locale:'ko'|'en'):readonly EvidencePlanItem[]{
+  const ko=locale==='ko';
+  const items:EvidencePlanItem[]=[];
+  const add=(item:EvidencePlanItem)=>{if(!items.some(existing=>existing.id===item.id))items.push(item);};
+  if(input.review700Count.kind==='unknown'||input.review2000Count.kind==='unknown')add({id:'review_barrier',label:ko?'리뷰 장벽':'Review barrier',source:'jungle_scout_api',sourceLabel:ko?'Jungle Scout API':'Jungle Scout API',action:ko?'API의 리뷰 700·2,000 기준을 먼저 조회하고, API 값이 없으면 대시보드 Product Database로 보완합니다.':'Query the 700/2,000-review thresholds by API first; use Product Database on the dashboard when the API value is missing.'});
+  if(input.topPriceUsd.kind==='unknown'||input.monthlyRevenueCompetitorCount.kind==='unknown')add({id:'market_numbers',label:ko?'1위 가격·매출 조건':'Leader price and revenue threshold',source:'jungle_scout_api',sourceLabel:ko?'Jungle Scout API → 대시보드 fallback':'Jungle Scout API → dashboard fallback',action:ko?'상품 DB·매출 추정 API를 먼저 사용하고, 기간·family가 불완전하면 대시보드 Product Database/Competitive Intelligence를 다시 읽습니다.':'Use Product Database and sales-estimate APIs first; fall back to Product Database/Competitive Intelligence when period or family data is incomplete.'});
+  if(input.standardSize.kind==='unknown')add({id:'standard_size',label:ko?'규격 확인':'Package size',source:'amazon_product_page',sourceLabel:ko?'Amazon 상품 페이지':'Amazon product page',action:ko?'대표 ASIN의 포장 치수·중량을 자동 확인합니다. Seller Central은 계정별 판매 가능 여부·FBA 수수료를 별도 수동 확인하는 보조 경로입니다.':'Read packaged dimensions and weight for the representative ASIN. Seller Central is a separate manual check for account eligibility and FBA fees.'});
+  if(input.differentiation.kind==='unknown')add({id:'differentiation',label:ko?'차별화 근거':'Differentiation evidence',source:'jungle_scout_dashboard',sourceLabel:ko?'Jungle Scout 대시보드':'Jungle Scout dashboard',action:ko?'Competitive Intelligence와 Amazon 첫 페이지를 함께 확인합니다. 판매자 문구만으로 차별화를 통과시키지 않습니다.':'Use Competitive Intelligence together with the Amazon first page; seller copy alone cannot pass differentiation.'});
+  const market=validation.marketRisk?.concentration;
+  if(!market||[market.top1Pct,market.top3Pct,market.firstPageSalesUsd].some(value=>value.kind==='unknown'))add({id:'market_risk',label:ko?'첫 페이지·매출 점유율':'First-page sales and share',source:'amazon_first_page',sourceLabel:ko?'Amazon 첫 페이지 + Jungle Scout':'Amazon first page + Jungle Scout',action:ko?'Amazon 첫 페이지를 수집해 30일 매출·상위 1/3개 점유율을 계산하고, 누락된 경쟁 지표는 대시보드로 보완합니다.':'Collect the Amazon first page to calculate 30-day sales and top-1/top-3 share; fill missing competitor signals from the dashboard.'});
+  if(validation.phase!=='api_validation'||validation.status==='unconfirmed')add({id:'official_validation',label:ko?'공식 확인 전':'Official validation pending',source:'jungle_scout_api',sourceLabel:ko?'Jungle Scout API':'Jungle Scout API',action:ko?'현재 승인 기준으로 공식 API 검증을 실행합니다.':'Run official API validation against the approved criteria.'});
+  if(validation.evidenceBlock||rows.some(row=>row.field.startsWith('api_')&&row.kind==='unknown'))add({id:'api_unknown',label:ko?'추가 공식 자료':'Additional official data',source:'jungle_scout_dashboard',sourceLabel:ko?'Jungle Scout 대시보드 fallback':'Jungle Scout dashboard fallback',action:ko?'API가 반환하지 않은 값만 대시보드의 실제 화면에서 다시 확인하고, 확인 불가 값은 계속 unknown으로 남깁니다.':'Re-read only API-missing values from the live dashboard; values that cannot be confirmed remain unknown.'});
+  return items;
+}
 export async function loadCandidateDetails(db:Db,locale:'ko'|'en',id:string|null=null):Promise<CandidateDetails[]>{
   const candidates=await db.query<Row>('SELECT id,keyword_display,stage,blocked_reason,input_version FROM candidates WHERE ($1::uuid IS NULL OR id=$1) ORDER BY created_at',[id]);
   const evidence=await db.query<EvidenceRow>(`SELECT DISTINCT ON(e.candidate_id,e.field) e.candidate_id,e.field,e.kind,e.value_numeric::text,e.value_text,e.reason,e.source_id,e.observed_at
@@ -82,9 +96,12 @@ export async function loadCandidateDetails(db:Db,locale:'ko'|'en',id:string|null
     if(!current||!market||[market.top1Pct,market.top3Pct,market.firstPageSalesUsd].some(value=>value.kind==='unknown'))
       unknowns.push(locale==='ko'?'첫 페이지·매출 점유율 미확인':'First-page sales and revenue share unconfirmed');
     const evidenceSummary=[summary(input,validation,locale),catalogEvidenceSummary(rows,locale)].filter(Boolean).join(' · ');
+    const projectedDecision=candidateDecision({phase:validation.phase,status:validation.status,marketRisk:validation.marketRisk,settings:activeSettings?.snapshot});
+    const provisionalNoGo=projectedDecision==='waiting'&&(row.blocked_reason==='evidence'||validation.status==='hold');
+    const decisionBasis:CandidateDecisionBasis=provisionalNoGo?'insufficient_evidence':projectedDecision==='go'?'confirmed_go':projectedDecision==='caution'?'market_caution':projectedDecision==='no_go'?'confirmed_rejection':'waiting';
     return {candidate:{id:row.id,keyword:row.keyword_display,stage:row.stage,stageLabel:stageLabel(row.stage,locale),blockedReason:row.blocked_reason,
       evidenceSummary,unknowns:[...new Set(unknowns)],nextAction:nextAction({stage:row.stage,blockedReason:row.blocked_reason,locale}),
-      decision:candidateDecision({phase:validation.phase,status:validation.status,marketRisk:validation.marketRisk,settings:activeSettings?.snapshot})},evidence:rows,validation};
+      decision:provisionalNoGo?'no_go':projectedDecision,decisionBasis,evidencePlan:evidencePlan(input,validation,rows,locale)},evidence:rows,validation};
   });
 }
 export async function loadCandidates(db:Db,locale:'ko'|'en'):Promise<CandidateView[]>{return (await loadCandidateDetails(db,locale,null)).map(row=>row.candidate);}

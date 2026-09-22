@@ -139,6 +139,13 @@
   align-items: flex-start;
   gap: var(--space-8);
 }
+.unknowns-checklist .evidence-plan-copy {
+  display: grid;
+  gap: var(--space-4);
+}
+.unknowns-checklist .evidence-plan-copy strong {
+  color: var(--ink);
+}
 .unknowns-checklist li .icon {
   flex: 0 0 auto;
   color: var(--muted);

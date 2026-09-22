@@ -11,6 +11,9 @@ export type NextAction = {
 };
 
 export type CandidateDecision = "go" | "caution" | "no_go" | "waiting";
+export type CandidateDecisionBasis = "confirmed_go" | "market_caution" | "confirmed_rejection" | "insufficient_evidence" | "waiting";
+export type EvidenceSource = "jungle_scout_api" | "jungle_scout_dashboard" | "amazon_first_page" | "amazon_product_page" | "seller_central_manual";
+export type EvidencePlanItem = { id: string; label: string; source: EvidenceSource; sourceLabel: string; action: string };
 
 export type CandidateView = {
   id: string;
@@ -22,6 +25,8 @@ export type CandidateView = {
   nextAction: NextAction;
   blockedReason: BlockedReason;
   decision: CandidateDecision;
+  decisionBasis: CandidateDecisionBasis;
+  evidencePlan: readonly EvidencePlanItem[];
 };
 
 export function candidateDecision(input: {

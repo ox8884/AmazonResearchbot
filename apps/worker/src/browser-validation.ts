@@ -45,10 +45,10 @@ async function readBrowserReadiness(pool:Pool,context:ApiValidationContext):Prom
 
 export async function consumeBrowserValidation(pool:Pool,context:ApiValidationContext,encryptionKey:Buffer):Promise<BrowserValidationResult>{
  const readiness=await readBrowserReadiness(pool,context);
- if(readiness.completed!==requiredTasks.length){
-  if(readiness.started>0)return 'pending';
-  return readiness.intended?'pending':'not_ready';
- }
+  if(readiness.completed!==requiredTasks.length){
+   if(readiness.started>0)return 'pending';
+   return 'not_ready';
+  }
  const receipts=(await pool.query<Receipt>(`SELECT DISTINCT ON(t.task_kind)
    r.id,t.id AS task_id,t.task_kind,t.envelope,t.task_hash,r.body_ciphertext,r.body_sha256
   FROM browser_tasks t JOIN browser_task_results r ON r.id=t.result_id AND r.task_id=t.id
