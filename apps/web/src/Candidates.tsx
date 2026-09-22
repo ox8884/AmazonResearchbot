@@ -47,7 +47,9 @@ export function CandidateCard({
     queryKey: ["market-source", c.id],
     queryFn: () => loadMarket(c.id),
     retry: false,
-    refetchInterval: 10000,
+    // Poll only while a collection is in flight; one card per candidate otherwise floods the API.
+    refetchInterval: (query) =>
+      query.state.data?.state === "waiting" || query.state.data?.state === "collecting" ? 10000 : false,
   });
   const approvalPath = candidateApprovalPath(c);
   const captured = market.data?.state === "captured" ? market.data : null;
