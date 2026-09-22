@@ -34,7 +34,7 @@ async function readBrowserReadiness(pool:Pool,context:ApiValidationContext):Prom
   const counts=(await client.query<{started:number;completed:number}>(`SELECT count(*) FILTER(WHERE task_kind=ANY($5::text[]))::int AS started,
     count(DISTINCT task_kind) FILTER (WHERE state='completed')::int AS completed
    FROM browser_tasks WHERE candidate_id=$1 AND input_version=$2 AND settings_version=$3
-    AND task_kind=ANY($4::text[])`,[context.candidateId,context.inputVersion,context.settingsVersion,requiredTasks,researchTasks])).rows[0];
+    AND state IN ('queued','delivered','completed') AND task_kind=ANY($4::text[])`,[context.candidateId,context.inputVersion,context.settingsVersion,requiredTasks,researchTasks])).rows[0];
   const intended=context.snapshot.jsDailyWireCap>0&&((await client.query(`SELECT 1 FROM bridge_devices d JOIN "user" u ON u.id=d.owner_user_id
     WHERE d.revoked_at IS NULL AND u.two_factor_enabled=true AND d.reported_connected=true
      AND d.reported_at>clock_timestamp()-interval '90 seconds' AND 'product_database'=ANY(d.reported_tasks) LIMIT 1`)).rowCount??0)>0;

@@ -26,7 +26,9 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
     if (target.kind==='product_database'||target.kind==='keyword_scout'||target.kind==='historical_data'||target.kind==='category_trends'||target.kind==='competitive_intelligence') {
       const official=(await db.query<{reserved:boolean}>(`SELECT EXISTS(SELECT 1 FROM candidate_events
         WHERE candidate_id=$1 AND stage='api_validation' AND input_version=$2
-         AND detail->>'validationTransport'='official' AND (detail->>'validationSettingsVersion')::int=$3) AS reserved`,
+         AND detail->>'validationTransport'='official' AND (detail->>'validationSettingsVersion')::int=$3
+         AND NOT EXISTS(SELECT 1 FROM candidates c
+          WHERE c.id=$1 AND c.blocked_reason='evidence')) AS reserved`,
         [source.id,source.input_version,source.settings_version])).rows[0]?.reserved??false;
       if(official){await db.query('COMMIT');return {kind:'not_ready' as const};}
     }

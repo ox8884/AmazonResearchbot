@@ -44,6 +44,7 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
   let settings: SettingsSnapshot | undefined;
   let keyword: string | undefined;
   let settingsVersion: number | undefined;
+  let blockedReason: string | null = null;
   try {
     await client.query("BEGIN");
     await client.query("SELECT pg_advisory_xact_lock(hashtext('forge.settings'))");
@@ -67,6 +68,7 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
       return;
     }
     keyword = candidate.keyword_display;
+    blockedReason = candidate.blocked_reason;
     const current = await currentSettings(client);
     settings = current.snapshot;
     settingsVersion = current.version;
@@ -137,9 +139,10 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
       };
     const officialReady=transport.kind==='ready'&&settings.jsDailyWireCap>0;
     const browserResult=ai?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
-    const officialReserved=browserResult==='not_ready'&&officialReady
+    const canRetryOfficial=browserResult==='not_ready'&&blockedReason!=='evidence';
+    const officialReserved=canRetryOfficial&&officialReady
       ?await reserveOfficialValidation(pool,context)
-      :browserResult==='not_ready';
+      :canRetryOfficial;
     if(officialReserved)await consumeOfficialValidation(
         pool,
         transport,

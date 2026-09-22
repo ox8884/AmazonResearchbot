@@ -104,6 +104,12 @@ try{
  const concurrentQuery='browser validation concurrent dispatch '+test.runId;
  const concurrentId=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",[concurrentQuery])).rows[0].id;
  await test.pool.query("UPDATE bridge_devices SET reported_key_fingerprint=$2,reported_tasks=ARRAY['product_database']::text[],reported_connected=false,reported_at=now() WHERE id=$1",[deviceId,identity.fingerprint]);
+ const cancelledQuery='browser validation cancelled '+test.runId;
+ const cancelledId=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",[cancelledQuery])).rows[0].id;
+ await test.pool.query("INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,expires_at,task_kind,state) VALUES(gen_random_uuid(),$1,$2,NULL,1,$3,'{}'::jsonb,repeat('c',64),now()+interval '5 minutes','product_database','cancelled')",[deviceId,cancelledId,settings.version]);
+ let cancelledOfficialCalls=0;
+ await advanceCandidate(test.pool,{kind:'ready',send:async()=>{cancelledOfficialCalls++;return {status:503,body:{},retryAfter:null};}},{candidateId:cancelledId,stage:'api_validation',inputVersion:1},ai);
+ assert.equal(cancelledOfficialCalls,1,'Cancelled browser tasks must not strand official validation');
  let enterWire,releaseWire;
  const wireEntered=new Promise(resolve=>{enterWire=resolve;});
  const wireRelease=new Promise(resolve=>{releaseWire=resolve;});
@@ -114,5 +120,13 @@ try{
  assert.equal((await queuing).kind,'not_ready','Browser dispatch cannot join an input reserved for official validation');
   releaseWire();
   await advancing;
+ const fallbackQuery='browser validation fallback '+test.runId;
+ const fallbackId=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage,blocked_reason) VALUES('us',$1,$1,'api_validation','evidence') RETURNING id",[fallbackQuery])).rows[0].id;
+ await test.pool.query("INSERT INTO candidate_events(candidate_id,stage,input_version,detail) VALUES($1,'api_validation',1,$2::jsonb)",[fallbackId,JSON.stringify({validationTransport:'official',validationSettingsVersion:settings.version})]);
+ let fallbackOfficialCalls=0;
+ await advanceCandidate(test.pool,{kind:'ready',send:async()=>{fallbackOfficialCalls++;return {status:503,body:{},retryAfter:null};}},{candidateId:fallbackId,stage:'api_validation',inputVersion:1},ai);
+ assert.equal(fallbackOfficialCalls,0,'Evidence hold must not spend another official call before dashboard fallback');
+ const fallbackTask=await queueProductDatabase(test.pool,{deviceId,candidateId:fallbackId},{origin:'http://localhost:5173',privateKey:keys.privateKey});
+ assert.equal(fallbackTask.kind,'queued','Evidence hold must release the dashboard fallback after official validation');
  console.log(JSON.stringify({scenario:'browser-canonical-validation',result:'PASS',completePopulationEvaluated:true,partialPopulationHeld:true,mixedCategoryPopulationHeld:true,allReceiptsValidated:true,corruptReceiptRejected:true,pendingBrowserAvoidsOfficialFallback:true,positiveCapOfficialPriority:true,concurrentTransportArbitration:true,unknownsPreserved:true,encryptedReceiptBound:true,externalActions:0}));
 }finally{await test.close();}
