@@ -152,8 +152,14 @@ try{
  assert.equal((await dispatchBrowserWork(test.pool,{...signing,fingerprint:identity.fingerprint})).queued,0,'Completed unknown observation is not repeatedly collected');
  const apiOnly=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",['Package api-only '+test.runId])).rows[0].id;
  await test.pool.query("INSERT INTO candidate_events(candidate_id,stage,input_version,detail) VALUES($1,'api_validation',1,$2::jsonb)",[apiOnly,JSON.stringify({representativeAsin:asin})]);
+ for(const [field,value] of [['api_catalog_dimensions:'+asin,'16.22 × 12.283 × 6.85 inches'],['api_catalog_weight:'+asin,'8.686 pounds']])
+  await test.pool.query("INSERT INTO evidence(candidate_id,field,kind,value_text,source_id,observed_at,input_version,settings_version) VALUES($1,$2,'measured',$3,'api-validation-source:package-test',now(),1,(SELECT max(version) FROM settings_versions))",[apiOnly,field,value]);
  assert.equal((await dispatchBrowserWork(test.pool,{...signing,fingerprint:identity.fingerprint})).queued,1,'API-validated candidate reads its package without the dashboard chain');
- await test.pool.query("UPDATE browser_tasks SET state='cancelled' WHERE candidate_id=$1",[apiOnly]);
+ const apiClaim=(await call('/api/bridge/tasks/claim',{})).body;
+ assert.equal((await call('/api/bridge/tasks/'+apiClaim.taskId+'/results',{taskHash:apiClaim.taskHash,observation:{...unknownObservation,observedAt:new Date().toISOString()}})).status,201);
+ const catalogSize=(await loadCanonicalNicheEvidence(test.pool,apiOnly)).standardSize;
+ assert.equal(catalogSize.kind,'measured','Catalog packaged measurements fill in when the page shows only item dimensions');
+ assert.equal(catalogSize.value,true);
  await test.pool.query("UPDATE candidates SET stage='rejected' WHERE id=$1",[apiOnly]);
  for(const change of ['input','settings','selection','observation-time']){
   const id=await candidate(change),queued=await producer.queueAmazonPackage(test.pool,{deviceId,candidateId:id},signing);

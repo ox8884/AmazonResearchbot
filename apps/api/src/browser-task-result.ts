@@ -2,12 +2,26 @@ import type { PgBoss } from "pg-boss";
 import { JOB_ADVANCE, txAdapter } from "./queue.ts";
 import { randomUUID } from "node:crypto";
 import { lockActiveBridgeDevice, type Pool } from "@forge-ops/db";
-import { browserObservationSchema, sameFirstPageAsins, browserTaskSchema, supplierCaptureSchema, supplierDetailCapture, parseAmazonPackageMeasurements, assessStandardSize, STANDARD_SIZE_POLICY, selectBrowserProductLeader, type SupplierCapture } from "@forge-ops/domain";
+import { browserObservationSchema, sameFirstPageAsins, browserTaskSchema, supplierCaptureSchema, supplierDetailCapture, parseAmazonPackageMeasurements, assessStandardSize, STANDARD_SIZE_POLICY, measured, type Evidence, type PackagedMeasurements, selectBrowserProductLeader, type SupplierCapture } from "@forge-ops/domain";
 import { insertSupplierCapture, alibabaCompanyKey, alibabaProductKey } from "@forge-ops/integrations/sourcing/capture";
 import { encryptSecret, exactPayloadHash } from "@forge-ops/security";
 import { lockTaskSource, type BrowserTaskRow } from "./browser-task-store.ts";
 import {recordSearchExportResult} from './search-export-result.ts';
 import {parseAmazonMarketSource} from '@forge-ops/integrations/amazon/market-source';
+
+// Reads the API-validation catalog facts stored as "L × W × H inches" and "N pounds" (units fixed by the JS parser).
+async function readCatalogPackagedMeasurements(db:Pick<Pool,'query'>,candidateId:string,inputVersion:number,asin:string):Promise<Evidence<PackagedMeasurements>|null>{
+ const rows=(await db.query<{field:string;kind:string;value_text:string|null;source_id:string;observed_at:Date}>(`SELECT DISTINCT ON (field) field,kind,value_text,source_id,observed_at
+  FROM evidence WHERE candidate_id=$1 AND input_version=$2 AND field=ANY($3::text[]) ORDER BY field,created_at DESC,id DESC`,
+  [candidateId,inputVersion,['api_catalog_dimensions:'+asin,'api_catalog_weight:'+asin]])).rows;
+ const dims=rows.find(row=>row.field.startsWith('api_catalog_dimensions:')),weight=rows.find(row=>row.field.startsWith('api_catalog_weight:'));
+ if(dims?.kind!=='measured'||weight?.kind!=='measured')return null;
+ const sides=/^(\d+(?:\.\d+)?) × (\d+(?:\.\d+)?) × (\d+(?:\.\d+)?) inches$/.exec(dims.value_text??''),pounds=/^(\d+(?:\.\d+)?) pounds$/.exec(weight.value_text??'');
+ if(!sides||!pounds)return null;
+ return measured<PackagedMeasurements>({asin,marketplace:'us',basis:'packaged_unit',
+  dimensions:{length:Number(sides[1]),width:Number(sides[2]),height:Number(sides[3]),unit:'inches'},weight:{value:Number(pounds[1]),unit:'pounds'}},
+  dims.source_id,dims.observed_at.toISOString());
+}
 
 export async function acceptBrowserTaskResult(pool:Pool,input:{
  readonly deviceId:string;readonly taskId:string;readonly taskHash:string;readonly observation:unknown;readonly encryptionKey:Buffer;
@@ -79,7 +93,11 @@ export async function acceptBrowserTaskResult(pool:Pool,input:{
    if(source.readKind!=='amazon_search'||!parseAmazonMarketSource(observation,request.query)){await db.query('COMMIT');return {kind:'invalid' as const};}
   }else if(request.kind==='amazon_package'){
    if(source.readKind!=='amazon_package'||source.spec_id!==null||task.spec_id!==null||observation.scope!=='amazon_product_page'||observation.asin!==request.asin||source.asin!==request.asin){await db.query('COMMIT');return {kind:'stale' as const};}
-   const measurements=parseAmazonPackageMeasurements(request.asin,{sourcePageUrl:observation.sourcePageUrl,observedAt:observation.observedAt,rows:observation.rows.map(({label,value})=>({label,value}))});
+   let measurements=parseAmazonPackageMeasurements(request.asin,{sourcePageUrl:observation.sourcePageUrl,observedAt:observation.observedAt,rows:observation.rows.map(({label,value})=>({label,value}))});
+   // Most listings show only item dimensions. Jungle Scout's catalog reports the packaged unit (its FBA fee basis),
+   // so it fills in only when the page has no package measurements, never when the page conflicts.
+   if(measurements.kind==='unknown'&&(measurements.reason==='PACKAGE_DIMENSIONS_UNKNOWN'||measurements.reason==='PACKAGE_WEIGHT_UNKNOWN'))
+    measurements=await readCatalogPackagedMeasurements(db,task.candidate_id,task.input_version,request.asin)??measurements;
    const result=assessStandardSize(request.asin,measurements);
    await db.query(`INSERT INTO evidence(candidate_id,field,kind,value_text,source_id,observed_at,reason,input_version,settings_version)
     VALUES($1,'standard_size',$2,$3,$4,$5,$6,$7,$8)`,[task.candidate_id,result.kind,result.kind==='unknown'?null:String(result.value),

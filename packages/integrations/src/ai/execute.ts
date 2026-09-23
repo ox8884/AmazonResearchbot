@@ -22,7 +22,7 @@ function containsSecret(value:unknown,secret:string):boolean{
  if(Array.isArray(value))return value.some(item=>containsSecret(item,secret));
  return object(value)&&Object.values(value).some(item=>containsSecret(item,secret));
 }
-function responseState(result:AiWireResult,maxInput:number,maxOutput:number,decode:(value:unknown)=>unknown|null):{state:AiAttemptFinalState;status:number|null;usage:AiReportedUsage;payload?:unknown}{
+function responseState(result:AiWireResult,maxInput:number,maxOutput:number,decode:(value:unknown)=>unknown|null):{state:AiAttemptFinalState;status:number|null;usage:AiReportedUsage;payload?:unknown;rejected?:string}{
   const noUsage={known:false} as const;
   if(result.kind==='not_sent')return {state:'failed_non_dispatch',status:null,usage:noUsage};
   if(result.kind==='unknown')return {state:'outcome_unknown',status:null,usage:noUsage};
@@ -31,12 +31,17 @@ function responseState(result:AiWireResult,maxInput:number,maxOutput:number,deco
     const reported=result.body.usage,prompt=reported.prompt_tokens,completion=reported.completion_tokens;
     if(typeof prompt==='number'&&typeof completion==='number'&&Number.isSafeInteger(prompt)&&Number.isSafeInteger(completion)&&prompt>=0&&completion>=0&&prompt<=maxInput&&completion<=maxOutput)usage={known:true,inputTokens:prompt,outputTokens:completion};
   }
-  if(result.status<200||result.status>=300)return {state:'failed_dispatched',status:result.status,usage};
-  if(!object(result.body)||!Array.isArray(result.body.choices)||result.body.choices.length!==1)return {state:'failed_dispatched',status:result.status,usage};
+  if(result.status<200||result.status>=300)return {state:'failed_dispatched',status:result.status,usage,rejected:'HTTP_STATUS'};
+  if(!object(result.body)||!Array.isArray(result.body.choices)||result.body.choices.length!==1)return {state:'failed_dispatched',status:result.status,usage,rejected:'CHOICES_NOT_SINGLE'};
   const choice:unknown=result.body.choices[0];
-  if(!object(choice)||!object(choice.message)||typeof choice.message.content!=='string'||choice.message.content.length>12000)return {state:'failed_dispatched',status:result.status,usage};
-  try{const parsed:unknown=JSON.parse(choice.message.content);const payload=decode(parsed);return {state:payload!==null?'succeeded':'failed_dispatched',status:result.status,usage,payload};}
-  catch{return {state:'failed_dispatched',status:result.status,usage};}
+  if(!object(choice)||!object(choice.message)||typeof choice.message.content!=='string')return {state:'failed_dispatched',status:result.status,usage,rejected:'CONTENT_MISSING'};
+  const content=choice.message.content;
+  if(content.length>12000)return {state:'failed_dispatched',status:result.status,usage,rejected:'CONTENT_TOO_LONG'};
+  let parsed:unknown;
+  try{parsed=JSON.parse(content);}
+  catch{return {state:'failed_dispatched',status:result.status,usage,rejected:content.trimStart().startsWith('```')?'CONTENT_FENCED_JSON':'CONTENT_NOT_JSON'};}
+  const payload=decode(parsed);
+  return payload!==null?{state:'succeeded',status:result.status,usage,payload}:{state:'failed_dispatched',status:result.status,usage,payload,rejected:'OUTPUT_SCHEMA_REJECTED'};
 }
 type RequestMessages=readonly {readonly role:'system'|'user';readonly content:string}[];
 async function executeAiRequest(pool:Pool,input:Input,messages:RequestMessages|(()=>Promise<RequestMessages|null>),decode:(value:unknown)=>unknown|null){
@@ -67,7 +72,8 @@ async function executeAiRequest(pool:Pool,input:Input,messages:RequestMessages|(
       }
     }catch{result={kind:'unknown',code:'PROVIDER_OUTCOME_UNKNOWN'};}
     const parsedOutcome=responseState(result,prepared.profile.config.maxInputTokens,prepared.profile.config.maxOutputTokens,decode);
-    const outcome=secretToSuppress && parsedOutcome.payload && containsSecret(parsedOutcome.payload,secretToSuppress)?{...parsedOutcome,state:"failed_dispatched" as const,payload:null}:parsedOutcome;
+    const outcome=secretToSuppress && parsedOutcome.payload && containsSecret(parsedOutcome.payload,secretToSuppress)?{...parsedOutcome,state:"failed_dispatched" as const,payload:null,rejected:'SECRET_ECHOED'}:parsedOutcome;
+    if(outcome.rejected)console.warn('AI response rejected',{operationId:input.operationId,role:input.role,reason:outcome.rejected,status:outcome.status});
     const final=await pool.connect();
     try{await final.query('BEGIN');const finalized=await finalizeAiExecution(final,{attemptId:prepared.attemptId,state:outcome.state,providerStatus:outcome.status,usage:outcome.usage,resultPayload:outcome.payload});await final.query('COMMIT');if(!finalized)return {kind:'outcome_unknown',operationId:input.operationId,profileId:prepared.profile.id} as const;}
     catch(error){await final.query('ROLLBACK');throw error;}finally{final.release();}
