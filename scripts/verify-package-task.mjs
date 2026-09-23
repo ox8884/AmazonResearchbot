@@ -150,6 +150,11 @@ try{
  assert.equal((await loadCanonicalNicheEvidence(test.pool,unknownId)).standardSize.kind,'unknown','Item measurements cannot qualify a package');
  assert.equal((await test.call('/api/candidates/'+unknownId+'/product-source')).body.state,'legacy');
  assert.equal((await dispatchBrowserWork(test.pool,{...signing,fingerprint:identity.fingerprint})).queued,0,'Completed unknown observation is not repeatedly collected');
+ const apiOnly=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",['Package api-only '+test.runId])).rows[0].id;
+ await test.pool.query("INSERT INTO candidate_events(candidate_id,stage,input_version,detail) VALUES($1,'api_validation',1,$2::jsonb)",[apiOnly,JSON.stringify({representativeAsin:asin})]);
+ assert.equal((await dispatchBrowserWork(test.pool,{...signing,fingerprint:identity.fingerprint})).queued,1,'API-validated candidate reads its package without the dashboard chain');
+ await test.pool.query("UPDATE browser_tasks SET state='cancelled' WHERE candidate_id=$1",[apiOnly]);
+ await test.pool.query("UPDATE candidates SET stage='rejected' WHERE id=$1",[apiOnly]);
  for(const change of ['input','settings','selection','observation-time']){
   const id=await candidate(change),queued=await producer.queueAmazonPackage(test.pool,{deviceId,candidateId:id},signing);
   assert.equal(queued.kind,'queued');const claim=(await call('/api/bridge/tasks/claim',{})).body;assert.equal(claim.taskId,queued.taskId);

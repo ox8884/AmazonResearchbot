@@ -142,8 +142,7 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
       JOIN LATERAL (SELECT version FROM settings_versions ORDER BY version DESC LIMIT 1) v ON true
       JOIN candidate_events e ON e.candidate_id=c.id AND e.input_version=c.input_version AND e.stage='api_validation'
       WHERE c.marketplace='us' AND c.stage='api_validation' AND e.detail->>'representativeAsin' ~ '^[A-Z0-9]{10}$'
-        AND EXISTS(SELECT 1 FROM browser_tasks prerequisite WHERE prerequisite.candidate_id=c.id AND prerequisite.task_kind='competitive_intelligence'
-          AND prerequisite.input_version=c.input_version AND prerequisite.settings_version=v.version AND prerequisite.state='completed')
+        -- The dashboard-chain prerequisite applies only to dashboard-validated candidates; queueBrowserRead enforces it.
         AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.spec_id IS NULL AND t.task_kind='amazon_package'
           AND t.input_version=c.input_version AND t.settings_version=v.version
           AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))

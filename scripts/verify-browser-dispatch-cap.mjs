@@ -102,6 +102,11 @@ try {
     "INSERT INTO candidate_events(candidate_id,stage,input_version,detail) VALUES($1,'api_validation',1,$2::jsonb)",
     [packageCandidate.id, JSON.stringify({ representativeAsin: 'B0CAP00001' })],
   );
+  // A dashboard-validated candidate (it has a Product Database read) waits for the full chain.
+  await test.pool.query(
+    "INSERT INTO browser_tasks(id,device_id,candidate_id,spec_id,input_version,settings_version,envelope,task_hash,expires_at,task_kind,state) VALUES(gen_random_uuid(),$1,$2,NULL,1,(SELECT max(version) FROM settings_versions),'{}'::jsonb,repeat('b',64),now(),'product_database','cancelled')",
+    [deviceId, packageCandidate.id],
+  );
   const packageDispatchBeforeCi = await dispatchBrowserWork(test.pool, { ...signing, fingerprint: identity.fingerprint });
   assert.equal(packageDispatchBeforeCi.queued, 0,
     'Amazon package work waits for completed competitive intelligence');
@@ -124,6 +129,7 @@ try {
     "SELECT task_kind FROM browser_tasks WHERE candidate_id=$1 AND task_kind='amazon_package'",
     [packageCandidate.id],
   )).rows[0]?.task_kind, 'amazon_package');
+  await test.pool.query("UPDATE candidates SET stage='rejected' WHERE id=$1", [packageCandidate.id]);
 
   await test.pool.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1", [queuedAtPositive.taskId]);
   await test.pool.query(
