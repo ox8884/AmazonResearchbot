@@ -1,4 +1,4 @@
-import { aiBusinessMessages, parseAiBusinessOutput, type AiBusinessInput } from "@forge-ops/domain";
+import { aiBusinessMessages, checkAiBusinessOutput, type AiBusinessInput } from "@forge-ops/domain";
 import { AI_TEST_PROMPT, aiTestApprovalSchema, customAiProviderActivationSchema, maximumAiRequestCostUsd } from "@forge-ops/domain";
 import { prepareAiExecution, markAiAttemptDispatching, finalizeAiExecution, type Pool, type AiTestGrantCandidate, type AiExecutionRole, type AiExecutionMode, type AiReportedUsage, type AiAttemptFinalState } from "@forge-ops/db";
 import { decryptSecret, exactPayloadHash } from "@forge-ops/security";
@@ -93,5 +93,9 @@ export async function executeApprovedAiBusiness(pool:Pool,input:Omit<Input,'role
   const excerpts=await resolveAiProductSource(pool,task.candidate_id,source,input.encryptionKey);
   return excerpts?aiBusinessMessages(input.businessInput,excerpts):null;
  }:aiBusinessMessages(input.businessInput);
- return executeAiRequest(pool,{...input,role:input.businessInput.role,mode:'activation-approved-only',productEvidenceRequired:source!==undefined},messages,value=>parseAiBusinessOutput(value,input.businessInput));
+ return executeAiRequest(pool,{...input,role:input.businessInput.role,mode:'activation-approved-only',productEvidenceRequired:source!==undefined},messages,value=>{
+  const checked=checkAiBusinessOutput(value,input.businessInput);
+  if(!checked.ok)console.warn('AI output check failed',{operationId:input.operationId,role:input.businessInput.role,check:checked.reason});
+  return checked.ok?checked.value:null;
+ });
 }

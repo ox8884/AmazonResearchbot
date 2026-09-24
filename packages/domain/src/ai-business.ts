@@ -31,24 +31,33 @@ export const aiBusinessOutputSchema=z.discriminatedUnion('role',[
   z.object({role:z.literal('rfq_draft'),...common,draftText:z.string().trim().min(1).max(4000)}).strict(),
 ]);
 export type AiBusinessOutput=z.infer<typeof aiBusinessOutputSchema>;
-export function parseAiBusinessOutput(raw:unknown,input:AiBusinessInput):AiBusinessOutput|null{
+// The reason is a fixed code or a schema issue path, never output content.
+export function checkAiBusinessOutput(raw:unknown,input:AiBusinessInput):{ok:true;value:AiBusinessOutput}|{ok:false;reason:string}{
+  const fail=(reason:string)=>({ok:false as const,reason});
   const parsed=aiBusinessOutputSchema.safeParse(raw);
-  if(!parsed.success||parsed.data.role!==input.role)return null;
+  if(!parsed.success){const issue=parsed.error.issues[0];return fail('SCHEMA:'+(issue?issue.path.join('.')+':'+issue.code:'?'));}
+  if(parsed.data.role!==input.role)return fail('ROLE_MISMATCH');
   const known=new Set(['subject',...(input.spec?['spec']:[]),...input.evidence.map(row=>row.ref),...(input.productSource?.fragments.map(row=>row.ref)??[])]);
-  if(parsed.data.suggestions.some(item=>item.sourceRefs.some(ref=>!known.has(ref))))return null;
+  if(parsed.data.suggestions.some(item=>item.sourceRefs.some(ref=>!known.has(ref))))return fail('SUGGESTION_UNKNOWN_REF');
   if(parsed.data.role==='sourcing_analysis'||parsed.data.role==='niche_analysis'){
     const target=parsed.data.targetSpecification,proposal=parsed.data.differentiationProposal;
-    if(target&&(input.spec||target.sourceRefs.some(ref=>!known.has(ref))))return null;
-    if(parsed.data.role==='niche_analysis'&&target&&!proposal)return null;
+    if(target&&input.spec)return fail('TARGET_WITH_EXISTING_SPEC');
+    if(target&&target.sourceRefs.some(ref=>!known.has(ref)))return fail('TARGET_UNKNOWN_REF');
+    if(parsed.data.role==='niche_analysis'&&target&&!proposal)return fail('TARGET_WITHOUT_PROPOSAL');
     if(proposal){
-      if(!target||!input.productSource)return null;
+      if(!target)return fail('PROPOSAL_WITHOUT_TARGET');
+      if(!input.productSource)return fail('PROPOSAL_WITHOUT_PRODUCT_SOURCE');
       const fragments=new Map(input.productSource.fragments.map(row=>[row.ref,row.kind] as const));
-      if(proposal.featureRefs.some(ref=>fragments.get(ref)!=='claim')||proposal.reviewRefs.some(ref=>fragments.get(ref)!=='review'))return null;
-      if([...proposal.featureRefs,...proposal.reviewRefs].some(ref=>!target.sourceRefs.includes(ref)))return null;
-      if(target[proposal.change.field]!==proposal.change.proposedValue)return null;
+      if(proposal.featureRefs.some(ref=>fragments.get(ref)!=='claim')||proposal.reviewRefs.some(ref=>fragments.get(ref)!=='review'))return fail('PROPOSAL_REF_KIND');
+      if([...proposal.featureRefs,...proposal.reviewRefs].some(ref=>!target.sourceRefs.includes(ref)))return fail('PROPOSAL_REF_NOT_IN_TARGET');
+      if(target[proposal.change.field]!==proposal.change.proposedValue)return fail('PROPOSAL_CHANGE_MISMATCH');
     }
   }
-  return parsed.data;
+  return {ok:true,value:parsed.data};
+}
+export function parseAiBusinessOutput(raw:unknown,input:AiBusinessInput):AiBusinessOutput|null{
+  const checked=checkAiBusinessOutput(raw,input);
+  return checked.ok?checked.value:null;
 }
 export function aiBusinessMessages(input:AiBusinessInput,sourceExcerpts:readonly AiProductExcerpt[]=[]){
   const targetFields='{material,dimensions,packaging,requirements,requestedQuantity,rationale,sourceRefs}';

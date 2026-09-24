@@ -146,7 +146,12 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
       "SELECT detail->>'validationFirstPageReceipt' AS receipt FROM candidate_events WHERE candidate_id=$1 AND stage='api_validation' AND input_version=$2",
       [data.candidateId,data.inputVersion])).rows[0]?.receipt??null:null;
     const browserResult=ai&&!firstPageSource?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
-    const canRetryOfficial=browserResult==='not_ready'&&(blockedReason!=='evidence'||(firstPageSource!==null&&lastFirstPage!==firstPageSource.receiptId));
+    // A package read or recorded differentiation lands after the verdict; re-judging reuses the cached lookup.
+    const newerEvidence=blockedReason==='evidence'&&((await pool.query(`SELECT 1 FROM evidence e WHERE e.candidate_id=$1 AND e.input_version=$2
+      AND e.field IN ('standard_size','differentiation') AND e.kind<>'unknown'
+      AND e.created_at>COALESCE((SELECT max(created_at) FROM evaluations WHERE candidate_id=$1 AND kind='api_validation'),'-infinity') LIMIT 1`,
+      [data.candidateId,data.inputVersion])).rowCount??0)>0;
+    const canRetryOfficial=browserResult==='not_ready'&&(blockedReason!=='evidence'||newerEvidence||(firstPageSource!==null&&lastFirstPage!==firstPageSource.receiptId));
     const officialReserved=canRetryOfficial&&officialReady
       ?await reserveOfficialValidation(pool,context)
       :canRetryOfficial;
