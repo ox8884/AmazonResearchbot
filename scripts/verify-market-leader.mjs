@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {selectFirstPageLeader,selectMarketLeader,withFamilyTotals} from '../apps/worker/src/market-leader.ts';
+import {selectFirstPageLeader,selectMarketLeader,topOrganicSlots,withFamilyTotals} from '../apps/worker/src/market-leader.ts';
 import {parseProductDatabaseResponse} from '../packages/integrations/src/jungle-scout/responses.ts';
 const source={sourceId:'synthetic-source',observedAt:'2026-09-09T00:00:00.000Z'};
 const scope={complete:true,period:{startDate:'2026-08-10',endDate:'2026-09-08'}};
@@ -36,4 +36,10 @@ const firstPage=selectFirstPageLeader([a,v1,v2],scope);
 assert.equal(firstPage.family.value,'B0QA888888','The family with the larger summed revenue leads');assert.equal(firstPage.price.value,'24.00','Priced at its best-selling variant');
 assert.equal(selectFirstPageLeader([a,v1,row('B0QA000006',null,24,{is_variant:true,parent_asin:'B0QA888888'})],scope).price.kind,'unknown','An unknown variant revenue leaves the family unknown');
 assert.equal(selectFirstPageLeader([row('B0QA000007',15000),v1,v2],scope).price.kind,'unknown','Tied family totals stay unknown');
+const slot=(asin,adStatus='not_marked')=>({asin,adStatus});
+const top=topOrganicSlots([slot(a.asin.value,'sponsored'),slot(b.asin.value),slot(b.asin.value),slot('B0QAOTHER01'),slot(a.asin.value)],[a,b],new Set([a.asin.value,b.asin.value,'B0QAOTHER01']),2);
+assert.deepEqual(top.products,[b,a],'Top organic slots keep page order, skip ads, duplicates and ineligible categories');assert.equal(top.complete,true);
+assert.deepEqual(topOrganicSlots([slot(b.asin.value)],[a,b],new Set(),1).products,[b]);
+assert.equal(topOrganicSlots([slot('B0QAMISSING'),slot(b.asin.value)],[a,b],new Set([b.asin.value]),1).complete,false,'An unreturned slot before the limit leaves the top slots uncertain');
+assert.equal(topOrganicSlots([slot(b.asin.value),slot('B0QAMISSING')],[a,b],new Set([b.asin.value]),1).complete,true,'A slot after the limit does not matter');
 console.log(JSON.stringify({scenario:'market-leader',result:'PASS',completeScope:true,tiesUnknown:true,familyDedup:true,priceConflictsUnknown:true,externalCalls:0}));

@@ -1,5 +1,5 @@
 import { collectSupplementary } from "./api-supplementary.ts";
-import {selectFirstPageLeader,selectMarketLeader,withFamilyTotals} from './market-leader.ts';
+import {selectFirstPageLeader,selectMarketLeader,topOrganicSlots,withFamilyTotals} from './market-leader.ts';
 import {collectFirstPageSales,type FirstPageSales} from './first-page-sales.ts';
 import { storeApiFacts, type ApiFact } from "./api-facts-store.ts";
 import { readOfficialSource } from "./api-reader.ts";
@@ -18,6 +18,8 @@ import {
 } from "./api-validation-store.ts";
 
 export type ApiValidationResult = "pass" | "reject" | "hold" | "blocked" | "stale";
+
+const REVIEW_TOP_SLOTS = 10;
 
 type ProductCollection =
   | { readonly kind: "collected"; readonly observations: readonly ProductObservation[]; readonly complete: boolean; readonly block: string | null; readonly sourceIds: readonly string[] }
@@ -159,9 +161,17 @@ export async function consumeOfficialValidation(
     review2000HardFailCount: context.snapshot.review2000HardFailCount,
     monthlyRevenueMinUsd: context.snapshot.monthlyRevenueMinUsd,
   });
+  // The review barrier counts the first organic Kitchen & Dining slots in page order, where a shopper decides.
+  let reviewAggregate = aggregate;
+  if(firstPageMode&&context.firstPageSource){
+    const top=topOrganicSlots(context.firstPageSource.observation.slots,kitchen,returned,REVIEW_TOP_SLOTS);
+    reviewAggregate=aggregateProductDatabase({observations:top.products,
+      populationComplete:top.complete&&context.firstPageSource.observation.coverage==='complete'&&collection.complete&&collection.block===null,
+      review2000HardFailCount:context.snapshot.review2000HardFailCount,monthlyRevenueMinUsd:context.snapshot.monthlyRevenueMinUsd});
+  }
   let nicheInput: NicheInput = {
-    review700Count: aggregate.review700Count,
-    review2000Count: aggregate.review2000Count,
+    review700Count: reviewAggregate.review700Count,
+    review2000Count: reviewAggregate.review2000Count,
     monthlyRevenueCompetitorCount: aggregate.monthlyRevenueCompetitorCount,
     ...canonical,
     topPriceUsd:marketLeader.price,
@@ -198,6 +208,7 @@ export async function consumeOfficialValidation(
       else{
         marketLeader=selectMarketLeader(extra.observations,{complete:collection.complete,period:extra.period});
         aggregate=aggregateProductDatabase({observations:extra.observations,populationComplete:collection.complete,review2000HardFailCount:context.snapshot.review2000HardFailCount,monthlyRevenueMinUsd:context.snapshot.monthlyRevenueMinUsd});
+        reviewAggregate=aggregate;
         nicheInput={review700Count:aggregate.review700Count,review2000Count:aggregate.review2000Count,monthlyRevenueCompetitorCount:aggregate.monthlyRevenueCompetitorCount,...canonical,topPriceUsd:marketLeader.price};
         assessment=evaluateNiche(nicheInput,context.snapshot);
         if(context.firstPageSource){
@@ -217,7 +228,7 @@ export async function consumeOfficialValidation(
     decision: {
       assessment,
       input: nicheInput,
-      outcome: categoryConfirmed?finalOutcome({ assessment, complete: aggregate.complete, block: evidenceBlock, reviewKnown: isKnown(aggregate.review700Count) && isKnown(aggregate.review2000Count) }):'hold',
+      outcome: categoryConfirmed?finalOutcome({ assessment, complete: aggregate.complete, block: evidenceBlock, reviewKnown: isKnown(reviewAggregate.review700Count) && isKnown(reviewAggregate.review2000Count) }):'hold',
       evidenceBlock,
       sourceIds: [...sourceIds],
       marketLeader,
