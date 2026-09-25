@@ -82,5 +82,8 @@ try {
  const rows=await test.pool.query('SELECT api_key_ciphertext FROM custom_ai_profiles');const ciphertexts=rows.rows.map((row)=>row.api_key_ciphertext).filter((value)=>value!==null);assert.equal(ciphertexts.length,1);assert.ok(!ciphertexts[0].includes(profile.apiKey));
  const stored=await test.pool.query("SELECT payload::text AS value FROM approvals UNION ALL SELECT meta::text AS value FROM audit_events");assert.ok(stored.rows.every((row)=>!row.value.includes(profile.apiKey)));
  const attempts=await test.pool.query('SELECT count(*)::int AS count FROM api_attempts');assert.equal(attempts.rows[0].count,0);
+ const codexSaved=await test.call('/api/custom-ai',{name:'ChatGPT plan',protocol:'codex_cli',baseUrl:'https://chatgpt.com/',model:'default',apiKey:'codex-cli-login',dailyBudgetUsd:'1.00',version:0,roles:['niche_analysis'],priority:90,inputUsdPerMillion:'0.5',outputUsdPerMillion:'2',maxInputTokens:20000,maxOutputTokens:4000,retentionPolicyUrl:'https://openai.com/policies/privacy-policy'});
+ assert.equal(codexSaved.status,201);assert.equal(codexSaved.body.profile.protocol,'codex_cli');
+ {const proposal=await test.call('/api/custom-ai/'+codexSaved.body.profile.id+'/activation-proposals',{version:1});assert.equal(proposal.status,201,'A Codex CLI profile can be proposed for activation: '+JSON.stringify(proposal.body));}
  console.log(JSON.stringify({scenario:'custom-ai-settings-lifecycle',result:'PASS',profiles:2,rolesPersisted:true,legacyKeyBackfill:true,testGrantScoped:true,testGrantStaleBlocked:true,retentionUrlBlocked:true,staleApprovalBlocked:true,repeatedApprovalIdempotent:true,activeEditInvalidated:true,activationApproved:true,disabled:true,writeOnlyKey:true,externalCalls:0}));
 } finally {await test.close();}

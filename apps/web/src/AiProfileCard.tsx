@@ -71,7 +71,7 @@ export function AiProfileCard({
       <dl className="settings-values">
         <div>
           <dt>{t("전송 대상", "Destination")}</dt>
-          <dd>{p.baseUrl}</dd>
+          <dd>{p.protocol === "codex_cli" ? t("ChatGPT 구독 (Codex CLI)", "ChatGPT plan (Codex CLI)") : p.baseUrl}</dd>
         </div>
         <div>
           <dt>{t("역할 · 우선순위", "Roles · priority")}</dt>

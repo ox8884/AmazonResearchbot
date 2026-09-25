@@ -68,7 +68,7 @@ async function executeAiRequest(pool:Pool,input:Input,messages:RequestMessages|(
         try{apiKey=decryptSecret(prepared.profile.apiKeyCiphertext,input.encryptionKey,`custom-ai:${prepared.profile.id}:key`).toString('utf8');secretToSuppress=apiKey;}
         catch{result={kind:'not_sent',code:'CREDENTIAL_UNAVAILABLE'};apiKey='';}
         const requestMessages=apiKey?(typeof messages==='function'?await messages():messages):null;
-        result=apiKey&&requestMessages?await transport.send({baseUrl:prepared.profile.config.baseUrl,model:prepared.profile.config.model,apiKey,maxInputTokens:prepared.profile.config.maxInputTokens,maxOutputTokens:prepared.profile.config.maxOutputTokens,messages:requestMessages}):{kind:'not_sent',code:apiKey?'SOURCE_UNAVAILABLE':'CREDENTIAL_UNAVAILABLE'};
+        result=apiKey&&requestMessages?await transport.send({protocol:prepared.profile.config.protocol,baseUrl:prepared.profile.config.baseUrl,model:prepared.profile.config.model,apiKey,maxInputTokens:prepared.profile.config.maxInputTokens,maxOutputTokens:prepared.profile.config.maxOutputTokens,messages:requestMessages}):{kind:'not_sent',code:apiKey?'SOURCE_UNAVAILABLE':'CREDENTIAL_UNAVAILABLE'};
       }
     }catch{result={kind:'unknown',code:'PROVIDER_OUTCOME_UNKNOWN'};}
     const parsedOutcome=responseState(result,prepared.profile.config.maxInputTokens,prepared.profile.config.maxOutputTokens,decode);

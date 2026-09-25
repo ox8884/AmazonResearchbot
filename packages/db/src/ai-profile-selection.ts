@@ -15,7 +15,7 @@ type CandidateRow = {
   readonly name: string;
   readonly base_url: string;
   readonly model: string;
-  readonly protocol: "openai_chat_completions";
+  readonly protocol: "openai_chat_completions" | "codex_cli";
   readonly daily_budget_usd: string;
   readonly roles: string[];
   readonly priority: number;

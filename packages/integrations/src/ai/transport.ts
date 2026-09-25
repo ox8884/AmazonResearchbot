@@ -1,6 +1,8 @@
 import { validateHeaderValue } from "node:http";
 import { pinnedJsonRequest, resolveApprovedTarget, type HostResolver } from "@forge-ops/security";
+import { sendViaCodex } from "./codex-cli.ts";
 export type AiWireInput = {
+  readonly protocol?: "openai_chat_completions" | "codex_cli";
   readonly baseUrl: string;
   readonly model: string;
   readonly apiKey: string;
@@ -15,12 +17,13 @@ export type AiWireResult =
 export type AiTransport =
   | { readonly kind: "disabled" }
   | { readonly kind: "ready"; readonly send: (input: AiWireInput) => Promise<AiWireResult> };
-type Dependencies = { readonly resolver?: HostResolver; readonly request?: typeof pinnedJsonRequest };
+type Dependencies = { readonly resolver?: HostResolver; readonly request?: typeof pinnedJsonRequest; readonly codex?: (input: AiWireInput) => Promise<AiWireResult> };
 
 // The caller supplies only an approved profile after reserving its request budget.
 export function createAiTransport(enabled: boolean, dependencies: Dependencies = {}): AiTransport {
   if (!enabled) return { kind: "disabled" };
   return { kind: "ready", send: async input => {
+    if (input.protocol === "codex_cli") return (dependencies.codex ?? sendViaCodex)(input);
     let url: URL;
     try { url = new URL(input.baseUrl); }
     catch { return { kind: "not_sent", code: "PROVIDER_URL_INVALID" }; }

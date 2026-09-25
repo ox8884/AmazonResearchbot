@@ -1,6 +1,9 @@
 import { z } from "zod";
 
 export const CUSTOM_AI_PROTOCOL = "openai_chat_completions" as const;
+/** codex_cli runs the server's `codex exec` signed in with a ChatGPT plan; baseUrl and the key are unused. */
+export const CUSTOM_AI_PROTOCOLS = [CUSTOM_AI_PROTOCOL, "codex_cli"] as const;
+export type CustomAiProtocol = (typeof CUSTOM_AI_PROTOCOLS)[number];
 
 export const CUSTOM_AI_ROLES = [
   "normalize",
@@ -38,7 +41,7 @@ export const customAiProviderConfigSchema = z
     name: z.string().trim().min(1).max(120),
     model: z.string().trim().min(1).max(200),
     baseUrl: z.string().trim().url().max(2000),
-    protocol: z.literal(CUSTOM_AI_PROTOCOL).default(CUSTOM_AI_PROTOCOL),
+    protocol: z.enum(CUSTOM_AI_PROTOCOLS).default(CUSTOM_AI_PROTOCOL),
     dailyBudgetUsd: dailyBudgetUsdSchema,
     roles: z
       .array(z.enum(CUSTOM_AI_ROLES))

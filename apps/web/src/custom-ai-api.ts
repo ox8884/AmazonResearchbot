@@ -17,6 +17,7 @@ export type AiRouting = {
 export type CustomAiProfile = AiRouting & {
   id: string;
   name: string;
+  protocol?: "openai_chat_completions" | "codex_cli";
   baseUrl: string;
   model: string;
   dailyBudgetUsd: string;
@@ -31,6 +32,7 @@ export type CustomAiInput = AiRouting & {
   id?: string;
   version: number;
   name: string;
+  protocol: "openai_chat_completions" | "codex_cli";
   baseUrl: string;
   model: string;
   dailyBudgetUsd: string;

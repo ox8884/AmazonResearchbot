@@ -18,7 +18,9 @@ export function CustomAiForm({
 }) {
   const { t } = useLocale(),
     [busy, setBusy] = useState(false),
-    [error, setError] = useState<string | null>(null);
+    [error, setError] = useState<string | null>(null),
+    [protocol, setProtocol] = useState(profile?.protocol ?? "openai_chat_completions"),
+    codex = protocol === "codex_cli";
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (busy) return;
@@ -31,10 +33,13 @@ export function CustomAiForm({
         ...(profile ? { id: profile.id } : {}),
         version: profile?.version ?? 0,
         name: value("name"),
-        baseUrl: value("baseUrl"),
+        protocol,
+        // ponytail: Codex signs in on the server, so its profile carries a fixed placeholder key to satisfy the
+        // key-required activation checks; the CLI transport never sends it.
+        baseUrl: codex ? "https://chatgpt.com/" : value("baseUrl"),
         model: value("model"),
         dailyBudgetUsd: value("dailyBudgetUsd"),
-        apiKey: value("apiKey"),
+        apiKey: codex ? (profile?.hasKey ? "" : "codex-cli-login") : value("apiKey"),
         roles: aiRoles.filter((role) => f.getAll("roles").includes(role)),
         priority: Number(value("priority")),
         inputUsdPerMillion: value("inputUsdPerMillion") || null,
@@ -79,16 +84,45 @@ export function CustomAiForm({
           />
         </div>
         <div className="field">
+          <label htmlFor="ai-protocol">{t("연결 방식", "Connection type")}</label>
+          <select
+            id="ai-protocol"
+            value={protocol}
+            onChange={(e) => setProtocol(e.target.value as typeof protocol)}
+          >
+            <option value="openai_chat_completions">
+              {t("OpenAI 호환 API (API 키)", "OpenAI-compatible API (API key)")}
+            </option>
+            <option value="codex_cli">
+              {t("ChatGPT 구독 (Codex CLI)", "ChatGPT plan (Codex CLI)")}
+            </option>
+          </select>
+          {codex && (
+            <p className="muted">
+              {t(
+                "서버의 Codex CLI가 ChatGPT 로그인으로 호출합니다. 로그인은 서버에서 한 번 하며, 명령 실행 도구는 모두 끈 채로 답변만 받습니다. 구독 사용량 한도를 함께 씁니다.",
+                "The server's Codex CLI calls with its ChatGPT sign-in, done once on the server, with every tool disabled. It shares your plan's usage limits.",
+              )}
+            </p>
+          )}
+        </div>
+        <div className="field">
           <label htmlFor="ai-model">{t("모델 이름", "Model name")}</label>
           <input
             id="ai-model"
             name="model"
-            defaultValue={profile?.model ?? ""}
+            key={codex ? "codex" : "api"}
+            defaultValue={profile?.model ?? (codex ? "default" : "")}
             required
             maxLength={200}
           />
+          {codex && (
+            <p className="muted">
+              {t("default로 두면 Codex 기본 모델을 씁니다.", "Leave default to use Codex's default model.")}
+            </p>
+          )}
         </div>
-        <div className="field full-width">
+        {!codex && <><div className="field full-width">
           <label htmlFor="ai-url">
             {t("OpenAI 호환 API 기본 주소", "OpenAI-compatible API base URL")}
           </label>
@@ -128,7 +162,7 @@ export function CustomAiForm({
                   "Keys are encrypted and never shown again. You can add one later.",
                 )}
           </p>
-        </div>
+        </div></>}
         <div className="field">
           <label htmlFor="ai-budget">
             {t("일일 비용 상한 (USD)", "Daily spending cap (USD)")}

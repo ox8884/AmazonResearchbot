@@ -16,6 +16,9 @@ Environment=AI_TRANSPORT=disabled
 Environment=JS_TRANSPORT=official
 Environment=MAIL_TRANSPORT=disabled
 Environment=SUMMARY_MAIL_TRANSPORT=disabled
+# ChatGPT-plan AI (codex_cli profiles): the CLI sign-in lives here; sign in once with `codex login --device-auth`.
+Environment=CODEX_HOME=/var/lib/forge-ops-worker/codex
+ReadWritePaths=/var/lib/forge-ops-worker/codex
 LoadCredential=encryption-key:/etc/forge-ops/credentials/encryption-key
 LoadCredential=js-api-key-name:/etc/forge-ops/credentials/js-api-key-name
 LoadCredential=js-api-key:/etc/forge-ops/credentials/js-api-key
