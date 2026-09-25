@@ -39,3 +39,17 @@ assert.equal(parseAiBusinessOutput({...groundedOutput,differentiationProposal:un
 assert.equal(parseAiBusinessOutput({...groundedOutput,targetSpecification:{...groundedTarget,sourceRefs:['claim:0']}},groundedInput),null,'The specification must retain the customer-problem source');
 assert.equal(parseAiBusinessOutput(groundedOutput,{...groundedInput,spec:{material:'Manual',dimensions:'Manual',packaging:'Manual',requestedQuantity:100}}),null);
 console.log('PASS: source-bound concrete differentiation proposal, target consistency and no confirmed evidence promotion');
+{
+ const {selectAiProductExcerpts,aiProductSourceReferenceSchema}=await import('../packages/domain/src/amazon-product-evidence.ts');
+ const aspect=(name,mentions,positive,negative,quotes)=>({name,mentions,positive,negative,quotes});
+ const source={basis:'listing_claims_and_review_excerpts',title:'Organizer',claims:['Pull-out drawers'],reviews:[],aspects:[
+  aspect('Quality',362,315,47,['Great quality overall']),
+  aspect('Drawer slide',124,68,56,['The drawers slide easily','...they don’t pull out smoothly....']),
+  aspect('Sturdiness',163,114,49,['Not sturdy at all when loaded'])]};
+ const excerpts=selectAiProductExcerpts('B0QA000001',source);
+ assert.deepEqual(excerpts.filter(row=>row.ref.startsWith('aspect:')).map(row=>row.ref),['aspect:1:0','aspect:1:1','aspect:2:0'],'The two most-criticized aspects supply review quotes');
+ assert.equal(excerpts.find(row=>row.ref==='aspect:1:1').text,'Drawer slide (56 of 124 mentions negative): "they don’t pull out smoothly."');
+ assert.ok(excerpts.filter(row=>row.ref.startsWith('aspect:')).every(row=>row.kind==='review'));
+ assert.ok(aiProductSourceReferenceSchema.safeParse({version:1,receiptId:'00000000-0000-4000-8000-000000000000',bodySha256:'a'.repeat(64),asin:'B0QA000001',inputVersion:1,settingsVersion:1,
+  fragments:excerpts.map(row=>({ref:row.ref,kind:row.kind,sha256:'b'.repeat(64)}))}).success,'Aspect fragments are valid source references');
+}

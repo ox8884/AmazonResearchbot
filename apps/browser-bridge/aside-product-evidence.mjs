@@ -47,5 +47,17 @@ export function readAmazonProductEvidence(root){
   else if(/^(?:Material|Material Type|Included Components)$/.test(label))addFact('composition',label,value,sourceText);
   else if(/^(?:Number of Pieces|Item Package Quantity|Package Quantity|Unit Count|Number of Items)$/.test(label))addFact('quantity',label,value,sourceText);
  }
- return {basis:'listing_claims_and_review_excerpts',title,claims,reviews,...(productDetails?{productDetails}: {}),...(catalogFacts.length?{catalogFacts}: {})};
+ // "Customers say" aspects: the control text opens with its sentiment counts, then the aspect name, an Amazon
+ // summary and customer review snippets, each quoted and followed by "Read more".
+ const aspects=[];
+ for(const control of root.querySelectorAll('[id^="rh_controls_aspect_"]')){
+  const content=clean(control.textContent);
+  const counts=/^([\d,]+) customers mention .+?, ([\d,]+) positive, ([\d,]+) negative/.exec(content);
+  const name=/customers mention "([^"]{1,100})"/.exec(content)?.[1];
+  if(!counts||!name)continue;
+  const [mentions,positive,negative]=counts.slice(1).map(value=>Number(value.replace(/,/g,'')));
+  const quotes=[...new Set([...content.matchAll(/"([^"]{8,1998})"\s*Read more/g)].map(match=>clean(match[1])))].slice(0,8);
+  if(positive+negative<=mentions&&aspects.length<12)aspects.push({name,mentions,positive,negative,quotes});
+ }
+ return {basis:'listing_claims_and_review_excerpts',title,claims,reviews,...(productDetails?{productDetails}: {}),...(catalogFacts.length?{catalogFacts}: {}),...(aspects.length?{aspects}:{})};
 }
