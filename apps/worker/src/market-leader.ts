@@ -1,7 +1,9 @@
 import {estimate,measured,unknown,type Evidence} from '@forge-ops/domain';
 import type {ProductObservation,QueryPeriod} from '@forge-ops/integrations/jungle-scout/responses';
 
-export type MarketLeader={readonly price:Evidence<string>;readonly family:Evidence<string>;readonly asins:Evidence<string>;readonly period:Evidence<string>};
+export type MarketLeader={readonly price:Evidence<string>;readonly family:Evidence<string>;readonly asins:Evidence<string>;readonly period:Evidence<string>;
+ /** The leader family's best-selling variant, the same one that sets the top price; absent when variants tie. */
+ readonly representativeAsin?:Evidence<string>};
 
 export function selectMarketLeader(products:readonly ProductObservation[],scope:{readonly complete:boolean;readonly period:QueryPeriod|null}):MarketLeader{
  let confirmedPeriod:Evidence<string>=unknown('SALES_PERIOD_INCOMPLETE');
@@ -76,11 +78,13 @@ export function withFamilyTotals(products:readonly ProductObservation[]):Product
 
 // Leader of a first-page lookup: the family with the largest summed revenue, priced at its best-selling variant.
 export function selectFirstPageLeader(products:readonly ProductObservation[],scope:{readonly complete:boolean;readonly period:QueryPeriod|null}):MarketLeader{
- const best=new Map<string,ProductObservation>();
+ const best=new Map<string,ProductObservation>(),tiedFamilies=new Set<string>();
  for(const product of products){
   if(product.family.kind!=='known'||product.family.key.kind==='unknown'||product.approximate30DayRevenue.kind==='unknown')continue;
-  const prior=best.get(product.family.key.value);
-  if(!prior||(prior.approximate30DayRevenue.kind!=='unknown'&&product.approximate30DayRevenue.value>prior.approximate30DayRevenue.value))best.set(product.family.key.value,product);
+  const key=product.family.key.value,prior=best.get(key);
+  const priorRevenue=prior&&prior.approximate30DayRevenue.kind!=='unknown'?prior.approximate30DayRevenue.value:null;
+  if(!prior||(priorRevenue!==null&&product.approximate30DayRevenue.value>priorRevenue)){best.set(key,product);tiedFamilies.delete(key);}
+  else if(priorRevenue===product.approximate30DayRevenue.value&&prior.asin.kind!=='unknown'&&product.asin.kind!=='unknown'&&prior.asin.value!==product.asin.value)tiedFamilies.add(key);
  }
  const totals=withFamilyTotals(products);
  const leader=selectMarketLeader(totals.map(product=>{
@@ -88,5 +92,7 @@ export function selectFirstPageLeader(products:readonly ProductObservation[],sco
   const top=family===null?undefined:best.get(family);
   return top?{...product,price:top.price}:product;
  }),scope);
- return leader;
+ const family=leader.family.kind==='unknown'?null:leader.family.value,top=family===null?undefined:best.get(family);
+ if(family===null||!top||tiedFamilies.has(family)||top.asin.kind==='unknown'||leader.asins.kind==='unknown')return leader;
+ return {...leader,representativeAsin:estimate(top.asin.value,leader.asins.sourceId,leader.asins.observedAt)};
 }

@@ -34,6 +34,9 @@ assert.deepEqual(withFamilyTotals([v1,v2,a]).map(p=>p.approximate30DayRevenue.va
 assert.equal(selectMarketLeader([a,v1,v2],scope).price.kind,'unknown','The family-level rule still rejects per-variant estimates');
 const firstPage=selectFirstPageLeader([a,v1,v2],scope);
 assert.equal(firstPage.family.value,'B0QA888888','The family with the larger summed revenue leads');assert.equal(firstPage.price.value,'24.00','Priced at its best-selling variant');
+assert.equal(firstPage.representativeAsin.value,'B0QA000006','The best-selling variant represents a multi-variant leader');
+const tiedVariants=selectFirstPageLeader([a,row('B0QA000005',9000,19,{is_variant:true,parent_asin:'B0QA888888'}),v2],scope);
+assert.equal(tiedVariants.family.value,'B0QA888888');assert.equal(tiedVariants.representativeAsin,undefined,'Tied best variants leave the representative unselected');
 assert.equal(selectFirstPageLeader([a,v1,row('B0QA000006',null,24,{is_variant:true,parent_asin:'B0QA888888'})],scope).price.kind,'unknown','An unknown variant revenue leaves the family unknown');
 assert.equal(selectFirstPageLeader([row('B0QA000007',15000),v1,v2],scope).price.kind,'unknown','Tied family totals stay unknown');
 const slot=(asin,adStatus='not_marked')=>({asin,adStatus});

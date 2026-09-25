@@ -70,7 +70,8 @@ export async function applyApiValidationDecision(input: {
         EXISTS(SELECT 1 FROM spec_revisions WHERE candidate_id=$1) AS has_spec`,
       [input.context.candidateId,input.context.inputVersion])).rows[0];
     if (!representative?.asin && !representative?.has_spec && !decision.assessment.hardFail) {
-      const leaderAsins = decision.marketLeader?.asins;
+      // A multi-variant leader family is represented by its best-selling variant, the one behind the top price.
+      const leaderAsins = decision.marketLeader?.representativeAsin ?? decision.marketLeader?.asins;
       const selected = leaderAsins && leaderAsins.kind !== 'unknown'
         && /^[A-Z0-9]{10}$/.test(leaderAsins.value)
         ? (await client.query<{ id: string }>(`
