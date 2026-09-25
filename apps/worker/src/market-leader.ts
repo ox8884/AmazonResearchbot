@@ -96,3 +96,11 @@ export function selectFirstPageLeader(products:readonly ProductObservation[],sco
  if(family===null||!top||tiedFamilies.has(family)||top.asin.kind==='unknown'||leader.asins.kind==='unknown')return leader;
  return {...leader,representativeAsin:estimate(top.asin.value,leader.asins.sourceId,leader.asins.observedAt)};
 }
+
+// Variants reported with equal sales tie; the one ranked highest among organic first-page slots is what shoppers see.
+export function withPageRankedRepresentative(leader:MarketLeader,slots:readonly {readonly asin:string|null;readonly adStatus:string}[]):MarketLeader{
+ if(leader.representativeAsin||leader.asins.kind==='unknown')return leader;
+ const members=new Set(leader.asins.value.split(', '));
+ const shown=slots.find(slot=>slot.adStatus==='not_marked'&&slot.asin!==null&&members.has(slot.asin))?.asin;
+ return shown?{...leader,representativeAsin:estimate(shown,leader.asins.sourceId,leader.asins.observedAt)}:leader;
+}

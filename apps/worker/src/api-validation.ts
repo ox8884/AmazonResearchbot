@@ -1,5 +1,5 @@
 import { collectSupplementary } from "./api-supplementary.ts";
-import {selectFirstPageLeader,selectMarketLeader,topOrganicSlots,withFamilyTotals} from './market-leader.ts';
+import {selectFirstPageLeader,selectMarketLeader,topOrganicSlots,withFamilyTotals,withPageRankedRepresentative} from './market-leader.ts';
 import {collectFirstPageSales,type FirstPageSales} from './first-page-sales.ts';
 import { storeApiFacts, type ApiFact } from "./api-facts-store.ts";
 import { readOfficialSource } from "./api-reader.ts";
@@ -155,6 +155,7 @@ export async function consumeOfficialValidation(
   let marketLeader=firstPageMode
     ? selectFirstPageLeader(kitchen,{complete:firstPageComplete,period:trailingPeriod(kitchen)})
     : selectMarketLeader([],{complete:false,period:null});
+  if(firstPageMode&&context.firstPageSource)marketLeader=withPageRankedRepresentative(marketLeader,context.firstPageSource.observation.slots);
   let aggregate = aggregateProductDatabase({
     observations: firstPageMode ? withFamilyTotals(kitchen) : collection.observations,
     populationComplete: firstPageMode ? firstPageComplete : collection.complete,

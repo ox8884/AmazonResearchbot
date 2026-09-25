@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {selectFirstPageLeader,selectMarketLeader,topOrganicSlots,withFamilyTotals} from '../apps/worker/src/market-leader.ts';
+import {selectFirstPageLeader,selectMarketLeader,topOrganicSlots,withFamilyTotals,withPageRankedRepresentative} from '../apps/worker/src/market-leader.ts';
 import {parseProductDatabaseResponse} from '../packages/integrations/src/jungle-scout/responses.ts';
 const source={sourceId:'synthetic-source',observedAt:'2026-09-09T00:00:00.000Z'};
 const scope={complete:true,period:{startDate:'2026-08-10',endDate:'2026-09-08'}};
@@ -37,6 +37,9 @@ assert.equal(firstPage.family.value,'B0QA888888','The family with the larger sum
 assert.equal(firstPage.representativeAsin.value,'B0QA000006','The best-selling variant represents a multi-variant leader');
 const tiedVariants=selectFirstPageLeader([a,row('B0QA000005',9000,19,{is_variant:true,parent_asin:'B0QA888888'}),v2],scope);
 assert.equal(tiedVariants.family.value,'B0QA888888');assert.equal(tiedVariants.representativeAsin,undefined,'Tied best variants leave the representative unselected');
+const ranked=withPageRankedRepresentative(tiedVariants,[{asin:'B0QA000006',adStatus:'sponsored'},{asin:'B0QA000001',adStatus:'not_marked'},{asin:'B0QA000006',adStatus:'not_marked'},{asin:'B0QA000005',adStatus:'not_marked'}]);
+assert.equal(ranked.representativeAsin.value,'B0QA000006','Tied variants resolve to the highest organic first-page slot');
+assert.equal(withPageRankedRepresentative(firstPage,[{asin:'B0QA000005',adStatus:'not_marked'}]).representativeAsin.value,'B0QA000006','A clear best seller is kept');
 assert.equal(selectFirstPageLeader([a,v1,row('B0QA000006',null,24,{is_variant:true,parent_asin:'B0QA888888'})],scope).price.kind,'unknown','An unknown variant revenue leaves the family unknown');
 assert.equal(selectFirstPageLeader([row('B0QA000007',15000),v1,v2],scope).price.kind,'unknown','Tied family totals stay unknown');
 const slot=(asin,adStatus='not_marked')=>({asin,adStatus});
