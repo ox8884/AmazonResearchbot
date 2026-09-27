@@ -48,4 +48,23 @@ assert.deepEqual(top.products,[b,a],'Top organic slots keep page order, skip ads
 assert.deepEqual(topOrganicSlots([slot(b.asin.value)],[a,b],new Set(),1).products,[b]);
 assert.equal(topOrganicSlots([slot('B0QAMISSING'),slot(b.asin.value)],[a,b],new Set([b.asin.value]),1).complete,false,'An unreturned slot before the limit leaves the top slots uncertain');
 assert.equal(topOrganicSlots([slot(b.asin.value),slot('B0QAMISSING')],[a,b],new Set([b.asin.value]),1).complete,true,'A slot after the limit does not matter');
+assert.equal(topOrganicSlots([slot('B0QAMISSING'),slot(a.asin.value),slot(b.asin.value)],[a,b],new Set([a.asin.value,b.asin.value]),2).missing,1,'An unreturned slot takes a place in the top slots');
+// Partial populations decide a rule only when the missing members, counted as the worst case, cannot change it.
+const {aggregateProductDatabase}=await import('../packages/integrations/src/jungle-scout/validation.ts');
+const reviewed=(asin,reviews,revenue=10000)=>row(asin,revenue,25,{reviews});
+const agg=(observations,missing)=>aggregateProductDatabase({observations,populationComplete:false,review2000HardFailCount:2,monthlyRevenueMinUsd:'8000',
+ ...(missing===undefined?{}:{bounds:{missing,review700Max:3,competitorMin:5}})});
+const few=[reviewed('B0QA100001',800),reviewed('B0QA100002',100),reviewed('B0QA100003',50)];
+assert.equal(agg(few).review700Count.kind,'unknown','Without bounds a partial population stays unknown');
+assert.equal(agg(few,2).review700Count.kind,'estimate','1 known + 2 missing cannot exceed 3');assert.equal(agg(few,2).review700Count.value,1);
+assert.equal(agg(few,3).review700Count.kind,'unknown','1 known + 3 missing could exceed 3');
+assert.equal(agg(few,0).review2000Count.kind,'estimate');assert.equal(agg(few,1).review2000Count.kind,'estimate','0 known + 1 missing stays under the hard-fail count');
+assert.equal(agg(few,2).review2000Count.kind,'unknown','2 missing could reach the hard-fail count');
+const heavy=[800,900,1000,1200].map((reviews,i)=>reviewed('B0QA20000'+i,reviews));
+assert.equal(agg(heavy,5).review700Count.value,4,'4 known 700+ products already exceed 3');
+assert.equal(agg([...few,reviewed('B0QA100004',null)],2).review700Count.kind,'unknown','A product with unknown reviews counts as missing too');
+const sellers=[1,2,3,4,5].map(i=>reviewed('B0QA30000'+i,10));
+assert.equal(agg(sellers,9).monthlyRevenueCompetitorCount.kind,'estimate','5 known competitors already meet the minimum');
+assert.equal(agg(sellers.slice(0,2),2).monthlyRevenueCompetitorCount.kind,'estimate','2 known + 2 missing cannot reach 5');
+assert.equal(agg(sellers.slice(0,2),3).monthlyRevenueCompetitorCount.kind,'unknown');
 console.log(JSON.stringify({scenario:'market-leader',result:'PASS',completeScope:true,tiesUnknown:true,familyDedup:true,priceConflictsUnknown:true,externalCalls:0}));

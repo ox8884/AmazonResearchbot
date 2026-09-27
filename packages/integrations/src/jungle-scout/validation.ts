@@ -13,6 +13,8 @@ export type ProductDatabaseAggregationInput = {
   readonly populationComplete: boolean;
   readonly review2000HardFailCount: number;
   readonly monthlyRevenueMinUsd: string;
+  // Set when the population is fully read except `missing` members whose metrics are unknown.
+  readonly bounds?: { readonly missing: number; readonly review700Max: number; readonly competitorMin: number };
 };
 
 type FamilyMetrics = {
@@ -95,25 +97,35 @@ export function aggregateProductDatabase(
   const minimumRevenue = Number(input.monthlyRevenueMinUsd);
   const revenueComplete = complete && Number.isFinite(minimumRevenue) && minimumRevenue >= 0;
   const revenueCompetitors = metrics.filter((metric) => isKnown(metric.revenue) && metric.revenue.value >= minimumRevenue).length;
+  // A partial population still decides a rule when the unobserved members (unreturned, or with an unknown metric),
+  // counted as the worst case, cannot change the outcome. The count shown is then the observed one, as an estimate.
+  const bounds = input.bounds;
+  const noFamily = input.observations.filter((observation) => familyMetrics(observation) === null).length;
+  const reviewGap = bounds ? bounds.missing + noFamily + metrics.filter((metric) => !isKnown(metric.review)).length : 0;
+  const revenueGap = bounds ? bounds.missing + noFamily + metrics.filter((metric) => !isKnown(metric.revenue)).length : 0;
+  const review700Decided = bounds !== undefined && (review700 > bounds.review700Max || review700 + reviewGap <= bounds.review700Max);
+  const review2000Decided = bounds !== undefined && review2000 + reviewGap < input.review2000HardFailCount;
+  const revenueDecided = bounds !== undefined && Number.isFinite(minimumRevenue) && minimumRevenue >= 0 &&
+    (revenueCompetitors >= bounds.competitorMin || revenueCompetitors + revenueGap < bounds.competitorMin);
 
   return {
     review700Count: countEvidence({
       value: review700,
-      complete,
+      complete: complete || review700Decided,
       source,
       reason: "REVIEW_POPULATION_INCOMPLETE",
-      kind: "measured",
+      kind: complete ? "measured" : "estimate",
     }),
     review2000Count: countEvidence({
       value: review2000,
-      complete: complete || hardFailKnown,
+      complete: complete || hardFailKnown || review2000Decided,
       source,
       reason: "REVIEW_HARD_FAIL_UNKNOWN",
-      kind: "measured",
+      kind: complete || hardFailKnown ? "measured" : "estimate",
     }),
     monthlyRevenueCompetitorCount: countEvidence({
       value: revenueCompetitors,
-      complete: revenueComplete,
+      complete: revenueComplete || revenueDecided,
       source,
       reason: "REVENUE_POPULATION_INCOMPLETE",
       kind: "estimate",

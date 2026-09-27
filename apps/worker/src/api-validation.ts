@@ -156,19 +156,24 @@ export async function consumeOfficialValidation(
     ? selectFirstPageLeader(kitchen,{complete:firstPageComplete,period:trailingPeriod(kitchen)})
     : selectMarketLeader([],{complete:false,period:null});
   if(firstPageMode&&context.firstPageSource)marketLeader=withPageRankedRepresentative(marketLeader,context.firstPageSource.observation.slots);
+  // With the whole first page captured and the lookup fully read, only the unreturned ASINs are unknown.
+  const firstPageRead=firstPageMode&&context.firstPageSource?.observation.coverage==='complete'&&collection.complete&&collection.block===null;
+  const ruleBounds={review700Max:context.snapshot.review700Max,competitorMin:context.snapshot.monthlyRevenueCompetitorCount};
   let aggregate = aggregateProductDatabase({
     observations: firstPageMode ? withFamilyTotals(kitchen) : collection.observations,
     populationComplete: firstPageMode ? firstPageComplete : collection.complete,
     review2000HardFailCount: context.snapshot.review2000HardFailCount,
     monthlyRevenueMinUsd: context.snapshot.monthlyRevenueMinUsd,
+    ...(firstPageRead?{bounds:{missing:firstPageAsins.filter(asin=>!returned.has(asin)).length,...ruleBounds}}:{}),
   });
   // The review barrier counts the first organic Kitchen & Dining slots in page order, where a shopper decides.
   let reviewAggregate = aggregate;
   if(firstPageMode&&context.firstPageSource){
     const top=topOrganicSlots(context.firstPageSource.observation.slots,kitchen,returned,REVIEW_TOP_SLOTS);
     reviewAggregate=aggregateProductDatabase({observations:top.products,
-      populationComplete:top.complete&&context.firstPageSource.observation.coverage==='complete'&&collection.complete&&collection.block===null,
-      review2000HardFailCount:context.snapshot.review2000HardFailCount,monthlyRevenueMinUsd:context.snapshot.monthlyRevenueMinUsd});
+      populationComplete:top.complete&&firstPageRead,
+      review2000HardFailCount:context.snapshot.review2000HardFailCount,monthlyRevenueMinUsd:context.snapshot.monthlyRevenueMinUsd,
+      ...(firstPageRead?{bounds:{missing:top.missing,...ruleBounds}}:{})});
   }
   let nicheInput: NicheInput = {
     review700Count: reviewAggregate.review700Count,

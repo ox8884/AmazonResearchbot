@@ -46,17 +46,18 @@ export function selectMarketLeader(products:readonly ProductObservation[],scope:
 
 // The first `limit` organic slots, in page order, that are among `eligible` products. A slot the lookup did not
 // return has an unknown category, so the selection is incomplete when one appears before the limit is reached.
+// Such a slot takes a place in the limit: the true top slots are then `products` plus at most `missing` others.
 export function topOrganicSlots(slots:readonly {readonly asin:string|null;readonly adStatus:string}[],eligible:readonly ProductObservation[],returned:ReadonlySet<string>,limit:number){
  const byAsin=new Map(eligible.flatMap(product=>product.asin.kind==='unknown'?[]:[[product.asin.value,product] as const]));
- const seen=new Set<string>(),products:ProductObservation[]=[];let complete=true;
+ const seen=new Set<string>(),products:ProductObservation[]=[];let missing=0;
  for(const slot of slots){
-  if(products.length>=limit)break;
+  if(products.length+missing>=limit)break;
   if(slot.adStatus!=='not_marked'||slot.asin===null||seen.has(slot.asin))continue;
   seen.add(slot.asin);
   const product=byAsin.get(slot.asin);
-  if(product)products.push(product);else if(!returned.has(slot.asin))complete=false;
+  if(product)products.push(product);else if(!returned.has(slot.asin))missing++;
  }
- return {products,complete};
+ return {products,complete:missing===0,missing};
 }
 
 // Product Database estimates each variant separately. A family's first-page revenue is the sum of its listed
