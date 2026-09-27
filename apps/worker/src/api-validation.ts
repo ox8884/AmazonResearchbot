@@ -227,14 +227,16 @@ export async function consumeOfficialValidation(
       }
     }
   }
-  const evidenceBlock = collection.block ?? (!categoryConfirmed?'CATEGORY_MEMBERSHIP_UNCONFIRMED':supplementBlock) ?? (aggregate.complete ? null : "PRODUCT_DATABASE_METRICS_INCOMPLETE");
+  // A fully read first page already left each count decided by its worst-case bound or unknown, so the rules decide.
+  const metricsDecided = aggregate.complete || firstPageRead;
+  const evidenceBlock = collection.block ?? (!categoryConfirmed?'CATEGORY_MEMBERSHIP_UNCONFIRMED':supplementBlock) ?? (metricsDecided ? null : "PRODUCT_DATABASE_METRICS_INCOMPLETE");
   return applyApiValidationDecision({
     pool,
     context,
     decision: {
       assessment,
       input: nicheInput,
-      outcome: categoryConfirmed?finalOutcome({ assessment, complete: aggregate.complete, block: evidenceBlock, reviewKnown: isKnown(reviewAggregate.review700Count) && isKnown(reviewAggregate.review2000Count) }):'hold',
+      outcome: categoryConfirmed?finalOutcome({ assessment, complete: metricsDecided, block: evidenceBlock, reviewKnown: isKnown(reviewAggregate.review700Count) && isKnown(reviewAggregate.review2000Count) }):'hold',
       evidenceBlock,
       sourceIds: [...sourceIds],
       marketLeader,
