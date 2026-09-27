@@ -170,12 +170,13 @@ async function runPackage(options={}){
  const root={querySelectorAll:selector=>{
   assert.equal(selector,'table tr');return data.map(([label,value])=>({
    children:[{tagName:'TH',innerText:label},{tagName:'TD',innerText:value}],innerText:label+'\t'+value,
-   getClientRects:()=>expanded.has(label==='ASIN'?'Item details':'Measurements')?[{}]:[],
+   getClientRects:()=>options.flat||expanded.has(label==='ASIN'?'Item details':'Measurements')?[{}]:[],
   }));
  }};
  const page={url:()=>++reads>2&&options.lateUrl?options.lateUrl:options.url??'https://www.amazon.com/dp/'+asin,
   locator:selector=>{
    if(selector==='body')return {evaluate:async callback=>vm.runInNewContext('('+callback.toString()+')(root)',{root:{querySelector:()=>null,querySelectorAll:()=>[]},getComputedStyle:()=>({visibility:'visible'})},{timeout:1000})};
+   if(selector==='#productDetails_feature_div [aria-expanded]')return {count:async()=>options.flat?0:2};
    assert.equal(selector,'#productDetails_feature_div');return {
     waitFor:async()=>{if(options.waitFailure)throw Error('Unavailable');},
     evaluate:async callback=>vm.runInNewContext('('+callback.toString()+')(root)',{root,getComputedStyle:()=>({visibility:'visible'})},{timeout:1000}),
@@ -183,7 +184,7 @@ async function runPackage(options={}){
   },
   getByRole:(role,{name})=>{
    assert.equal(role,'button');assert.ok(['Item details','Measurements'].includes(name));return {
-    waitFor:async()=>{},evaluate:async callback=>callback({getAttribute:()=>expanded.has(name)?'true':'false'}),
+    waitFor:async()=>{if(options.flat)throw Error('Timeout 15000ms exceeded');},evaluate:async callback=>callback({getAttribute:()=>expanded.has(name)?'true':'false'}),
     click:async()=>{if(!options.clickIgnored)expanded.add(name);events.push('expand:'+name);},
     press:async key=>{assert.equal(key,'Enter');expanded.add(name);events.push('expand:'+name);},
    };
@@ -204,6 +205,9 @@ const packageCapture=await runPackage();assert.equal(packageCapture.scope,'amazo
 assert.equal((await runPackage({clickIgnored:true})).kind,'captured','Semantic activation must open the accordion when a fresh-page click does not');
 assert.ok(packageCapture.rows.every(row=>packageCapture.pageText.includes(row.excerpt)));
 assert.equal((await runPackage({rows:[['ASIN','B0QA000001'],['Item Weight','4.8 ounces']]})).kind,'captured','Missing package facts are observations, not invented measurements');
+const flat=await runPackage({flat:true,rows:[['Product Dimensions','20 x 16 x 1 inches'],['Item Weight','3 pounds'],['ASIN','B0QA000001']]});
+assert.equal(flat.kind,'captured','An older flat "Product information" table is read without expanders');assert.equal(flat.rows.length,3);
+assert.equal((await runPackage({flat:true,rows:[['Item Weight','3 pounds']]})).kind,'unavailable','The flat table still needs the exact ASIN row');
 for(const options of [{asin:"x'); injected=true; //"},{url:'https://www.amazon.com.evil.invalid/dp/B0QA000001'},
  {lateUrl:'https://www.amazon.com/dp/B0QA000002'},{rows:[['ASIN','B0QA000002']]},{waitFailure:true},{emptySnapshot:true}])assert.equal((await runPackage(options)).kind,'unavailable');
 await runPackage({closeFailure:true});

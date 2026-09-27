@@ -30,7 +30,14 @@ export function amazonPackageScript(asin,marker) {
     return {rows,asins};
    });
    const rows=[],snapshots=[];
-   for(const name of ['Item details','Measurements']){
+   // Older listings show one flat "Product information" table with no expandable sections to open.
+   const expandable=await p.locator(selector+' [aria-expanded]').count()>0;
+   for(const name of expandable?['Item details','Measurements']:[null]){
+    if(name===null){
+     const view=await snapshot(p,{selector});
+     if(!view.tree||view.tree.length>100000)throw Error('SNAPSHOT_UNCONFIRMED');
+     snapshots.push(view.tree);checkPage();rows.push(...(await read()).rows);continue;
+    }
     const button=p.getByRole('button',{name,exact:true});
     await button.waitFor({state:'visible',timeout:15000});
     const state=await button.evaluate(el=>el.getAttribute('aria-expanded'));
