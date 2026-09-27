@@ -19,6 +19,7 @@ export async function runtimeEnvironment(
     "JS_API_KEY",
     "JS_API_KEY_NAME",
     "COMPOSIO_API_KEY",
+    "TYPESAFE_API_KEY",
   ];
   if (process.platform !== "linux" || forbidden.some((name) => source[name]))
     throw new Error("PRODUCTION_SERVICE_CREDENTIALS_REQUIRED");
@@ -66,6 +67,8 @@ export async function runtimeEnvironment(
     result.COMPOSIO_API_KEY = await credential("composio-api-key");
   if (authority.service === "worker" && source.SUMMARY_MAIL_TRANSPORT === "composio")
     result.COMPOSIO_API_KEY = await credential("composio-api-key");
+  if (authority.service === "worker" && source.JEV_MODE === "shadow")
+    result.TYPESAFE_API_KEY = await credential("typesafe-api-key");
   if(authority.service==="worker"&&source.BROWSER_TASKS_ENABLED==="true")
     result.BROWSER_SIGNING_KEY=await credential("browser-signing-key");
   return result;

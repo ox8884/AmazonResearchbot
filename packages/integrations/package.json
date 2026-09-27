@@ -27,7 +27,8 @@
     "./mail/quote-record": "./src/mail/quote-record.ts",
     "./ai/transport": "./src/ai/transport.ts",
     "./ai/execute": "./src/ai/execute.ts",
-    "./sourcing/capture": "./src/sourcing/capture.ts"
+    "./sourcing/capture": "./src/sourcing/capture.ts",
+    "./jev": "./src/jev.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

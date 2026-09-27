@@ -3,6 +3,7 @@ import { loadBrowserSigningKey, publishBrowserSigningIdentity } from "./browser-
 import { dispatchBrowserWork } from "./browser-dispatch.ts";
 import { readRuntimeAuthority, runtimeEnvironment, assertDatabaseAuthority } from "@forge-ops/security";
 import { runSummaryDeliveryCycle } from "./summary-delivery-loop.ts";
+import { runJevShadowCycle } from "./jev-shadow.ts";
 import { prepareReadyRfqs } from "./automatic-rfq.ts";
 import { createAiTransport } from "@forge-ops/integrations/ai/transport";
 import { runDailyPlanner } from "./planner.ts";
@@ -149,17 +150,31 @@ function dispatchBrowserTasks(): void {
 const browserTimer = browserSigning ? setInterval(dispatchBrowserTasks, 5000) : null;
 dispatchBrowserTasks();
 
+// JEV_MODE=shadow records Jev's typed judgments in jev_decisions and never acts on them. Unset = off.
+const jevApiKey = source.JEV_MODE === "shadow" ? source.TYPESAFE_API_KEY : undefined;
+if (source.JEV_MODE === "shadow" && !jevApiKey) throw new Error("TYPESAFE_API_KEY missing for JEV_MODE=shadow");
+let jevTask: Promise<void> | null = null;
+function judgeWithJev(): void {
+  if (!jevApiKey || jevTask) return;
+  jevTask = runJevShadowCycle(pool, encryptionKey, jevApiKey).catch(() => {
+    console.error("Jev shadow judgments interrupted; the next tick will retry");
+  }).finally(() => { jevTask = null; });
+}
+const jevTimer = jevApiKey ? setInterval(judgeWithJev, 60000) : null;
+judgeWithJev();
+
 console.log("worker listening for candidate.advance");
 
 process.once("SIGTERM", async () => {
   if (browserTimer) clearInterval(browserTimer);
+  if (jevTimer) clearInterval(jevTimer);
   clearInterval(contactTimer);
   clearInterval(rfqTimer);
   clearInterval(inboxTimer);
   clearInterval(plannerTimer);
   clearInterval(summaryTimer);
   const stopQueue = boss.stop({ graceful: true, timeout: 20000 });
-  await Promise.all([stopQueue, contactTask, inboxTask, plannerTask, rfqTask, summaryTask, browserTask]);
+  await Promise.all([stopQueue, contactTask, inboxTask, plannerTask, rfqTask, summaryTask, browserTask, jevTask]);
   authorityConnection.release();
   await pool.end();
   process.exit(0);

@@ -22,6 +22,9 @@ ReadWritePaths=/var/lib/forge-ops-worker/codex
 LoadCredential=encryption-key:/etc/forge-ops/credentials/encryption-key
 LoadCredential=js-api-key-name:/etc/forge-ops/credentials/js-api-key-name
 LoadCredential=js-api-key:/etc/forge-ops/credentials/js-api-key
+# Jev shadow mode: records typed judgments in jev_decisions, takes no action. Remove both lines to switch off.
+# Environment=JEV_MODE=shadow
+# LoadCredential=typesafe-api-key:/etc/forge-ops/credentials/typesafe-api-key
 ExecStart=/usr/bin/node --import tsx apps/worker/src/index.ts --production
 Restart=always
 RestartSec=5
