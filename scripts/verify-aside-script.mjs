@@ -6,19 +6,18 @@ import {productDatabaseScript} from '../apps/browser-bridge/aside-product-databa
 import {categoryTrendsScript} from '../apps/browser-bridge/aside-category-trends-script.mjs';
 import {historicalDataScript} from '../apps/browser-bridge/aside-historical-data-script.mjs';
 const query="x'); globalThis.injected=true; //";
-let captured,closed=false;
-const fakePage={url:()=>'https://www.alibaba.com/',locator:()=>({
+let opened,closed=false;
+const fakePage={url:()=>opened,locator:selector=>({
+ first(){return this;},
  waitFor:async()=>{},
- fill:async value=>{captured=value;},
- evaluate:async()=>captured,
- click:async()=>{throw new Error('Controlled stop after query verification');},
+ evaluate:async()=>{if(selector==='body')throw new Error('Controlled stop after query verification');return query;},
 })};
-const context={injected:false,console:{log(){}},openTab:async()=>fakePage,closeTab:async()=>{closed=true;},snapshot:async()=>{
+const context={injected:false,console:{log(){}},openTab:async url=>{opened=url;return fakePage;},closeTab:async()=>{closed=true;},snapshot:async()=>{
  await new Promise(resolve=>setTimeout(resolve,5));
- return {tree:'- textbox "Search Alibaba" [ref=e1]\n- button "검색" [ref=e2]'};
+ return {tree:'- textbox "Search Alibaba" [ref=e1]'};
 }};
 await vm.runInNewContext('(async()=>{'+supplierSearchScript(query,'FIXTURE:')+'})()',context,{timeout:1000});
-assert.equal(captured,query);
+assert.equal(opened,'https://www.alibaba.com/trade/search?SearchText='+encodeURIComponent(query),'The classic results page is opened with the query as encoded data');
 assert.equal(context.injected,false);
 assert.equal(closed,true,'One-shot caller must await work and finally cleanup');
 const lateOutputs=[];
