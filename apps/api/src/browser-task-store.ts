@@ -61,6 +61,8 @@ export async function claimBrowserTask(pool:Pool,deviceId:string,browserCap?:num
     WHERE t.device_id=$1 AND (t.state='queued' OR (t.state='delivered' AND t.delivered_at<=clock_timestamp()-interval '150 seconds'))
      AND (t.task_kind <> ALL($2::text[]) OR t.state='delivered' OR $3::boolean)
    ORDER BY
+     -- Amazon reads finish a verdict; Alibaba supplier reads only serve candidates that already passed.
+     (left(t.task_kind,9)='supplier_') ASC,
      (SELECT max(prior.delivered_at) FROM browser_tasks prior
       WHERE prior.task_kind=t.task_kind
        AND prior.candidate_id IS NOT DISTINCT FROM t.candidate_id
