@@ -31,7 +31,7 @@ export function amazonPackageScript(asin,marker) {
    });
    const rows=[],snapshots=[];
    // Older listings show one flat "Product information" table with no expandable sections to open.
-   const expandable=await p.locator(selector+' [aria-expanded]').count()>0;
+   const expandable=await p.getByRole('button',{name:'Item details',exact:true}).count()>0;
    for(const name of expandable?['Item details','Measurements']:[null]){
     if(name===null){
      const view=await snapshot(p,{selector});

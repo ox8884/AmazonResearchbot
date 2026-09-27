@@ -176,7 +176,6 @@ async function runPackage(options={}){
  const page={url:()=>++reads>2&&options.lateUrl?options.lateUrl:options.url??'https://www.amazon.com/dp/'+asin,
   locator:selector=>{
    if(selector==='body')return {evaluate:async callback=>vm.runInNewContext('('+callback.toString()+')(root)',{root:{querySelector:()=>null,querySelectorAll:()=>[]},getComputedStyle:()=>({visibility:'visible'})},{timeout:1000})};
-   if(selector==='#productDetails_feature_div [aria-expanded]')return {count:async()=>options.flat?0:2};
    assert.equal(selector,'#productDetails_feature_div');return {
     waitFor:async()=>{if(options.waitFailure)throw Error('Unavailable');},
     evaluate:async callback=>vm.runInNewContext('('+callback.toString()+')(root)',{root,getComputedStyle:()=>({visibility:'visible'})},{timeout:1000}),
@@ -184,7 +183,7 @@ async function runPackage(options={}){
   },
   getByRole:(role,{name})=>{
    assert.equal(role,'button');assert.ok(['Item details','Measurements'].includes(name));return {
-    waitFor:async()=>{if(options.flat)throw Error('Timeout 15000ms exceeded');},evaluate:async callback=>callback({getAttribute:()=>expanded.has(name)?'true':'false'}),
+    count:async()=>options.flat?0:1,waitFor:async()=>{if(options.flat)throw Error('Timeout 15000ms exceeded');},evaluate:async callback=>callback({getAttribute:()=>expanded.has(name)?'true':'false'}),
     click:async()=>{if(!options.clickIgnored)expanded.add(name);events.push('expand:'+name);},
     press:async key=>{assert.equal(key,'Enter');expanded.add(name);events.push('expand:'+name);},
    };
