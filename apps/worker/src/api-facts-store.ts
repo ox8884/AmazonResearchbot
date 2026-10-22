@@ -33,29 +33,29 @@ export async function storeApiFacts(
       await db.query("COMMIT");
       return false;
     }
-    for (const fact of facts) {
-      const e = fact.evidence,
-        numeric =
-          e.kind !== "unknown" && typeof e.value === "number" ? e.value : null,
-        text =
-          e.kind !== "unknown" && typeof e.value === "string" ? e.value : null;
+    // One statement for the batch (a catalog lookup stores ten facts per product). DISTINCT keeps a
+    // repeated fact to one row, as inserting them one at a time behind NOT EXISTS did.
+    const evidence = facts.map((fact) => fact.evidence);
+    if (facts.length)
       await db.query(
         `INSERT INTO evidence(candidate_id,field,kind,value_numeric,value_text,source_id,observed_at,reason,input_version,settings_version)
-       SELECT $1,$2,$3,$4,$5,$6,$7,$8,$9,$10 WHERE NOT EXISTS(SELECT 1 FROM evidence WHERE candidate_id=$1 AND field=$2 AND kind=$3 AND value_numeric IS NOT DISTINCT FROM $4::numeric AND value_text IS NOT DISTINCT FROM $5::text AND source_id IS NOT DISTINCT FROM $6::text AND observed_at IS NOT DISTINCT FROM $7::timestamptz AND reason IS NOT DISTINCT FROM $8::text AND input_version=$9 AND settings_version=$10)`,
+       SELECT DISTINCT $1::uuid,f.field,f.kind,f.value_numeric,f.value_text,f.source_id,f.observed_at,f.reason,$9::int,$10::int
+       FROM unnest($2::text[],$3::text[],$4::numeric[],$5::text[],$6::text[],$7::timestamptz[],$8::text[])
+         AS f(field,kind,value_numeric,value_text,source_id,observed_at,reason)
+       WHERE NOT EXISTS(SELECT 1 FROM evidence e WHERE e.candidate_id=$1 AND e.field=f.field AND e.kind=f.kind AND e.value_numeric IS NOT DISTINCT FROM f.value_numeric AND e.value_text IS NOT DISTINCT FROM f.value_text AND e.source_id IS NOT DISTINCT FROM f.source_id AND e.observed_at IS NOT DISTINCT FROM f.observed_at AND e.reason IS NOT DISTINCT FROM f.reason AND e.input_version=$9 AND e.settings_version=$10)`,
         [
           context.candidateId,
-          fact.field,
-          e.kind,
-          numeric,
-          text,
-          e.sourceId,
-          e.observedAt,
-          e.kind === "unknown" ? e.reason : null,
+          facts.map((fact) => fact.field),
+          evidence.map((e) => e.kind),
+          evidence.map((e) => (e.kind !== "unknown" && typeof e.value === "number" ? e.value : null)),
+          evidence.map((e) => (e.kind !== "unknown" && typeof e.value === "string" ? e.value : null)),
+          evidence.map((e) => e.sourceId),
+          evidence.map((e) => e.observedAt),
+          evidence.map((e) => (e.kind === "unknown" ? e.reason : null)),
           context.inputVersion,
           context.settingsVersion,
         ],
       );
-    }
     await db.query("COMMIT");
     return true;
   } catch (error) {

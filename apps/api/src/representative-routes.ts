@@ -3,7 +3,7 @@ import type { Pool } from "@forge-ops/db";
 import type { PgBoss } from "pg-boss";
 import { z } from "zod";
 import { JOB_ADVANCE, txAdapter } from "./queue.ts";
-import {readMarketSource} from './market-source-store.ts';
+import {readMarketSource} from '@forge-ops/integrations/amazon/market-source';
 import { confirmsKitchenDining, productDatabaseObservationSchema } from '@forge-ops/domain';
 import { decryptSecret, exactPayloadHash } from '@forge-ops/security';
 
@@ -36,15 +36,17 @@ async function readRepresentative(db: Pick<Pool, "query">, id: string,key:Buffer
         AND NOT EXISTS(SELECT 1 FROM spec_revisions WHERE candidate_id=c.id)) AS editable
     FROM candidates c WHERE c.id=$1`, [id])).rows[0];
   if(!view)return undefined;
+  // Sequential on purpose: db may be a transaction client, which must not run overlapping queries.
   const market=await readMarketSource(db,id,key);
-  const observed=market.state==='captured'&&market.inputVersion===view.inputVersion&&market.settingsVersion===view.settingsVersion
-    ?market.observation.slots.flatMap(slot=>slot.adStatus==='not_marked'&&slot.asin&&slot.title?[{asin:slot.asin,title:slot.title}]:[]):[];
-  const productReceipt=(await db.query<{receipt_id:string;body_ciphertext:string;body_sha256:string;query:string}>(`
+  const receipts=await db.query<{receipt_id:string;body_ciphertext:string;body_sha256:string;query:string}>(`
     SELECT r.id AS receipt_id,r.body_ciphertext,r.body_sha256,c.normalized_keyword AS query
     FROM browser_tasks t JOIN browser_task_results r ON r.id=t.result_id JOIN candidates c ON c.id=t.candidate_id
     WHERE t.candidate_id=$1 AND t.task_kind='product_database' AND t.state='completed'
       AND t.input_version=$2 AND t.settings_version=$3
-    ORDER BY t.created_at DESC,t.id DESC LIMIT 1`,[id,view.inputVersion,view.settingsVersion])).rows[0];
+    ORDER BY t.created_at DESC,t.id DESC LIMIT 1`,[id,view.inputVersion,view.settingsVersion]);
+  const observed=market.state==='captured'&&market.inputVersion===view.inputVersion&&market.settingsVersion===view.settingsVersion
+    ?market.observation.slots.flatMap(slot=>slot.adStatus==='not_marked'&&slot.asin&&slot.title?[{asin:slot.asin,title:slot.title}]:[]):[];
+  const productReceipt=receipts.rows[0];
   let productDatabase:readonly {readonly asin:string;readonly title:string}[]=[];
   if(productReceipt){
     try{

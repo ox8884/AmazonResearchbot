@@ -6,6 +6,7 @@ import type {
   SpecInput,
   SpecRecord,
 } from "../../../packages/domain/src/sourcing.ts";
+import { requestJson } from "./api.ts";
 export class QuoteRequestError extends Error {
   constructor(
     readonly status: number,
@@ -14,26 +15,8 @@ export class QuoteRequestError extends Error {
     super(code);
   }
 }
-async function request<T>(path: string, body?: unknown): Promise<T> {
-  const response = await fetch(path, {
-    method: body === undefined ? "GET" : "POST",
-    credentials: "include",
-    headers: body === undefined ? {} : { "content-type": "application/json" },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  if (!response.ok) {
-    const payload: unknown = await response.json();
-    const code =
-      typeof payload === "object" &&
-      payload !== null &&
-      "code" in payload &&
-      typeof payload.code === "string"
-        ? payload.code
-        : "REQUEST_FAILED";
-    throw new QuoteRequestError(response.status, code);
-  }
-  return response.json();
-}
+const request = <T>(path: string, body?: unknown) =>
+  requestJson<T>(path, QuoteRequestError, { body });
 export const getSourcing = (candidateId: string) =>
   request<SourcingView>(
     `/api/candidates/${encodeURIComponent(candidateId)}/sourcing`,

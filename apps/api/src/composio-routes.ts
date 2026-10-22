@@ -47,18 +47,17 @@ export function registerComposioRoutes(
     );
   }
   async function status(userId: string) {
-    const row = (
-      await pool.query<Connection>(
+    const [connections, settings] = await Promise.all([
+      pool.query<Connection>(
         "SELECT * FROM composio_gmail_connections WHERE user_id=$1",
         [userId],
-      )
-    ).rows[0];
-    const expected =
-      (
-        await pool.query<{ email: string | null }>(
-          "SELECT snapshot->>'summaryEmail' AS email FROM settings_versions ORDER BY version DESC LIMIT 1",
-        )
-      ).rows[0]?.email ?? null;
+      ),
+      pool.query<{ email: string | null }>(
+        "SELECT snapshot->>'summaryEmail' AS email FROM settings_versions ORDER BY version DESC LIMIT 1",
+      ),
+    ]);
+    const row = connections.rows[0];
+    const expected = settings.rows[0]?.email ?? null;
     const current = row?.key_fingerprint === fingerprint ? row : undefined;
     const state =
       current?.email &&

@@ -1,6 +1,5 @@
 import { useMutation } from "@tanstack/react-query";
 import type {
-  MailProfileActivation,
   MailProfileConfig,
   MailProfileSafeView,
 } from "../../../packages/domain/src/mail-profile.ts";
@@ -8,13 +7,9 @@ import {
   decideMailProfileApproval,
   disableMailProfile,
   requestMailProfileActivation,
+  type MailProfileApproval,
 } from "./mail-profile-api.ts";
 import { useLocale } from "./ui.tsx";
-
-type MailProfileApproval = {
-  readonly id: string;
-  readonly payload: MailProfileActivation;
-};
 
 function secretLabel(
   last4: string | null,

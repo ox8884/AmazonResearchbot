@@ -10,7 +10,7 @@ async function recover():Promise<void>{
  const {values}=parseArgs({options:{device:{type:'string'},conversation:{type:'string'},inbound:{type:'string'},'failure-receipt':{type:'string'},fix:{type:'string'}}});
  const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
  if(!values.device||!uuid.test(values.device)||!values.conversation||!uuid.test(values.conversation)||!values.inbound||!uuid.test(values.inbound)||!values['failure-receipt']||!uuid.test(values['failure-receipt']))throw new Error('ALIBABA_AI_RECOVERY_ARGUMENTS_INVALID');
- if(values.fix!==ALIBABA_AI_FORMAT_FIX_SHA256||createHash('sha256').update(await readFile(new URL('../apps/browser-bridge/aside-ai.mjs',import.meta.url))).digest('hex')!==ALIBABA_AI_FORMAT_FIX_SHA256)throw new Error('ALIBABA_AI_RECOVERY_FIX_MISMATCH');
+ if(values.fix!==ALIBABA_AI_FORMAT_FIX_SHA256||createHash('sha256').update((await readFile(new URL('../apps/browser-bridge/aside-ai.mjs',import.meta.url),'utf8')).replaceAll('\r\n','\n')).digest('hex')!==ALIBABA_AI_FORMAT_FIX_SHA256)throw new Error('ALIBABA_AI_RECOVERY_FIX_MISMATCH');
  const authority=await readRuntimeAuthority('worker',process.env),source=await runtimeEnvironment(authority,process.env);
  if(!source.ENCRYPTION_KEY)throw new Error('ALIBABA_AI_RECOVERY_KEY_REQUIRED');
  const encryptionKey=parseKey(source.ENCRYPTION_KEY),pool=createPool(authority.databaseUrl);

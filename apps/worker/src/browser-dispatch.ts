@@ -37,17 +37,9 @@ async function readJungleScoutBrowserBudget(pool: Pool, browserCap?: number): Pr
 // ASIDE runs one task at a time and signed tasks expire after 5 minutes, so queue only what it
 // can claim in time; a deep backlog just expires and is re-signed every tick.
 const QUEUED_PER_KIND = 2;
-async function queueRoom(pool: Pool, kind: string): Promise<number> {
-  const queued = (await pool.query<{ n: number }>(
-    "SELECT count(*)::int AS n FROM browser_tasks WHERE task_kind=$1 AND state='queued' AND expires_at>clock_timestamp()",
-    [kind],
-  )).rows[0]?.n ?? 0;
-  return Math.max(0, QUEUED_PER_KIND - queued);
-}
 
 export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin: string; readonly privateKey: KeyObject; readonly fingerprint: string }, browserCap?: number, encryptionKey?: Buffer) {
   const alibabaQueued=encryptionKey?await dispatchAlibabaWork(pool,signing,encryptionKey):0;
-  let researchRemaining = await readJungleScoutBrowserBudget(pool, browserCap);
   const searches=await dispatchSearchExports(pool,signing);
   const devices = (await pool.query<{ id: string; capability: "supplier_search" | "supplier_detail" | "amazon_package" | "amazon_search" | "product_database" | "keyword_scout" | "historical_data" | "category_trends" | "competitive_intelligence" }>(`
     SELECT DISTINCT ON (caps.capability) d.id,caps.capability FROM bridge_devices d JOIN "user" u ON u.id=d.owner_user_id
@@ -58,6 +50,11 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
     ORDER BY caps.capability,d.reported_at DESC,d.id`, [signing.fingerprint])).rows;
   if (!devices.length) return {...searches,queued:searches.queued+alibabaQueued};
   let queued = searches.queued+alibabaQueued;
+  let researchRemaining = await readJungleScoutBrowserBudget(pool, browserCap);
+  const queuedByKind = new Map((await pool.query<{ kind: string; n: number }>(
+    "SELECT task_kind AS kind,count(*)::int AS n FROM browser_tasks WHERE state='queued' AND expires_at>clock_timestamp() GROUP BY task_kind",
+  )).rows.map(row => [row.kind, row.n]));
+  const queueRoom = (kind: string) => Math.max(0, QUEUED_PER_KIND - (queuedByKind.get(kind) ?? 0));
   const marketDevice=devices.find(device=>device.capability==='amazon_search');
   if(marketDevice){
     const candidates=(await pool.query<{id:string}>(`
@@ -66,7 +63,7 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='amazon_search'
         AND t.input_version=c.input_version AND t.settings_version=v.version
         AND ((t.state='completed' AND NOT (${completedAmazonSearchNeedsRefresh})) OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[await queueRoom(pool,'amazon_search')])).rows;
+      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[queueRoom('amazon_search')])).rows;
     for(const candidate of candidates)if((await queueAmazonSearch(pool,{deviceId:marketDevice.id,candidateId:candidate.id},signing)).kind==='queued')queued++;
   }
   const productDatabaseDevice=devices.find(device=>device.capability==='product_database');
@@ -79,7 +76,7 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='product_database'
         AND t.input_version=c.input_version AND t.settings_version=v.version
         AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[Math.min(await queueRoom(pool,'product_database'),researchRemaining),encryptionKey!==undefined])).rows;
+      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[Math.min(queueRoom('product_database'),researchRemaining),encryptionKey!==undefined])).rows;
     for(const candidate of candidates)if((await queueProductDatabase(pool,{deviceId:productDatabaseDevice.id,candidateId:candidate.id,...(encryptionKey?{encryptionKey}:{})},signing)).kind==='queued'){queued++;researchRemaining--;}
   }
   const keywordScoutDevice=devices.find(device=>device.capability==='keyword_scout');
@@ -92,7 +89,7 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='keyword_scout'
         AND t.input_version=c.input_version AND t.settings_version=v.version
         AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[Math.min(await queueRoom(pool,'keyword_scout'),researchRemaining)])).rows;
+      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[Math.min(queueRoom('keyword_scout'),researchRemaining)])).rows;
     for(const candidate of candidates)if((await queueKeywordScout(pool,{deviceId:keywordScoutDevice.id,candidateId:candidate.id},signing)).kind==='queued'){queued++;researchRemaining--;}
   }
   const historicalDataDevice=devices.find(device=>device.capability==='historical_data');
@@ -105,7 +102,7 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='historical_data'
         AND t.input_version=c.input_version AND t.settings_version=v.version
         AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[Math.min(await queueRoom(pool,'historical_data'),researchRemaining)])).rows;
+      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[Math.min(queueRoom('historical_data'),researchRemaining)])).rows;
     for(const candidate of candidates)if((await queueHistoricalData(pool,{deviceId:historicalDataDevice.id,candidateId:candidate.id},signing)).kind==='queued'){queued++;researchRemaining--;}
   }
   const categoryTrendsDevice=devices.find(device=>device.capability==='category_trends');
@@ -118,7 +115,7 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='category_trends'
         AND t.input_version=c.input_version AND t.settings_version=v.version
         AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[Math.min(await queueRoom(pool,'category_trends'),researchRemaining)])).rows;
+      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[Math.min(queueRoom('category_trends'),researchRemaining)])).rows;
     for(const candidate of candidates)if((await queueCategoryTrends(pool,{deviceId:categoryTrendsDevice.id,candidateId:candidate.id},signing)).kind==='queued'){queued++;researchRemaining--;}
   }
   const competitiveIntelligenceDevice=devices.find(device=>device.capability==='competitive_intelligence');
@@ -131,7 +128,7 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='competitive_intelligence'
         AND t.input_version=c.input_version AND t.settings_version=v.version
         AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[Math.min(await queueRoom(pool,'competitive_intelligence'),researchRemaining)])).rows;
+      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[Math.min(queueRoom('competitive_intelligence'),researchRemaining)])).rows;
     for(const candidate of candidates)if((await queueCompetitiveIntelligence(pool,{deviceId:competitiveIntelligenceDevice.id,candidateId:candidate.id},signing)).kind==='queued'){queued++;researchRemaining--;}
   }
   const packageDevice = devices.find(device => device.capability === 'amazon_package');
@@ -145,14 +142,14 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
         AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.spec_id IS NULL AND t.task_kind='amazon_package'
           AND t.input_version=c.input_version AND t.settings_version=v.version
           AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[await queueRoom(pool,'amazon_package')])).rows;
+      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[queueRoom('amazon_package')])).rows;
     for (const candidate of candidates) {
       if ((await queueAmazonPackage(pool,{deviceId:packageDevice.id,candidateId:candidate.id},signing)).kind === 'queued') queued++;
     }
   }
   const searchDevice = devices.find(device => device.capability === "supplier_search");
   if (searchDevice) {
-    let searchRoom=await queueRoom(pool,'supplier_search');
+    let searchRoom=queueRoom('supplier_search');
     const candidates = (await pool.query<{ id: string }>(`
       SELECT c.id FROM candidates c
       JOIN LATERAL (SELECT version FROM settings_versions ORDER BY version DESC LIMIT 1) v ON true
@@ -188,7 +185,7 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
         AND cap.company_url ~ $1 AND cap.product_url ~ $2
         AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.source_capture_id=cap.id
           AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-      ORDER BY c.last_progress_at,c.id,cap.created_at,cap.id LIMIT $3`, [supplierCompanyUrlPattern.source, supplierProductUrlPattern.source, await queueRoom(pool,'supplier_detail')])).rows;
+      ORDER BY c.last_progress_at,c.id,cap.created_at,cap.id LIMIT $3`, [supplierCompanyUrlPattern.source, supplierProductUrlPattern.source, queueRoom('supplier_detail')])).rows;
     for (const capture of captures) {
       if ((await queueSupplierDetail(pool, { deviceId: detailDevice.id, candidateId: capture.candidate_id, sourceCaptureId: capture.id }, signing)).kind === "queued") queued++;
     }

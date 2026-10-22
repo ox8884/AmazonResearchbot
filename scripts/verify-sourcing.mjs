@@ -1,79 +1,13 @@
-import pg from "pg";
 import { quoteView } from "../apps/api/src/quote-store.ts";
 import assert from "node:assert/strict";
-import { createHmac } from "node:crypto";
-import { readFile } from "node:fs/promises";
 import { COST_FIELDS } from "../packages/domain/src/sourcing.ts";
-const vars = Object.fromEntries(
-  (await readFile(new URL("../.env", import.meta.url), "utf8"))
-    .split(/\r?\n/)
-    .filter((l) => l && !l.startsWith("#") && l.includes("="))
-    .map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)]),
-);
-assert.notEqual(vars.APP_ENV, "production");
-assert.ok(
-  ["127.0.0.1", "localhost"].includes(new URL(vars.DATABASE_URL).hostname),
-);
-const origin = vars.WEB_ORIGIN ?? "http://localhost:5173";
-const base = `http://127.0.0.1:${vars.API_PORT ?? 3001}`;
-const cookies = new Map();
-function otp(secret) {
-  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
-  let bits = "";
-  for (const ch of secret.toUpperCase().replace(/=+$/, "")) {
-    const i = alphabet.indexOf(ch);
-    assert.ok(i >= 0);
-    bits += i.toString(2).padStart(5, "0");
-  }
-  const bytes = [];
-  for (let i = 0; i + 8 <= bits.length; i += 8)
-    bytes.push(parseInt(bits.slice(i, i + 8), 2));
-  const counter = Buffer.alloc(8);
-  counter.writeBigUInt64BE(BigInt(Math.floor(Date.now() / 30000)));
-  const hash = createHmac("sha1", Buffer.from(bytes)).update(counter).digest();
-  const offset = hash[hash.length - 1] & 15;
-  return String((hash.readUInt32BE(offset) & 0x7fffffff) % 1000000).padStart(
-    6,
-    "0",
-  );
-}
+import { openAcceptance } from "./support/acceptance.mjs";
+import { importCsv } from "./support/import-csv.mjs";
+// Runs on the isolated acceptance database so the main development data and its approved settings stay untouched.
+const test = await openAcceptance();
 async function call(path, body, override = {}) {
-  const response = await fetch(base + path, {
-    method: body === undefined ? "GET" : "POST",
-    headers: {
-      origin,
-      cookie: [...cookies].map(([k, v]) => `${k}=${v}`).join("; "),
-      ...(body === undefined ? {} : { "content-type": "application/json" }),
-      ...override,
-    },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
-  });
-  for (const c of response.headers.getSetCookie()) {
-    const pair = c.split(";")[0];
-    const i = pair.indexOf("=");
-    cookies.set(pair.slice(0, i), pair.slice(i + 1));
-  }
-  const data = await response.json();
-  return { status: response.status, data };
-}
-const signed = await call("/api/auth/sign-in/email", {
-  email: vars.BOOTSTRAP_EMAIL,
-  password: vars.BOOTSTRAP_PASSWORD,
-});
-assert.equal(signed.status, 200, "Existing local account sign-in failed");
-if (signed.data.twoFactorRedirect) {
-  assert.ok(
-    vars.BOOTSTRAP_TOTP_SECRET,
-    "Existing local TOTP secret needed; no auth settings changed",
-  );
-  assert.equal(
-    (
-      await call("/api/auth/two-factor/verify-totp", {
-        code: otp(vars.BOOTSTRAP_TOTP_SECRET),
-      })
-    ).status,
-    200,
-  );
+  const response = await test.call(path, body, override);
+  return { status: response.status, data: response.body };
 }
 assert.equal((await call("/api/session")).data.user.twoFactorEnabled, true);
 const settings = await call("/api/settings");
@@ -89,27 +23,15 @@ assert.equal(
   "Expected approved fixture budget3000; no settings modified",
 );
 const keyword = "QA 견적 계산 검증 · 실제 제품 아님";
+const otherKeyword = "QA 사양 격리 검증 · 실제 제품 아님";
 let list = (await call("/api/candidates")).data.candidates;
-let candidate = list.find((c) => c.keyword === keyword);
-if (!candidate) {
-  const form = new FormData();
-  form.append(
-    "file",
-    new Blob([`keyword\n${keyword}\n`], { type: "text/csv" }),
-    "synthetic-quote-economics.csv",
-  );
-  const response = await fetch(base + "/api/imports", {
-    method: "POST",
-    headers: {
-      origin,
-      cookie: [...cookies].map(([k, v]) => `${k}=${v}`).join("; "),
-    },
-    body: form,
-  });
-  assert.ok(response.ok, "Synthetic candidate import failed");
+const missing = [keyword, otherKeyword].filter((k) => !list.some((c) => c.keyword === k));
+if (missing.length) {
+  const imported = await importCsv(test, "synthetic-quote-economics.csv", Buffer.from(`keyword\n${missing.join("\n")}\n`));
+  assert.equal(imported.status, 200, "Synthetic candidate import failed");
   list = (await call("/api/candidates")).data.candidates;
-  candidate = list.find((c) => c.keyword === keyword);
 }
+const candidate = list.find((c) => c.keyword === keyword);
 assert.ok(candidate);
 const prefix = `/api/candidates/${candidate.id}`;
 const source =
@@ -283,15 +205,14 @@ assert.equal(
 const other = list.find(c=>c.id!==candidate.id);
 assert.ok(other);
 assert.equal((await call('/api/candidates/'+other.id+'/quotes',a)).status,404,'A specification cannot be attached to another candidate');
-const pool=new pg.Pool({connectionString:vars.DATABASE_URL});
 try {
-  const result=await pool.query('SELECT *,valid_until::text AS valid_until FROM supplier_quotes WHERE id=$1',[qa.id]);
+  const result=await test.pool.query('SELECT *,valid_until::text AS valid_until FROM supplier_quotes WHERE id=$1',[qa.id]);
   const changed=quoteView(result.rows[0],{version:settings.data.version+1,snapshot:{...settings.data.snapshot,launchBudgetUsd:'2500'}});
   assert.equal(changed.stale,true);
   assert.equal(changed.assessment.outcome,'CAUTION');
   assert.equal(changed.savedAssessment.outcome,'GO');
   assert.equal(changed.savedSettingsVersion,settings.data.version);
-} finally {await pool.end();}
+} finally {await test.close();}
 console.log(
   JSON.stringify(
     {

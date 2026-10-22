@@ -113,15 +113,17 @@ export async function readInboxWorkspace(
     ]);
     if (!found.rowCount) throw new InboxCursorError();
   }
-  const rows = await db.query<SummaryRow>(
-    `SELECT ${columns} ${relations}
+  const [rows, status] = await Promise.all([
+    db.query<SummaryRow>(
+      `SELECT ${columns} ${relations}
  WHERE m.classification<>'duplicate'
  AND ($1='all' OR (m.classification IN ('unclassified','conflict') AND l.inbox_message_id IS NULL))
  AND ($2::uuid IS NULL OR (m.created_at,m.id)<(SELECT created_at,id FROM inbox_messages WHERE id=$2))
  ORDER BY m.created_at DESC,m.id DESC LIMIT 26`,
-    [input.filter, input.cursor ?? null],
-  );
-  const status = await readInboxStatus(db, input.collectionEnabled);
+      [input.filter, input.cursor ?? null],
+    ),
+    readInboxStatus(db, input.collectionEnabled),
+  ]);
   const page = rows.rows.slice(0, 25);
   return {
     ...status,
@@ -138,18 +140,28 @@ export async function readInboxDetail(
   const row = await readInboxRecord(db, id);
   if (!row) return null;
   const body = readInboxBody(row, key);
-  const files = await db.query<{
-    id: string;
-    part: string;
-    filename: string | null;
-    media_type: string;
-    byte_size: string | null;
-    state: InboxAttachmentView["state"];
-    text_ciphertext: string | null;
-  }>(
-    "SELECT id,part,filename,media_type,byte_size::text,state,text_ciphertext FROM inbox_attachments WHERE inbox_message_id=$1 ORDER BY part",
-    [id],
-  );
+  const [files, options] = await Promise.all([
+    db.query<{
+      id: string;
+      part: string;
+      filename: string | null;
+      media_type: string;
+      byte_size: string | null;
+      state: InboxAttachmentView["state"];
+      text_ciphertext: string | null;
+    }>(
+      "SELECT id,part,filename,media_type,byte_size::text,state,text_ciphertext FROM inbox_attachments WHERE inbox_message_id=$1 ORDER BY part",
+      [id],
+    ),
+    row.classification === "unclassified" &&
+    row.body_state === "text" &&
+    body?.trim() &&
+    row.received_at !== null
+      ? db.query<InboxLinkOption>(`SELECT r.id AS "rfqId",c.id AS "candidateId",c.keyword_display AS keyword,r.recipient,r.subject,r.spec_id AS "specId",r.quantity
+   FROM rfq_drafts r JOIN candidates c ON c.id=r.candidate_id
+   WHERE r.state IN ('awaiting_quote','outcome_unknown') AND c.stage NOT IN ('decision_recorded','rejected') ORDER BY r.created_at DESC,r.id`)
+      : null,
+  ]);
   const attachments = files.rows.map((file) => {
     const size = file.byte_size === null ? null : Number(file.byte_size);
     return {
@@ -177,26 +189,7 @@ export async function readInboxDetail(
             ).toString("utf8"),
     };
   });
-  let linkOptions: InboxLinkOption[] = [];
-  if (
-    row.classification === "unclassified" &&
-    row.body_state === "text" &&
-    body?.trim() &&
-    row.received_at !== null
-  ) {
-    const options = await db.query<{
-      rfqId: string;
-      candidateId: string;
-      keyword: string;
-      recipient: string;
-      subject: string;
-      specId: string;
-      quantity: number;
-    }>(`SELECT r.id AS "rfqId",c.id AS "candidateId",c.keyword_display AS keyword,r.recipient,r.subject,r.spec_id AS "specId",r.quantity
-   FROM rfq_drafts r JOIN candidates c ON c.id=r.candidate_id
-   WHERE r.state IN ('awaiting_quote','outcome_unknown') AND c.stage NOT IN ('decision_recorded','rejected') ORDER BY r.created_at DESC,r.id`);
-    linkOptions = options.rows;
-  }
+  const linkOptions: InboxLinkOption[] = options?.rows ?? [];
   return {
     message: {
       ...inboxSummary(row),

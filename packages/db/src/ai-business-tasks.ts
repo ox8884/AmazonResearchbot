@@ -58,13 +58,13 @@ export async function finishCandidateAiTask(pool:Pool,id:string){
   const latestSpec=['sourcing_analysis','rfq_draft'].includes(task.role)?(await db.query<TaskSpec>('SELECT id,ai_task_id,material,dimensions,packaging,requested_quantity FROM spec_revisions WHERE candidate_id=$1 ORDER BY revision DESC LIMIT 1',[task.candidate_id])).rows[0]:undefined;
   const specMatches=!['sourcing_analysis','rfq_draft'].includes(task.role)||(latestSpec?.id??null)===task.spec_id||(task.role==='sourcing_analysis'&&task.spec_id===null&&latestSpec?.ai_task_id===id);
   let evidenceMatches=false;
-  const productSource=aiBusinessInputSchema.parse(task.input_payload).productSource;
+  const taskInput=aiBusinessInputSchema.parse(task.input_payload),productSource=taskInput.productSource;
   if(candidate&&version&&specMatches&&await productReferenceMatches(db,task.candidate_id,productSource)){
    if(task.role==='sourcing_analysis'&&task.spec_id===null&&latestSpec?.ai_task_id===id)evidenceMatches=true;
    else{
     const rows=await readAiEvidence(db,task.candidate_id,{input:candidate.input_version,settings:version});
     const current=candidateAiInput(candidate.keyword_display,task.role,rows,latestSpec?{material:latestSpec.material,dimensions:latestSpec.dimensions,packaging:latestSpec.packaging,requestedQuantity:latestSpec.requested_quantity}:null,productSource);
-    evidenceMatches=current!==null&&JSON.stringify(current)===JSON.stringify(aiBusinessInputSchema.parse(task.input_payload));
+    evidenceMatches=current!==null&&JSON.stringify(current)===JSON.stringify(taskInput);
    }
   }
   const state=!candidate||candidate.input_version!==task.input_version||version!==task.settings_version||!specMatches||!evidenceMatches?'stale':operation?.state==='succeeded'?'succeeded':operation?.state.startsWith('failed')?'failed':'blocked';

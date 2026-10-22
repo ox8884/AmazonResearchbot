@@ -94,9 +94,10 @@ async function storeThread(db:QueryConnection,input:{conversation:AlibabaConvers
  const started=(await db.query<AlibabaActionRow>('SELECT * FROM alibaba_actions WHERE conversation_id=$1 AND started_at IS NOT NULL ORDER BY created_at,id',[conversation.id])).rows;
  let activity:Date|null=null;
  const saved:AlibabaMessageRow[]=[];
+ const known=new Map((await db.query<AlibabaMessageRow>('SELECT * FROM alibaba_messages WHERE conversation_id=$1 AND provider_message_id=ANY($2::text[])',[conversation.id,observation.messages.map(message=>message.id)])).rows.map(row=>[row.provider_message_id,row]));
  for(const message of observation.messages){
   const id=randomUUID(),bodyHash=createHash('sha256').update(message.body).digest('hex');
-  const prior=(await db.query<AlibabaMessageRow>('SELECT * FROM alibaba_messages WHERE conversation_id=$1 AND provider_message_id=$2',[conversation.id,message.id])).rows[0];
+  const prior=known.get(message.id);
   if(prior){
    if(prior.body_sha256!==bodyHash||prior.direction!==message.direction||prior.sent_at.getTime()!==Date.parse(message.sentAt)){
     await db.query("UPDATE alibaba_conversations SET status='attention',reason='MESSAGE_IDENTITY_CONFLICT' WHERE id=$1",[conversation.id]);return;
@@ -105,7 +106,7 @@ async function storeThread(db:QueryConnection,input:{conversation:AlibabaConvers
   }
   const row=(await db.query<AlibabaMessageRow>(`INSERT INTO alibaba_messages(id,conversation_id,provider_message_id,direction,body_ciphertext,body_sha256,sent_at,receipt_id)
    VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,[id,conversation.id,message.id,message.direction,encryptSecret(Buffer.from(message.body),encryptionKey,'alibaba-message:'+id),bodyHash,message.sentAt,receiptId])).rows[0];
-  if(row){saved.push(row);if(!activity||row.sent_at>activity)activity=row.sent_at;}
+  if(row){known.set(row.provider_message_id,row);saved.push(row);if(!activity||row.sent_at>activity)activity=row.sent_at;}
  }
  const historical=started.length===0&&saved.some(message=>message.direction==='outbound');
  await db.query(`UPDATE alibaba_conversations SET account_id=$2,provider_thread_id=$3,thread_url=$4,

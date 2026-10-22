@@ -7,6 +7,7 @@ RfqWorkspace,
 SupplierInput,
 SupplierRecord,
 } from "../../../packages/domain/src/rfq.ts";
+import { requestJson } from "./api.ts";
 
 export type ApprovalDecision = {
   readonly id: string;
@@ -31,37 +32,10 @@ export class ContactRequestError extends Error {
   }
 }
 
-type RequestOptions = {
-  readonly method?: "POST";
-  readonly body?: unknown;
-};
-
-async function request<T>(
+const request = <T>(
   path: string,
-  options: RequestOptions = {},
-): Promise<T> {
-  const response = await fetch(path, {
-    method: options.method ?? "GET",
-    credentials: "include",
-    headers:
-      options.body === undefined ? {} : { "content-type": "application/json" },
-    ...(options.body === undefined
-      ? {}
-      : { body: JSON.stringify(options.body) }),
-  });
-  if (!response.ok) {
-    const payload: unknown = await response.json();
-    const code =
-      typeof payload === "object" &&
-      payload !== null &&
-      "code" in payload &&
-      typeof payload.code === "string"
-        ? payload.code
-        : "REQUEST_FAILED";
-    throw new ContactRequestError(response.status, code);
-  }
-  return response.json();
-}
+  options?: { readonly method?: "POST"; readonly body?: unknown },
+) => requestJson<T>(path, ContactRequestError, options);
 
 export const getContactWorkspace = (candidateId: string) =>
   request<RfqWorkspace>(

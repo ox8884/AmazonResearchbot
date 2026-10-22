@@ -8,7 +8,7 @@ import {
   getOrderPacket,
   OrderRequestError,
 } from "./order-api.ts";
-import { Icon, Loading, useLocale } from "./ui.tsx";
+import { formatDateTime, Icon, Loading, useLocale } from "./ui.tsx";
 
 function decisionLabel(decision: OrderPacketRecord["decision"], language: string): string {
   switch (decision) {
@@ -91,7 +91,7 @@ export function OrderPacketCard({
         <div className="stack">
           <h3>{decisionLabel(packet.decision, language)}</h3>
           <p className="muted">
-            {t("판단 기록", "Decision record")} · {new Intl.DateTimeFormat(language === "ko" ? "ko-KR" : "en-US", {dateStyle:"medium", timeStyle:"short"}).format(new Date(packet.createdAt))}
+            {t("판단 기록", "Decision record")} · {formatDateTime(packet.createdAt, language)}
           </p>
         </div>
         <span className={`chip chip-${packet.state === "recorded" ? "ok" : packet.state === "stale" || packet.state === "cancelled" ? "warn" : "quote"}`}>

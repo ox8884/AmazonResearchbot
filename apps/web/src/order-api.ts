@@ -5,6 +5,7 @@ import type {
   OrderPacketRecord,
 } from "../../../packages/domain/src/order.ts";
 import type {OrderRiskReview} from "../../../packages/domain/src/order-risk-review.ts";
+import { requestJson } from "./api.ts";
 
 export type OrderWorkspace = {
   readonly packets: readonly OrderPacketRecord[];
@@ -27,33 +28,8 @@ export class OrderRequestError extends Error {
   }
 }
 
-type RequestOptions = {
-  readonly body?: unknown;
-};
-
-async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const response = await fetch(path, {
-    method: options.body === undefined ? "GET" : "POST",
-    credentials: "include",
-    headers:
-      options.body === undefined ? {} : { "content-type": "application/json" },
-    ...(options.body === undefined
-      ? {}
-      : { body: JSON.stringify(options.body) }),
-  });
-  if (!response.ok) {
-    const payload: unknown = await response.json();
-    const code =
-      typeof payload === "object" &&
-      payload !== null &&
-      "code" in payload &&
-      typeof payload.code === "string"
-        ? payload.code
-        : "REQUEST_FAILED";
-    throw new OrderRequestError(response.status, code);
-  }
-  return response.json();
-}
+const request = <T>(path: string, options?: { readonly body?: unknown }) =>
+  requestJson<T>(path, OrderRequestError, options);
 
 export const getOrderWorkspace = (candidateId: string) =>
   request<OrderWorkspace>(

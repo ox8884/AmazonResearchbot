@@ -5,7 +5,6 @@ import {SYNTHETIC_SCHEMA,type ParseResult} from '@forge-ops/integrations/jungle-
 import type { CsvMapping } from '@forge-ops/domain';
 import {encryptSecret} from '@forge-ops/security';
 import {JOB_ADVANCE,txAdapter,type AdvanceJob} from './queue.ts';
-import { z } from 'zod';
 
 export class ImportMappingConflict extends Error{constructor(){super('IMPORT_MAPPING_CONFLICT');}}
 type CsvSource={kind:'manual';mapped:boolean}|{kind:'browser';observedAt:string};
@@ -17,11 +16,12 @@ export async function importCsvWithinTransaction(client:QueryConnection,input:{f
  const observedAt=provenance.kind==='browser'?provenance.observedAt:new Date().toISOString();
  const ciphertext=encryptSecret(bytes,encryptionKey,`import:${filename}:bytes`);
       await client.query("SELECT pg_advisory_xact_lock(hashtextextended($1,0))", ["import:"+marketplace+":"+parsed.sha256]);
-      const prior = await client.query<{ id: string; mapping_matches:boolean }>("SELECT id,COALESCE(column_mapping,$4::jsonb)=$3::jsonb AS mapping_matches FROM imports WHERE sha256=$1 AND marketplace=$2", [parsed.sha256, marketplace,JSON.stringify(parsed.mapping),JSON.stringify(parsed.defaultMapping)]);
+      const prior = await client.query<{ id: string; mapping_matches:boolean; column_mapping:CsvMapping|null }>("SELECT id,column_mapping,COALESCE(column_mapping,$4::jsonb)=$3::jsonb AS mapping_matches FROM imports WHERE sha256=$1 AND marketplace=$2", [parsed.sha256, marketplace,JSON.stringify(parsed.mapping),JSON.stringify(parsed.defaultMapping)]);
       if (prior.rows[0]) {
         if(!prior.rows[0].mapping_matches){
-          const previous=(await client.query<{column_mapping:CsvMapping}>(`SELECT column_mapping FROM imports WHERE id=$1`,[prior.rows[0].id])).rows[0]?.column_mapping;
-          const canEnrich=previous!==undefined&&previous.keyword===parsed.mapping.keyword&&Object.entries(previous).every(([field,column])=>Object.hasOwn(parsed.mapping,field)&&parsed.mapping[field as keyof CsvMapping]===column);
+          // Imports saved before column_mapping existed used the default mapping (matching the COALESCE above).
+          const previous=prior.rows[0].column_mapping??parsed.defaultMapping;
+          const canEnrich=previous.keyword===parsed.mapping.keyword&&Object.entries(previous).every(([field,column])=>Object.hasOwn(parsed.mapping,field)&&parsed.mapping[field as keyof CsvMapping]===column);
           if(!canEnrich)throw new ImportMappingConflict();
           const enriched=await enrichImportedOpportunityEvidence(client,prior.rows[0].id,parsed,observedAt);
           await client.query(`UPDATE imports SET column_mapping=$2::jsonb WHERE id=$1`,[prior.rows[0].id,JSON.stringify(parsed.mapping)]);
@@ -44,6 +44,11 @@ export async function importCsvWithinTransaction(client:QueryConnection,input:{f
       const sourceId = source.rows[0]?.id;
       if (!sourceId) throw new Error("Import source missing");
       const created: string[] = [];
+      // Automatic exports only add new keywords; re-importing must not reset a candidate already in progress.
+      // Keywords are unique within a parsed import (duplicates are row errors), so one lookup covers every row.
+      const existingKeywords = provenance.kind === 'browser'
+        ? new Set((await client.query<{ normalized_keyword: string }>("SELECT normalized_keyword FROM candidates WHERE marketplace=$1 AND normalized_keyword=ANY($2::text[])", [marketplace, parsed.rows.map(row => row.normalizedKeyword)])).rows.map(row => row.normalized_keyword))
+        : null;
       for (const row of parsed.rows) {
         const rowIns = await client.query<{ id: string }>(
           `INSERT INTO import_rows (import_id, row_number, raw_json, keyword_raw, normalized_keyword)
@@ -51,8 +56,7 @@ export async function importCsvWithinTransaction(client:QueryConnection,input:{f
           [importId, row.rowNumber, JSON.stringify(row.raw), row.keywordRaw, row.normalizedKeyword],
         );
         const rowId = rowIns.rows[0]?.id;
-        // Automatic exports only add new keywords; re-importing must not reset a candidate already in progress.
-        if (provenance.kind === 'browser' && (await client.query("SELECT 1 FROM candidates WHERE marketplace=$1 AND normalized_keyword=$2", [marketplace, row.normalizedKeyword])).rowCount) continue;
+        if (existingKeywords?.has(row.normalizedKeyword)) continue;
         const found = await client.query<{ id: string; input_version: number; stage: Stage }>(
           `INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage,input_version)
            VALUES($1,$2,$3,'imported',1)
@@ -102,7 +106,7 @@ export async function importCsvWithinTransaction(client:QueryConnection,input:{f
         const representativeAsin = row.values.representative_asin?.trim().toUpperCase();
         const terminalCandidate = candidateStage === 'decision_recorded' || candidateStage === 'rejected';
         if (representativeAsin) {
-          if (!z.string().regex(/^[A-Z0-9]{10}$/).safeParse(representativeAsin).success) throw new Error('INVALID_REPRESENTATIVE_ASIN');
+          if (!/^[A-Z0-9]{10}$/.test(representativeAsin)) throw new Error('INVALID_REPRESENTATIVE_ASIN');
           if (!terminalCandidate) {
             await client.query(
               `INSERT INTO candidate_events (candidate_id, stage, input_version, detail)
@@ -132,9 +136,10 @@ export async function importCsvWithinTransaction(client:QueryConnection,input:{f
 
 async function enrichImportedOpportunityEvidence(client:QueryConnection,importId:string,parsed:ParseResult,observedAt:string):Promise<number>{
  const sourceRows=await client.query<{candidate_id:string;row_number:number}>(`SELECT cir.candidate_id,ir.row_number FROM candidate_import_rows cir JOIN import_rows ir ON ir.id=cir.import_row_id WHERE ir.import_id=$1 ORDER BY ir.row_number`,[importId]);
+ const byRowNumber=new Map(parsed.rows.map(row=>[row.rowNumber,row]));
  let enriched=0;
  for(const linked of sourceRows.rows){
-  const row=parsed.rows.find(candidate=>candidate.rowNumber===linked.row_number);if(!row)continue;
+  const row=byRowNumber.get(linked.row_number);if(!row)continue;
   const source=(await client.query<{source_id:string}>(`SELECT source_id FROM evidence WHERE candidate_id=$1 AND field='keyword' ORDER BY created_at DESC,id DESC LIMIT 1`,[linked.candidate_id])).rows[0]?.source_id;if(!source)continue;
   for(const field of ['opportunity_niche_score','opportunity_monthly_units','opportunity_monthly_price','opportunity_search_volume','opportunity_search_trend_30d','opportunity_search_trend_90d','opportunity_competition','opportunity_seasonality','opportunity_last_updated'] as const){
    const value=row.values[field];if(value===undefined)continue;

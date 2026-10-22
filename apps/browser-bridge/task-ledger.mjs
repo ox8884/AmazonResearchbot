@@ -47,7 +47,8 @@ export function openBrowserTaskLedger(configuration) {
   db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
  }catch(error){try{if(initializing)db.exec('ROLLBACK');}finally{db.close();}throw error;}
  let closed=false;
- const rowFor=id=>db.prepare('SELECT task_id,task_hash,state,receipt_id,body_hash,ciphertext,next_attempt_at,retry_count,task_kind,write_started_at FROM task_receipts WHERE task_id=?').get(id);
+ const rowStatement=db.prepare('SELECT task_id,task_hash,state,receipt_id,body_hash,ciphertext,next_attempt_at,retry_count,task_kind,write_started_at FROM task_receipts WHERE task_id=?');
+ const rowFor=id=>rowStatement.get(id);
  const summary=row=>({kind:row.state!=='started'?row.state:row.ciphertext?'pending_submission':'pending_reconciliation',taskId:row.task_id,taskHash:row.task_hash,...(row.receipt_id?{receiptId:row.receipt_id}:{})});
  const transaction=run=>{
   db.exec('BEGIN IMMEDIATE');

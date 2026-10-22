@@ -77,6 +77,7 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
     const current = await currentSettings(client);
     settings = current.snapshot;
     settingsVersion = current.version;
+    stageAfter = candidate.stage;
     if (candidate.stage === "imported" || candidate.stage === "screening") {
       await client.query(`UPDATE candidates SET stage = 'screening', last_progress_at = now() WHERE id = $1`, [
         candidate.id,
@@ -101,6 +102,7 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
         await client.query(`UPDATE candidates SET stage = 'rejected', last_progress_at = now() WHERE id = $1`, [
           candidate.id,
         ]);
+        stageAfter = "rejected";
       } else {
         await client.query(
           `UPDATE candidates SET stage = 'api_validation', last_progress_at = now() WHERE id = $1`,
@@ -112,10 +114,9 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
            ON CONFLICT DO NOTHING`,
           [candidate.id, candidate.input_version],
         );
+        stageAfter = "api_validation";
       }
     }
-    const after = await client.query<{ stage: Stage }>(`SELECT stage FROM candidates WHERE id = $1`, [candidate.id]);
-    stageAfter = after.rows[0]?.stage ?? null;
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");
@@ -147,17 +148,19 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
       ...(firstPageSource?{firstPageSource}:{}),
       };
     const officialReady=transport.kind==='ready'&&settings.jsDailyWireCap>0;
-    // The dashboard route is only used without a first page. A hold is re-checked once per new first-page capture.
-    const lastFirstPage=firstPageSource?(await pool.query<{receipt:string|null}>(
-      "SELECT detail->>'validationFirstPageReceipt' AS receipt FROM candidate_events WHERE candidate_id=$1 AND stage='api_validation' AND input_version=$2",
-      [data.candidateId,data.inputVersion])).rows[0]?.receipt??null:null;
     const browserResult=ai&&!firstPageSource?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
     validationResult=browserResult;
+    // An evidence hold is only re-judged when something changed; the reads below are skipped otherwise.
+    const evidenceHold=browserResult==='not_ready'&&blockedReason==='evidence';
     // A package read or recorded differentiation lands after the verdict; re-judging reuses the cached lookup.
-    const newerEvidence=blockedReason==='evidence'&&((await pool.query(`SELECT 1 FROM evidence e WHERE e.candidate_id=$1 AND e.input_version=$2
+    const newerEvidence=evidenceHold&&((await pool.query(`SELECT 1 FROM evidence e WHERE e.candidate_id=$1 AND e.input_version=$2
       AND e.field IN ('standard_size','differentiation') AND e.kind<>'unknown'
       AND e.created_at>COALESCE((SELECT max(created_at) FROM evaluations WHERE candidate_id=$1 AND kind='api_validation'),'-infinity') LIMIT 1`,
       [data.candidateId,data.inputVersion])).rowCount??0)>0;
+    // The dashboard route is only used without a first page. A hold is re-checked once per new first-page capture.
+    const lastFirstPage=evidenceHold&&!newerEvidence&&firstPageSource?(await pool.query<{receipt:string|null}>(
+      "SELECT detail->>'validationFirstPageReceipt' AS receipt FROM candidate_events WHERE candidate_id=$1 AND stage='api_validation' AND input_version=$2",
+      [data.candidateId,data.inputVersion])).rows[0]?.receipt??null:null;
     const canRetryOfficial=browserResult==='not_ready'&&(blockedReason!=='evidence'||newerEvidence||(firstPageSource!==null&&lastFirstPage!==firstPageSource.receiptId));
     const officialReserved=canRetryOfficial&&officialReady
       ?await reserveOfficialValidation(pool,context)

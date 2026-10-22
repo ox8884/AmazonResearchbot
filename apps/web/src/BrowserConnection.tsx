@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { BridgeConnectionState, BridgeDevice } from "../../../packages/domain/src/browser-device.ts";
 import { BridgeConnectionError, deleteBrowserDevice, getBrowserDevices, getBrowserSigningIdentity, revokeBrowserDevice } from "./bridge-api.ts";
 import { BrowserPairing } from "./BrowserPairing.tsx";
-import { Icon, LoadError, Loading, useLocale } from "./ui.tsx";
+import { formatDateTime, Icon, LoadError, Loading, useLocale } from "./ui.tsx";
 
 const labels: Record<BridgeConnectionState, readonly [string, string]> = {
   unreported: ["연결 확인 전", "Not checked yet"], ready: ["연결됨", "Connected"], offline: ["ASIDE 연결 끊김", "ASIDE disconnected"],
@@ -54,7 +54,7 @@ export function BrowserConnection() {
           return <div className="connection-row" key={device.id}>
             <div><h3>{device.name}</h3>
               <span className={"chip " + (state === "ready" ? "chip-ok" : "chip-unknown")}><Icon name={state === "ready" ? "check" : "unknown"} />{t(label[0], label[1])}</span>
-              <p className="muted">{t("마지막 확인", "Last checked")}: {device.checkedAt ? new Intl.DateTimeFormat(language === "ko" ? "ko-KR" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(device.checkedAt)) : t("미확인", "Unknown")}</p>
+              <p className="muted">{t("마지막 확인", "Last checked")}: {device.checkedAt ? formatDateTime(device.checkedAt, language) : t("미확인", "Unknown")}</p>
               {state === "ready" && device.capabilities.includes("supplier_search") && <p>{t("공급처 검색 결과 읽기 가능", "Supplier search results can be read")}</p>}
               {state === "ready" && device.capabilities.includes("supplier_thread") && <p>{t("Alibaba 대화·회신 확인 가능", "Alibaba conversations and replies can be read")}</p>}
               {state === "ready" && device.capabilities.includes("supplier_send") && <p>{t("Alibaba 자동 문의·조건 협의 지원", "Alibaba automatic inquiries and discussions of terms supported")}</p>}

@@ -5,7 +5,7 @@ import { aiRoleLabels } from "./AiRoutingFields.tsx";
 import { fieldLabel } from "./evidence.ts";
 import { LoadError,Loading,useLocale } from "./ui.tsx";
 type Analysis={id:string;role:AiBusinessInput['role'];state:string;executionState:string;input:AiBusinessInput;result:AiBusinessOutput|null;updatedAt:string};
-async function loadAnalysis(id:string):Promise<Analysis[]>{const response=await fetch(`/api/candidates/${id}/ai-analysis`,{credentials:'include',signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error('AI_ANALYSIS_UNAVAILABLE');const body:{tasks:Analysis[]}=await response.json();return body.tasks;}
+async function loadAnalysis(id:string):Promise<Analysis[]>{const response=await fetch(`/api/candidates/${encodeURIComponent(id)}/ai-analysis`,{credentials:'include',signal:AbortSignal.timeout(15000)});if(!response.ok)throw new Error('AI_ANALYSIS_UNAVAILABLE');const body:{tasks:Analysis[]}=await response.json();return body.tasks;}
 export function CandidateAiAnalysis({candidateId}:{candidateId:string}){
  const {t,language}=useLocale();
  const referenceLabel=(input:AiBusinessInput,ref:string)=>{

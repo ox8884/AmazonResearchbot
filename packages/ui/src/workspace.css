@@ -233,8 +233,7 @@
 .search-field {
   flex: 1;
 }
-.detail-section,
-.comparison-guide {
+.detail-section {
   border-top: 1px solid var(--line);
   padding-top: var(--space-24);
   display: flex;

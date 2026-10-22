@@ -104,7 +104,7 @@ function projectResult(kind: JungleScoutTaskKind, raw: unknown, query: string): 
   }
 }
 
-async function readResearch(pool: Pool, candidateId: string, key: Buffer): Promise<readonly ResearchView[]> {
+async function readResearch(pool: Pool, candidateId: string, key: Buffer): Promise<readonly ResearchView[] | null> {
   const rows = await pool.query<TaskRow>(`
     SELECT DISTINCT ON(t.task_kind)
       t.task_kind,t.state,t.input_version,t.settings_version,c.input_version AS current_input,
@@ -115,6 +115,8 @@ async function readResearch(pool: Pool, candidateId: string, key: Buffer): Promi
     LEFT JOIN browser_task_results r ON r.id=t.result_id AND r.task_id=t.id
     WHERE c.id=$1
     ORDER BY t.task_kind,t.created_at DESC,t.id DESC`, [candidateId, taskKinds]);
+  // The LEFT JOIN yields a row for every existing candidate, so no rows means the candidate is missing.
+  if (!rows.rows.length) return null;
   const byKind = new Map<JungleScoutTaskKind, TaskRow>();
   for (const row of rows.rows) {
     const kind = taskKindSchema.safeParse(row.task_kind);
@@ -141,8 +143,8 @@ export function registerJungleScoutResearchRoutes(app: FastifyInstance, pool: Po
   app.get('/api/candidates/:id/jungle-scout-research', async (request, reply) => {
     const params = paramsSchema.safeParse(request.params);
     if (!params.success) return reply.status(400).send({ code: 'INVALID_CANDIDATE' });
-    if (!(await pool.query('SELECT id FROM candidates WHERE id=$1', [params.data.id])).rowCount) return reply.status(404).send({ code: 'NOT_FOUND' });
-    return { research: await readResearch(pool, params.data.id, key) };
+    const research = await readResearch(pool, params.data.id, key);
+    return research ? { research } : reply.status(404).send({ code: 'NOT_FOUND' });
   });
   app.post('/api/candidates/:id/jungle-scout-research/:kind/retry', async (request, reply) => {
     const params = retryParamsSchema.safeParse(request.params);

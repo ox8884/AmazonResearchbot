@@ -3,16 +3,22 @@ import {decryptSecret} from '@forge-ops/security';
 import type {AlibabaWorkspace,AlibabaConversationView} from '@forge-ops/domain';
 
 export async function readAlibabaWorkspace(pool:Pool,candidateId:string,encryptionKey:Buffer):Promise<AlibabaWorkspace> {
- const enabled=await websiteContactEnabled(pool);
- const candidate=await readCandidateDetails(pool,candidateId,'en');
- const ready=(await pool.query<{ready:boolean}>(`SELECT EXISTS(SELECT 1 FROM bridge_devices d JOIN "user" u ON u.id=d.owner_user_id JOIN browser_signing_identity k ON k.fingerprint=d.reported_key_fingerprint
+ const ofCandidate='conversation_id IN (SELECT id FROM alibaba_conversations WHERE candidate_id=$1)';
+ const [enabled,candidate,readyRow,rows,allMessages,allActions]=await Promise.all([
+  websiteContactEnabled(pool),
+  readCandidateDetails(pool,candidateId,'en'),
+  pool.query<{ready:boolean}>(`SELECT EXISTS(SELECT 1 FROM bridge_devices d JOIN "user" u ON u.id=d.owner_user_id JOIN browser_signing_identity k ON k.fingerprint=d.reported_key_fingerprint
   WHERE d.revoked_at IS NULL AND u.two_factor_enabled AND d.reported_connected AND d.reported_at>clock_timestamp()-interval '90 seconds'
-   AND ARRAY['supplier_search','supplier_thread','supplier_send']::text[] <@ d.reported_tasks) AS ready`)).rows[0]?.ready===true;
- const rows=(await pool.query<AlibabaConversationRow&{retired:boolean}>('SELECT c.*,alibaba_conversation_retired(c) AS retired FROM alibaba_conversations c WHERE candidate_id=$1 ORDER BY created_at,id',[candidateId])).rows;
+   AND ARRAY['supplier_search','supplier_thread','supplier_send']::text[] <@ d.reported_tasks) AS ready`),
+  pool.query<AlibabaConversationRow&{retired:boolean}>('SELECT c.*,alibaba_conversation_retired(c) AS retired FROM alibaba_conversations c WHERE candidate_id=$1 ORDER BY created_at,id',[candidateId]),
+  pool.query<AlibabaMessageRow>(`SELECT * FROM alibaba_messages WHERE ${ofCandidate} ORDER BY sent_at,provider_message_id`,[candidateId]),
+  pool.query<AlibabaActionRow>(`SELECT * FROM alibaba_actions WHERE ${ofCandidate} ORDER BY created_at,id`,[candidateId]),
+ ]);
+ const ready=readyRow.rows[0]?.ready===true;
  const conversations:AlibabaConversationView[]=[];
- for(const row of rows){
-  const messages=(await pool.query<AlibabaMessageRow>('SELECT * FROM alibaba_messages WHERE conversation_id=$1 ORDER BY sent_at,provider_message_id',[row.id])).rows;
-  const actions=(await pool.query<AlibabaActionRow>('SELECT * FROM alibaba_actions WHERE conversation_id=$1 ORDER BY created_at,id',[row.id])).rows;
+ for(const row of rows.rows){
+  const messages=allMessages.rows.filter(message=>message.conversation_id===row.id);
+  const actions=allActions.rows.filter(action=>action.conversation_id===row.id);
   conversations.push({id:row.id,companyName:row.company_name,companyUrl:row.company_url,productUrl:row.product_url,threadUrl:row.thread_url,status:row.status,reason:row.reason,retired:row.retired,
    lastActivityAt:row.last_activity_at?.toISOString()??null,nextCheckAt:row.next_check_at?.toISOString()??null,
    messages:messages.map(message=>({id:message.provider_message_id,direction:message.direction,body:decryptSecret(message.body_ciphertext,encryptionKey,'alibaba-message:'+message.id).toString('utf8'),sentAt:message.sent_at.toISOString()})),

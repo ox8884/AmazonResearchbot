@@ -46,7 +46,7 @@ type DisableResult =
   | { readonly kind: "stale" }
   | { readonly kind: "not_configured" };
 
-const profileColumns = `id,name,smtp_host,smtp_port,imap_host,imap_port,sender,username,sent_mailbox,inbox_mailbox,password_ciphertext,password_last4,secret_version,config_fingerprint,version,status`;
+export const profileColumns = `id,name,smtp_host,smtp_port,imap_host,imap_port,sender,username,sent_mailbox,inbox_mailbox,password_ciphertext,password_last4,secret_version,config_fingerprint,version,status`;
 
 function authorizeMailHost(host: string): string | null {
   const candidate = host.toLowerCase().replace(/\.$/, "");

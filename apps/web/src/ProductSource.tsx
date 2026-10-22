@@ -1,6 +1,6 @@
 import {useQuery} from '@tanstack/react-query';
 import {productSourceViewSchema} from '../../../packages/domain/src/amazon-product-evidence.ts';
-import {Loading,LoadError,useLocale} from './ui.tsx';
+import {formatDateTime,Loading,LoadError,useLocale} from './ui.tsx';
 
 async function loadSource(candidateId:string){
  const response=await fetch(`/api/candidates/${encodeURIComponent(candidateId)}/product-source`,{
@@ -19,7 +19,7 @@ export function ProductSource({candidateId}:{candidateId:string}){
   <p className="muted">{t('판매자 설명과 일부 리뷰를 보존한 자료입니다. 검증된 성능이나 차별화 합격을 뜻하지 않습니다.','These are seller claims and sampled reviews, not verified performance or a differentiation pass.')}</p>
   {q.isPending?<Loading/>:q.isError?<LoadError retry={()=>void q.refetch()}/>:view?.state==='captured'?<>
    <p><strong>{view.productEvidence.title??t('상품명 미확인','Title unknown')}</strong> · {view.asin}</p>
-   <p className="muted">{t('관측 시각','Observed')}: {new Intl.DateTimeFormat(language==='ko'?'ko-KR':'en-US',{dateStyle:'medium',timeStyle:'short'}).format(new Date(view.observedAt))}</p>
+   <p className="muted">{t('관측 시각','Observed')}: {formatDateTime(view.observedAt,language)}</p>
    <a className="text-btn" href={view.sourcePageUrl} target="_blank" rel="noopener noreferrer">{t('Amazon 원본 상품 보기','View original Amazon product')}</a>
    {view.productEvidence.catalogFacts?.length?<details><summary>{t('상품 페이지 추가 관측값 보기','View additional product-page observations')}</summary>
     <p className="muted">{t('카테고리·BSR·구성·수량·평점은 페이지에 표시된 원문 관측값입니다. 표시되지 않은 값은 미확인으로 남습니다.','Category, BSR, composition, quantity and review totals are observations shown on the page. Values not shown remain unknown.')}</p>

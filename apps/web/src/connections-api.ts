@@ -1,3 +1,4 @@
+import { errorCode } from "./api.ts";
 export type GmailConnectionState = {
   configured: boolean;
   status: string;
@@ -22,18 +23,11 @@ async function request(action?: "connect" | "refresh") {
         : {}),
     },
   );
-  if (!response.ok) {
-    const data: unknown = await response.json();
+  if (!response.ok)
     throw new ConnectionError(
-      typeof data === "object" &&
-        data !== null &&
-        "code" in data &&
-        typeof data.code === "string"
-        ? data.code
-        : "CONNECTION_FAILED",
+      await errorCode(response, "CONNECTION_FAILED"),
       response.status,
     );
-  }
   return response;
 }
 export async function gmailStatus(): Promise<GmailConnectionState> {

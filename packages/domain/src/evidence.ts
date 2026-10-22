@@ -62,10 +62,3 @@ export function parseNumericCell(
   if (!Number.isFinite(Number(trimmed))) return unknown("number_out_of_range", sourceId);
   return measured(trimmed, sourceId, observedAt);
 }
-
-export function requireKnown<T>(e: Evidence<T>, label: string): KnownEvidence<T> {
-  if (!isKnown(e)) {
-    throw new Error(`cannot calculate with unknown ${label}: ${e.reason}`);
-  }
-  return e;
-}

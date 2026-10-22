@@ -55,7 +55,7 @@ export async function acceptBrowserTaskResult(pool:Pool,input:{
    await db.query('COMMIT');return result;
   }
   const payload=browserTaskSchema.parse(JSON.parse(Buffer.from(task.envelope.payload,"base64url").toString("utf8"))),request=payload.request;
-  const source=await lockTaskSource(db,task);
+  const source=await lockTaskSource(db,task,request);
   const observed=Date.parse(observation.observedAt),now=Date.now();
   const taskStale=request.kind==="saved_search_export"||task.state!=="delivered"||task.expires_at.getTime()<=now||!source||
      payload.id!==task.id||payload.deviceId!==task.device_id||request.candidateId!==task.candidate_id||
@@ -136,14 +136,15 @@ export async function acceptBrowserTaskResult(pool:Pool,input:{
   }
   }
   const ciphertext=encryptSecret(Buffer.from(JSON.stringify(observation)),input.encryptionKey,"browser-task-result:"+receiptId);
-  await db.query("INSERT INTO browser_task_results(id,task_id,body_sha256,body_ciphertext,capture_ids,created_at) VALUES($1,$2,$3,$4,$5,clock_timestamp())",[receiptId,task.id,bodyHash,ciphertext,[...new Set(captureIds)]]);
+  const uniqueCaptureIds=[...new Set(captureIds)];
+  await db.query("INSERT INTO browser_task_results(id,task_id,body_sha256,body_ciphertext,capture_ids,created_at) VALUES($1,$2,$3,$4,$5,clock_timestamp())",[receiptId,task.id,bodyHash,ciphertext,uniqueCaptureIds]);
   await db.query("UPDATE browser_tasks SET state='completed',result_id=$2 WHERE id=$1",[task.id,receiptId]);
   await db.query("UPDATE candidates SET blocked_reason=NULL,last_progress_at=now() WHERE id=$1 AND blocked_reason='web_session'",[task.candidate_id]);
   await db.query("INSERT INTO audit_events(actor,action,target) SELECT owner_user_id,'browser_result_recorded',$2 FROM bridge_devices WHERE id=$1",[input.deviceId,receiptId]);
   const next=await boss.send(JOB_ADVANCE,{candidateId:task.candidate_id,stage:source.stage,inputVersion:task.input_version},{db:txAdapter(db)});
   if(!next)throw new Error("PIPELINE_ENQUEUE_FAILED");
   await db.query("COMMIT");
-  return {kind:"accepted" as const,receiptId,resultHash:bodyHash,captureIds:[...new Set(captureIds)]};
+  return {kind:"accepted" as const,receiptId,resultHash:bodyHash,captureIds:uniqueCaptureIds};
  }catch(error){await db.query("ROLLBACK");throw error;}
  finally{db.release();}
 }

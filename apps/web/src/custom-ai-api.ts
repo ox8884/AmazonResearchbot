@@ -1,3 +1,4 @@
+import { errorCode } from "./api.ts";
 export const aiRoles = [
   "normalize",
   "niche_analysis",
@@ -58,17 +59,7 @@ export async function requestCustomAi(
         }
       : {}),
   });
-  if (!r.ok) {
-    const error: unknown = await r.json();
-    throw new CustomAiError(
-      typeof error === "object" &&
-        error !== null &&
-        "code" in error &&
-        typeof error.code === "string"
-        ? error.code
-        : "REQUEST_FAILED",
-    );
-  }
+  if (!r.ok) throw new CustomAiError(await errorCode(r, "REQUEST_FAILED"));
   return r;
 }
 export async function getCustomAi(): Promise<{ profiles: CustomAiProfile[] }> {

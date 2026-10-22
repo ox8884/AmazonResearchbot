@@ -38,15 +38,17 @@ export function registerQuoteRoutes(
       return reply
         .status(404)
         .send({ code: "NOT_FOUND", message: "Candidate missing" });
-    const settings = await readCurrentSettings(pool);
-    const specs = await pool.query<SpecRow>(
-      "SELECT * FROM spec_revisions WHERE candidate_id=$1 ORDER BY revision DESC",
-      [id],
-    );
-    const quotes = await pool.query<QuoteRow>(
-      "SELECT q.*,q.valid_until::text AS valid_until,l.inbox_message_id AS source_inbox_id FROM supplier_quotes q LEFT JOIN inbox_quote_records l ON l.quote_id=q.id WHERE q.candidate_id=$1 ORDER BY q.created_at,q.id",
-      [id],
-    );
+    const [settings, specs, quotes] = await Promise.all([
+      readCurrentSettings(pool),
+      pool.query<SpecRow>(
+        "SELECT * FROM spec_revisions WHERE candidate_id=$1 ORDER BY revision DESC",
+        [id],
+      ),
+      pool.query<QuoteRow>(
+        "SELECT q.*,q.valid_until::text AS valid_until,l.inbox_message_id AS source_inbox_id FROM supplier_quotes q LEFT JOIN inbox_quote_records l ON l.quote_id=q.id WHERE q.candidate_id=$1 ORDER BY q.created_at,q.id",
+        [id],
+      ),
+    ]);
     return {
       specs: specs.rows.map(specView),
       quotes: quotes.rows.map((q) => quoteView(q, settings)),

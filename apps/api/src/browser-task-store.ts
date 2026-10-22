@@ -30,8 +30,7 @@ async function readJungleScoutBrowserBudget(db:QueryConnection,browserCap?:numbe
    AND first_delivered_at>=(date_trunc('day',clock_timestamp() AT TIME ZONE $2) AT TIME ZONE $2)`,[jungleScoutBrowserTaskKinds,setting.tz])).rows[0]?.used??0;
  return Math.max(0,cap-used);
 }
-export async function lockTaskSource(db:QueryConnection,task:CandidateBrowserTaskRow) {
- const request=browserTaskSchema.parse(JSON.parse(Buffer.from(task.envelope.payload,'base64url').toString('utf8'))).request;
+export async function lockTaskSource(db:QueryConnection,task:CandidateBrowserTaskRow,request:BrowserReadTask['request']=browserTaskSchema.parse(JSON.parse(Buffer.from(task.envelope.payload,'base64url').toString('utf8'))).request) {
  if(request.kind!==task.task_kind)return null;
  if(request.kind==='supplier_thread'||request.kind==='supplier_send')return lockAlibabaTaskSource(db,task);
  if(request.kind==='supplier_search'&&await websiteContactEnabled(db)){

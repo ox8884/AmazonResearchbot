@@ -3,27 +3,28 @@ export function categoryTrendsScript(query,marker,representativeAsin=null){
   function extractCategorySnapshot(tree){
    const lines=String(tree||'').split(/\r?\n/);
    const decode=line=>{const offset=line.indexOf('text: ');if(offset<0)return null;try{return JSON.parse(line.slice(offset+6).trim());}catch{return null;}};
+   // Decode each snapshot line once; the scans below revisit lines many times.
+   const texts=lines.map(decode);
    const datePattern=/\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\.?\s+\d{1,2}(?:,\s*\d{4})?\b/g;
-   const dateLine=lines.find(line=>{const value=decode(line);return value!==null&&[...value.matchAll(datePattern)].length>=4;});
-   const dateLabels=dateLine?[...decode(dateLine).matchAll(datePattern)].map(match=>match[0]):[];
-   const categoryLine=lines.find(line=>{const value=decode(line);return value!==null&&value.trim()==='Kitchen & Dining';});
-   const categories=categoryLine?[{category:'Kitchen & Dining',sourceText:decode(categoryLine)}]:[];
+   const dateText=texts.find(value=>value!==null&&[...value.matchAll(datePattern)].length>=4);
+   const dateLabels=dateText?[...dateText.matchAll(datePattern)].map(match=>match[0]):[];
+   const categoryText=texts.find(value=>value!==null&&value.trim()==='Kitchen & Dining');
+   const categories=categoryText?[{category:'Kitchen & Dining',sourceText:categoryText}]:[];
    const products=[];let group=-1,lastRank=null;
    for(let index=0;index<lines.length;index+=1){
-    const first=decode(lines[index]);
+    const first=texts[index];
     const imageMatch=lines[index].match(/image\s+"([A-Z0-9]{10})"/);
-    const nextText=decode(lines[index+1]??'');
-    const match=first?.match(/^([A-Z0-9]{10})#(\d+)\s+(.+)$/)??(imageMatch&&nextText?.match(/^#(\d+)\s+(.+)$/)?[nextText,imageMatch[1],nextText.match(/^#(\d+)\s+(.+)$/)[1],nextText.match(/^#(\d+)\s+(.+)$/)[2]]:null);
+    const nextText=texts[index+1]??null;
+    const imageRank=imageMatch?nextText?.match(/^#(\d+)\s+(.+)$/):null;
+    const match=first?.match(/^([A-Z0-9]{10})#(\d+)\s+(.+)$/)??(imageRank?[nextText,imageMatch[1],imageRank[1],imageRank[2]]:null);
     if(!match)continue;
-    const asin=imageMatch?match[1]:match[1];
-    const rank=imageMatch?match[2]:match[2];
-    const productName=imageMatch?match[3]:match[3];
+    const [,asin,rank,productName]=match;
     if(rank==='1'&&lastRank!==null)group+=1;
     if(lastRank===null)group=0;
     lastRank=rank;
     let details=null;
     for(let detailIndex=index+1;detailIndex<Math.min(index+12,lines.length);detailIndex+=1){
-     const value=decode(lines[detailIndex]);
+     const value=texts[detailIndex];
      if(!value)continue;
      if(/^[A-Z0-9]{10}#\d+\s/.test(value))break;
      if(/^\d+(?:\.\d+)?\([^)]*\)\|.+$/.test(value)){details=value;break;}
@@ -35,7 +36,10 @@ export function categoryTrendsScript(query,marker,representativeAsin=null){
     products.push({asin,rank,productName,rating,reviews,price,dateLabel,sourceText});
    }
    const uniqueProducts=[...new Map(products.map(product=>[(product.dateLabel??'unknown')+'\n'+product.asin,product])).values()];
-   const dateColumns=dateLabels.map(dateLabel=>({dateLabel,sourceText:[dateLabel,...uniqueProducts.filter(product=>product.dateLabel===dateLabel).map(product=>product.sourceText)].join('\n'),products:uniqueProducts.filter(product=>product.dateLabel===dateLabel)})).filter(column=>column.products.length);
+   const dateColumns=dateLabels.map(dateLabel=>{
+    const columnProducts=uniqueProducts.filter(product=>product.dateLabel===dateLabel);
+    return {dateLabel,sourceText:[dateLabel,...columnProducts.map(product=>product.sourceText)].join('\n'),products:columnProducts};
+   }).filter(column=>column.products.length);
    const representativeHistory=representativeAsin===null?[]:uniqueProducts.filter(product=>product.asin===representativeAsin&&product.dateLabel!==null);
    return {categories,kitchenDiningConfirmation:categories.length?'confirmed':'not_confirmed',products:uniqueProducts,dateColumns,representativeHistory};
   }

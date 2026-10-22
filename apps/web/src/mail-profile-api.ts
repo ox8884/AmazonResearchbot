@@ -3,6 +3,7 @@ import type {
   MailProfileConfig,
   MailProfileSafeView,
 } from "../../../packages/domain/src/mail-profile.ts";
+import { requestJson } from "./api.ts";
 
 export type MailProfileSaveInput = MailProfileConfig & {
   readonly expectedVersion?: number;
@@ -23,37 +24,10 @@ export class MailProfileRequestError extends Error {
   }
 }
 
-type RequestOptions = {
-  readonly method?: "POST";
-  readonly body?: unknown;
-};
-
-async function request<T>(
+const request = <T>(
   path: string,
-  options: RequestOptions = {},
-): Promise<T> {
-  const response = await fetch(path, {
-    method: options.method ?? "GET",
-    credentials: "include",
-    headers:
-      options.body === undefined ? {} : { "content-type": "application/json" },
-    ...(options.body === undefined
-      ? {}
-      : { body: JSON.stringify(options.body) }),
-  });
-  if (!response.ok) {
-    const payload: unknown = await response.json();
-    const code =
-      typeof payload === "object" &&
-      payload !== null &&
-      "code" in payload &&
-      typeof payload.code === "string"
-        ? payload.code
-        : "REQUEST_FAILED";
-    throw new MailProfileRequestError(response.status, code);
-  }
-  return response.json();
-}
+  options?: { readonly method?: "POST"; readonly body?: unknown },
+) => requestJson<T>(path, MailProfileRequestError, options);
 
 export async function getMailProfile(): Promise<MailProfileSafeView> {
   const response = await request<{ readonly profile: MailProfileSafeView }>(

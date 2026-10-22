@@ -32,6 +32,7 @@ function deviceLabel(agent: string | null): string | null {
             : null;
   return [platform, browser].filter(Boolean).join(" · ") || null;
 }
+const revokeParams = z.object({ id: z.string().min(1).max(256).regex(/^[A-Za-z0-9_-]+$/) });
 export function registerSecurityRoutes(
   app: FastifyInstance,
   pool: Pool,
@@ -65,15 +66,7 @@ export function registerSecurityRoutes(
     return { sessions };
   });
   app.post("/api/security/sessions/:id/revoke", async (request, reply) => {
-    const parsed = z
-      .object({
-        id: z
-          .string()
-          .min(1)
-          .max(256)
-          .regex(/^[A-Za-z0-9_-]+$/),
-      })
-      .safeParse(request.params);
+    const parsed = revokeParams.safeParse(request.params);
     if (!parsed.success) return reply.status(400).send({ code: "INVALID" });
     const current = await sessionFor(request);
     if (!current) return reply.status(401).send({ code: "UNAUTHENTICATED" });
@@ -126,15 +119,7 @@ export function registerSecurityRoutes(
   app.post(
     "/api/security/trusted-devices/:id/revoke",
     async (request, reply) => {
-      const parsed = z
-        .object({
-          id: z
-            .string()
-            .min(1)
-            .max(256)
-            .regex(/^[A-Za-z0-9_-]+$/),
-        })
-        .safeParse(request.params);
+      const parsed = revokeParams.safeParse(request.params);
       if (!parsed.success) return reply.status(400).send({ code: "INVALID" });
       const current = await sessionFor(request);
       if (!current) return reply.status(401).send({ code: "UNAUTHENTICATED" });

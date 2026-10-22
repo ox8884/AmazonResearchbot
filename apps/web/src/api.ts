@@ -36,6 +36,41 @@ async function request(path: string, init?: RequestInit): Promise<Response> {
   });
 }
 
+/** Reads the API's `{ code }` error body; non-JSON bodies fall back. */
+export async function errorCode(
+  response: Response,
+  fallback: string,
+): Promise<string> {
+  const body: unknown = await response.json().catch(() => null);
+  return typeof body === "object" &&
+    body !== null &&
+    "code" in body &&
+    typeof body.code === "string"
+    ? body.code
+    : fallback;
+}
+
+/** JSON request that throws `new Failure(status, code)` on a non-2xx response. */
+export async function requestJson<T>(
+  path: string,
+  Failure: new (status: number, code: string) => Error,
+  { method, body }: { readonly method?: "POST"; readonly body?: unknown } = {},
+): Promise<T> {
+  const response = await fetch(path, {
+    method: method ?? (body === undefined ? "GET" : "POST"),
+    credentials: "include",
+    ...(body === undefined
+      ? {}
+      : {
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+  });
+  if (!response.ok)
+    throw new Failure(response.status, await errorCode(response, "REQUEST_FAILED"));
+  return response.json();
+}
+
 export async function getSession(): Promise<Session | null> {
   const res = await request("/api/session");
   if (res.status === 401) return null;
@@ -201,17 +236,8 @@ export async function proposeSettings(
     method: "POST",
     body: JSON.stringify(patch),
   });
-  if (!res.ok) {
-    const body: unknown = await res.json().catch(() => null);
-    const code =
-      typeof body === "object" &&
-      body !== null &&
-      "code" in body &&
-      typeof body.code === "string"
-        ? body.code
-        : "PROPOSAL_FAILED";
-    throw new SettingsProposalError(code);
-  }
+  if (!res.ok)
+    throw new SettingsProposalError(await errorCode(res, "PROPOSAL_FAILED"));
   return res.json();
 }
 
@@ -228,17 +254,7 @@ export class ApprovalError extends Error {
 }
 export async function approve(id: string): Promise<unknown> {
   const res = await request(`/api/approvals/${id}/approve`, { method: "POST" });
-  if (!res.ok) {
-    const body: unknown = await res.json();
-    const code =
-      typeof body === "object" &&
-      body !== null &&
-      "code" in body &&
-      typeof body.code === "string"
-        ? body.code
-        : "APPROVAL_FAILED";
-    throw new ApprovalError(code);
-  }
+  if (!res.ok) throw new ApprovalError(await errorCode(res, "APPROVAL_FAILED"));
   return res.json();
 }
 

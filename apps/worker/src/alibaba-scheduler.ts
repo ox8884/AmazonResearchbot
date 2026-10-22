@@ -9,7 +9,7 @@ const hash=(body:string)=>createHash('sha256').update(body).digest('hex');
 const anchor=(message:AlibabaMessageRow):AlibabaMessageAnchor=>({providerMessageId:message.provider_message_id,sentAt:message.sent_at.toISOString(),bodySha256:message.body_sha256});
 const specification=(source:AlibabaContext)=>source.spec_id?`Requested specifications (please confirm feasibility): material ${source.material}; dimensions ${source.dimensions}; packaging ${source.packaging}; requirements ${source.requirements}.`:'Specifications are not finalized. Please describe your available materials, product dimensions, packaged dimensions/weight, packaging, and customization options; do not assume a final specification.';
 type Signing={origin:string;privateKey:KeyObject;fingerprint:string};
-export const ALIBABA_AI_FORMAT_FIX_SHA256='bda7d28a615b34b3ae410bab0007b358000895c8d36e88eebd0640c77642697e';
+export const ALIBABA_AI_FORMAT_FIX_SHA256='f9e1ad47cb7846000d163477c879e5572eddbecbc772d11459b0f3690250b1de';
 const aiFormatIncident='alibaba-json-string-whitespace-20260930';
 type TaskTarget={deviceId:string;conversationId:string;actionId?:string;encryptionKey:Buffer;recoveryRead?:true;recovery?:{notSentReceiptId:string;readReceiptId:string};aiRecovery?:{inboundMessageId:string;failureReceiptId:string;fixHash:string}};
 type RecoveryReceipt={id:string;task_id:string;task_kind:string;action_id:string|null;task_hash:string;envelope:{payload:string;signature:string};body_ciphertext:string;body_sha256:string;created_at:Date;task_created_at:Date};

@@ -2,7 +2,7 @@ import type {FastifyInstance} from 'fastify';
 import type {Pool} from '@forge-ops/db';
 import {z} from 'zod';
 import {observedListingPrice} from '@forge-ops/domain';
-import {readMarketSource} from './market-source-store.ts';
+import {readMarketSource} from '@forge-ops/integrations/amazon/market-source';
 
 export function registerMarketSourceRoutes(app:FastifyInstance,pool:Pool,key:Buffer){
  app.get('/api/candidates/:id/market-source',async(request,reply)=>{

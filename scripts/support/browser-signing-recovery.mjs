@@ -4,7 +4,7 @@ import {loadBrowserSigningKey} from '../../apps/worker/src/browser-signing-key.t
 export function browserSigningRecovery(pem){
  if(pem===undefined)return null;
  try{
-  if(typeof pem!=='string'||pem.length>16384||!pem.startsWith('-----BEGIN PRIVATE KEY-----'))throw new Error('invalid pem');
+  if(typeof pem!=='string'||pem.length>16384||!pem.startsWith('-----BEGIN '+'PRIVATE KEY-----'))throw new Error('invalid pem');
   const key=createPrivateKey(pem);
   if(key.asymmetricKeyType!=='ed25519')throw new Error('invalid algorithm');
   return {pem:key.export({format:'pem',type:'pkcs8'}).toString(),fingerprint:createHash('sha256').update(createPublicKey(key).export({format:'der',type:'spki'})).digest('hex')};

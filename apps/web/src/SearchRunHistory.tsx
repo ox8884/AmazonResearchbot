@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { listSearchRuns, type SearchRunSelection } from "./saved-search-api.ts";
 import { savedSearchFilters } from "../../../packages/domain/src/saved-search.ts";
+import { SearchFilterTerms } from "./SavedSearches.tsx";
 import { LoadError, Loading, Stage, useLocale } from "./ui.tsx";
 
 export function SearchRunHistory({
@@ -82,41 +83,7 @@ export function SearchRunHistory({
                         t("카테고리 미확인", "Category unknown")}
                     </p>
                     {filters ? (
-                      <dl className="quote-terms">
-                        <div>
-                          <dt>{t("월평균 가격 (USD)", "Monthly average price (USD)")}</dt>
-                          <dd>
-                            {filters.priceMinUsd ??
-                              t("하한 없음", "No minimum")}{" "}
-                            –{" "}
-                            {filters.priceMaxUsd ??
-                              t("상한 없음", "No maximum")}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>
-                            {t("월 검색량 최소", "Minimum monthly searches")}
-                          </dt>
-                          <dd>
-                            {filters.monthlySearchMin ??
-                              t("지정 안 함", "Unspecified")}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>{t("경쟁도 상한", "Maximum competition")}</dt>
-                          <dd>
-                            {filters.competitionMax ??
-                              t("지정 안 함", "Unspecified")}
-                          </dd>
-                        </div>
-                        <div>
-                          <dt>{t("계절성 상한", "Maximum seasonality")}</dt>
-                          <dd>
-                            {filters.seasonalityMax ??
-                              t("지정 안 함", "Unspecified")}
-                          </dd>
-                        </div>
-                      </dl>
+                      <SearchFilterTerms filters={filters} />
                     ) : (
                       <p>
                         {t(
@@ -125,8 +92,6 @@ export function SearchRunHistory({
                         )}
                       </p>
                     )}
-                    {filters?.competition && <p>{t('이전 경쟁 메모','Previous competition note')}: {filters.competition}</p>}
-                    {filters?.seasonality && <p>{t('이전 계절성 메모','Previous seasonality note')}: {filters.seasonality}</p>}
                     <p className="muted">
                       {run.filterVerification==='applied'?t('웹 검색 조건 적용 확인 · 상품 분류는 별도 확인','Website filters verified · product category requires a separate check'):t(
                         "실제 웹 검색 조건 적용 · 미확인",

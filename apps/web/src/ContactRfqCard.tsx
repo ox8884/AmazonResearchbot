@@ -44,12 +44,11 @@ export function ContactRfqCard({
     enabled: replyOpen,
   });
 
-  async function requestApproval() {
-    if (busy || !contactReady) return;
+  async function run(action: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
     try {
-      await requestRfqApproval(rfq.id);
+      await action();
       await onChanged();
     } catch (caught) {
       setError(contactActionError(caught, language));
@@ -58,18 +57,15 @@ export function ContactRfqCard({
     }
   }
 
+  async function requestApproval() {
+    if (busy || !contactReady) return;
+    await run(() => requestRfqApproval(rfq.id));
+  }
+
   async function decide(decision: "approve" | "reject") {
-    if (busy || !rfq.approvalId) return;
-    setBusy(true);
-    setError(null);
-    try {
-      await decideRfqApproval(rfq.approvalId, decision);
-      await onChanged();
-    } catch (caught) {
-      setError(contactActionError(caught, language));
-    } finally {
-      setBusy(false);
-    }
+    const approvalId = rfq.approvalId;
+    if (busy || !approvalId) return;
+    await run(() => decideRfqApproval(approvalId, decision));
   }
 
   return (

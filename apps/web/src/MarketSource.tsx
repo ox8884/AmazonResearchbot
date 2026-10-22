@@ -1,6 +1,6 @@
 import {useQuery} from '@tanstack/react-query';
 import type {Evidence} from '../../../packages/domain/src/evidence.ts';
-import {Loading,LoadError,useLocale} from './ui.tsx';
+import {formatDateTime,Loading,LoadError,useLocale} from './ui.tsx';
 
 export type MarketView={state:'not_collected'|'stale'|'waiting'|'collecting'}|{
  state:'captured';query:string;observedAt:string;sourcePageUrl:string;coverage:'complete'|'partial';rangeText:string;
@@ -19,7 +19,7 @@ export function MarketSource({candidateId}:{candidateId:string}){
   <p className="muted">{t('시장 1위 판단에는 동일 상품 검토와 같은 기간의 매출 근거가 더 필요합니다. 여기의 표시 순서와 가격은 관측 자료로 보존합니다.','A market leader requires comparable products and revenue for the same period. Display order and prices here are observations.')}</p>
   {query.isPending?<Loading/>:query.isError?<LoadError retry={()=>void query.refetch()}/>:view?.state==='captured'?<>
    <p>{view.rangeText}</p>
-   <p className="muted">{t('관측 시각','Observed')}: {new Intl.DateTimeFormat(language==='ko'?'ko-KR':'en-US',{dateStyle:'medium',timeStyle:'short'}).format(new Date(view.observedAt))}</p>
+   <p className="muted">{t('관측 시각','Observed')}: {formatDateTime(view.observedAt,language)}</p>
    <p>{view.coverage==='complete'?t('화면의 표시 범위를 수집했습니다. 동일 상품 여부와 매출 대조는 아직 별도입니다.','The displayed result range was collected. Product comparability and revenue matching are separate checks.'):t('일부 항목의 식별 또는 광고 표시가 미확인입니다. 전체 모집단으로 판단하지 않습니다.','Some identities or advertising labels are unconfirmed. This is not treated as a complete population.')}</p>
    <details><summary>{t(`관측 항목 ${view.slots.length}개 보기`,`View ${view.slots.length} observed slots`)}</summary>
     <div className="evidence-list">{view.slots.map(row=><div className="evidence-row" key={row.position}>

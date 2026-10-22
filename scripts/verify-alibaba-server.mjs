@@ -281,7 +281,7 @@ const assertCheckIn15Minutes=async c=>{
  const timing=await row('SELECT extract(epoch FROM (next_check_at-clock_timestamp())) AS seconds FROM alibaba_conversations WHERE id=$1',[c.id]);
  assert.ok(Number(timing.seconds)>890&&Number(timing.seconds)<=900,'Next check must remain 15 minutes away: '+timing.seconds);
 };
-const aiFix='bda7d28a615b34b3ae410bab0007b358000895c8d36e88eebd0640c77642697e';
+const aiFix='f9e1ad47cb7846000d163477c879e5572eddbecbc772d11459b0f3690250b1de';
 const incidentFixture=async(label,prepared)=>{
  const f=prepared??await negotiationFixture('incident-'+label);await failAi(f,'AI_RESPONSE_INVALID');
  f.inboundId=(await row('SELECT id FROM alibaba_messages WHERE conversation_id=$1 AND provider_message_id=$2',[f.c.id,f.inbound.id])).id;

@@ -13,6 +13,7 @@ import {
   SecurityRequestError,
 } from "./security-api.ts";
 import {
+  formatDateTime,
   Icon,
   LoadError,
   Loading,
@@ -31,11 +32,7 @@ export function Security() {
   });
   const [busy, setBusy] = useState<string | null>(null),
     [notice, setNotice] = useState<string | null>(null);
-  const date = (value: string) =>
-    new Intl.DateTimeFormat(language === "ko" ? "ko-KR" : "en-US", {
-      dateStyle: "medium",
-      timeStyle: "short",
-    }).format(new Date(value));
+  const date = (value: string) => formatDateTime(value, language);
   async function revoke(id: string) {
     if (busy) return;
     setBusy(id);

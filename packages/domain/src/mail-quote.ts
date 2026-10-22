@@ -116,10 +116,10 @@ const RULES: readonly Rule[] = [
   { field: "separateUpfrontCosts", label: /^\s*(?:(?:separate|total|one[-\s]time)\s+)?upfront\s+(?:costs?|charges?)(?:\s*(?:\(\s*(?:USD|total)\s*\)|USD))?\s*[:=-]\s*(.*)$/i, parse: upfront },
 ];
 
-function select(source: string, rule: Rule): { readonly field: ExtractedQuoteField } | { readonly issue: "missing" | "ambiguous" | "invalid" } {
+function select(lines: readonly Line[], rule: Rule): { readonly field: ExtractedQuoteField } | { readonly issue: "missing" | "ambiguous" | "invalid" } {
   let occurrences = 0;
   let parsed: ExtractedQuoteField | null = null;
-  for (const line of visibleLines(source)) {
+  for (const line of lines) {
     const match = rule.label.exec(line.text);
     const text = match?.[1];
     const matched = match?.[0];
@@ -137,8 +137,9 @@ function select(source: string, rule: Rule): { readonly field: ExtractedQuoteFie
 export function extractSupplierQuote(text: string): SupplierQuoteExtraction {
   const fields: Partial<Record<SupplierQuoteField, ExtractedQuoteField>> = {};
   const issues: Partial<Record<SupplierQuoteField, "missing" | "ambiguous" | "invalid">> = {};
+  const lines = visibleLines(text);
   for (const rule of RULES) {
-    const result = select(text, rule);
+    const result = select(lines, rule);
     if ("field" in result) fields[rule.field] = result.field;
     else issues[rule.field] = result.issue;
   }

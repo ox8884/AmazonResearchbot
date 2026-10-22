@@ -31,6 +31,11 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
   );
 }
 export const useLocale = () => useContext(Locale);
+export const formatDateTime = (value: string, language: string) =>
+  new Intl.DateTimeFormat(language === "ko" ? "ko-KR" : "en-US", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(value));
 
 export type IconName =
   | "today"

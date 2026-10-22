@@ -26,8 +26,8 @@ export async function readAlibabaTaskBinding(db:QueryConnection,task:CandidateBr
  }
  return {payload,request,conversation,action};
 }
-export async function lockAlibabaTaskSource(db:QueryConnection,task:CandidateBrowserTaskRow) {
- const binding=await readAlibabaTaskBinding(db,task);
+export async function lockAlibabaTaskSource(db:QueryConnection,task:CandidateBrowserTaskRow,known?:Awaited<ReturnType<typeof readAlibabaTaskBinding>>) {
+ const binding=known??await readAlibabaTaskBinding(db,task);
  if(!binding)return null;
  if(binding.action){
   const gate=await lockAlibabaContext(db,task.candidate_id);
@@ -59,7 +59,8 @@ export async function beginAlibabaDispatch(pool:Pool,input:{deviceId:string;task
   const device=await db.query(`SELECT 1 FROM bridge_devices d JOIN browser_signing_identity k ON k.fingerprint=d.reported_key_fingerprint
    WHERE d.id=$1 AND d.reported_connected AND d.reported_at>clock_timestamp()-interval '90 seconds' AND 'supplier_send'=ANY(d.reported_tasks)`,[input.deviceId]);
   if(!device.rowCount)return await deny('BROWSER_OFFLINE');
-  if(!await lockAlibabaTaskSource(db,task))return await deny('SOURCE_CHANGED');
+  // The binding rows are already locked FOR UPDATE in this transaction, so reuse them instead of re-reading.
+  if(!await lockAlibabaTaskSource(db,task,binding))return await deny('SOURCE_CHANGED');
   const changed=await db.query("UPDATE alibaba_actions SET state='dispatching',dispatch_task_id=$2,started_at=clock_timestamp(),reason=NULL WHERE id=$1 AND state='pending' AND started_at IS NULL RETURNING id",[binding.action.id,task.id]);
   if(!changed.rowCount)return await deny('ACTION_ALREADY_STARTED');
   await db.query("INSERT INTO audit_events(actor,action,target) SELECT owner_user_id,'alibaba_send_started',$2 FROM bridge_devices WHERE id=$1",[input.deviceId,binding.action.id]);

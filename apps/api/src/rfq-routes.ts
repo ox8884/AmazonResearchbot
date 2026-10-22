@@ -59,21 +59,23 @@ export function registerRfqRoutes(
       return reply
         .status(404)
         .send({ code: "NOT_FOUND", message: "Candidate missing" });
-    const suppliers = await pool.query<SupplierRow>(
-      "SELECT * FROM sourcing_suppliers WHERE candidate_id=$1 ORDER BY created_at,id",
-      [id],
-    );
-    const drafts = await pool.query<RfqRow>(
-      `SELECT r.*,a.transport AS delivery_transport,a.state AS delivery_state,a.blocked_reason AS delivery_reason FROM rfq_drafts r LEFT JOIN LATERAL (SELECT transport,state,blocked_reason FROM external_actions WHERE rfq_id=r.id AND approval_id=r.approval_id ORDER BY created_at DESC,id DESC LIMIT 1) a ON true WHERE r.candidate_id=$1 ORDER BY r.created_at,r.id`,
-      [id],
-    );
-    const gate = await contactEligibility(pool, id);
-    const profile =
+    const [suppliers, drafts, gate, profile, website] = await Promise.all([
+      pool.query<SupplierRow>(
+        "SELECT * FROM sourcing_suppliers WHERE candidate_id=$1 ORDER BY created_at,id",
+        [id],
+      ),
+      pool.query<RfqRow>(
+        `SELECT r.*,a.transport AS delivery_transport,a.state AS delivery_state,a.blocked_reason AS delivery_reason FROM rfq_drafts r LEFT JOIN LATERAL (SELECT transport,state,blocked_reason FROM external_actions WHERE rfq_id=r.id AND approval_id=r.approval_id ORDER BY created_at DESC,id DESC LIMIT 1) a ON true WHERE r.candidate_id=$1 ORDER BY r.created_at,r.id`,
+        [id],
+      ),
+      contactEligibility(pool, id),
       deliveryMode === "profile"
-        ? await pool.query<{ active: boolean }>(
+        ? pool.query<{ active: boolean }>(
             "SELECT EXISTS(SELECT 1 FROM mail_profiles WHERE singleton_key=1 AND status='active' AND password_ciphertext IS NOT NULL) AS active",
           )
-        : null;
+        : null,
+      readAlibabaWorkspace(pool, id, encryptionKey),
+    ]);
     const effectiveMode =
       deliveryMode === "profile"
         ? profile?.rows[0]?.active
@@ -81,7 +83,7 @@ export function registerRfqRoutes(
           : "disabled"
         : deliveryMode;
     return {
-      website: await readAlibabaWorkspace(pool,id,encryptionKey),
+      website,
       suppliers: suppliers.rows.map(supplierView),
       drafts: drafts.rows.map(rfqView),
       contactReady: gate.ready,

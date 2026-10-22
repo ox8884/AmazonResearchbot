@@ -2,7 +2,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import type { TrustedDevice } from "../../../packages/domain/src/login-session.ts";
 import { listTrustedDevices, revokeTrustedDevice } from "./security-api.ts";
-import { LoadError, Loading, useLocale } from "./ui.tsx";
+import { formatDateTime, LoadError, Loading, useLocale } from "./ui.tsx";
 export function TrustedDevices() {
   const { t, language } = useLocale(),
     qc = useQueryClient();
@@ -14,12 +14,7 @@ export function TrustedDevices() {
   const [busy, setBusy] = useState<string | null>(null),
     [notice, setNotice] = useState<string | null>(null);
   const date = (value: string | null) =>
-    value
-      ? new Intl.DateTimeFormat(language === "ko" ? "ko-KR" : "en-US", {
-          dateStyle: "medium",
-          timeStyle: "short",
-        }).format(new Date(value))
-      : t("미확인", "Unknown");
+    value ? formatDateTime(value, language) : t("미확인", "Unknown");
   async function remove(id: string) {
     if (busy) return;
     setBusy(id);

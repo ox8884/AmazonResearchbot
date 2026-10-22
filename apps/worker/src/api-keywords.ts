@@ -31,7 +31,8 @@ export async function collectKeywordFacts(
   if (!built.ok) return { kind: "invalid", sourceIds: [] };
   let request: JungleScoutRequest = built.value;
   const sources: string[] = [],
-    seen = new Set<string>();
+    seen = new Set<string>(),
+    target = normalizeKeyword(reader.context.keyword);
   for (let page = 1; ; page++) {
     const read = await readOfficialSource(reader, request);
     if (read.kind !== "source") return read;
@@ -43,9 +44,7 @@ export async function collectKeywordFacts(
     });
     if (!parsed.ok) return { kind: "invalid", sourceIds: sources };
     const exact = parsed.value.filter(
-      (item) =>
-        normalizeKeyword(item.keyword) ===
-        normalizeKeyword(reader.context.keyword),
+      (item) => normalizeKeyword(item.keyword) === target,
     );
     if (exact.length === 1 && exact[0])
       return {

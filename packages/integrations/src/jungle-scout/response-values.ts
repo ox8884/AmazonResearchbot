@@ -1,4 +1,4 @@
-import { estimate, measured, unknown, type Evidence } from "@forge-ops/domain";
+import { estimate, measured, normalizeKeyword, unknown, type Evidence } from "@forge-ops/domain";
 import type { Source, ParseResult, ProductFamily } from "./response-types.ts";
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -168,14 +168,7 @@ export function responseError<T>(): ParseResult<T> {
   return { ok: false, code: "UNEXPECTED_SCHEMA" };
 }
 
-export { isIsoDay as isoDay } from "@forge-ops/domain";
-export function normalizeKeyword(value: string): string {
-  return value
-    .normalize("NFKC")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLocaleLowerCase("en-US");
-}
+export { isIsoDay as isoDay, normalizeKeyword } from "@forge-ops/domain";
 export function keywordIdentity(value: unknown, expected?: string): boolean {
   if (
     typeof value !== "string" ||

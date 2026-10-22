@@ -65,9 +65,12 @@ export function createAsideRunner(configuration) {
    child.stdin?.on('error',fail);
    child.stdout.on('data',chunk=>{
     size+=chunk.length;if(size>4*1024*1024){fail();return;}
-    output+=decoder.write(chunk);
-    let end;
-    while((end=output.indexOf('\n'))>=0){line(output.slice(0,end).replace(/\r$/,''));output=output.slice(end+1);}
+    const text=decoder.write(chunk);
+    output+=text;
+    // Only rescan the buffer when this chunk ends a line; a multi-megabyte result arrives as one long line.
+    if(!text.includes('\n'))return;
+    const lines=output.split('\n');output=lines.pop();
+    for(const value of lines)line(value.replace(/\r$/,''));
    });
    child.on('close',code=>{
     if(settled)return;

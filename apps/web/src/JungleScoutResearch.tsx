@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Icon, LoadError, Loading, useLocale } from './ui.tsx';
+import { formatDateTime, Icon, LoadError, Loading, useLocale } from './ui.tsx';
 
 type ResearchKind = 'product_database' | 'keyword_scout' | 'historical_data' | 'category_trends' | 'competitive_intelligence';
 type PendingResearch = {
@@ -240,7 +240,7 @@ export function JungleScoutResearch({ candidateId }: { readonly candidateId: str
       const current = status(item, t);
       return <article className="evidence-row jungle-scout-item" key={item.kind}><div className="jungle-scout-item-body">
         <div className="section-label"><h3>{labels[item.kind][language === 'ko' ? 0 : 1]}</h3><span className={`chip chip-${current.style}`}><Icon name={current.icon} />{current.label}</span></div>
-        {item.state === 'captured' ? <><span className="muted">{t('출처', 'Source')}: {t('Jungle Scout 웹 화면', 'Jungle Scout web page')}</span><span className="muted">{t('관측 시각', 'Observed')}: {new Intl.DateTimeFormat(language === 'ko' ? 'ko-KR' : 'en-US', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.observedAt))}</span><a className="text-btn" href={item.sourcePageUrl} target="_blank" rel="noopener noreferrer">{t('Jungle Scout 원본 보기', 'View Jungle Scout source')}</a><Result item={item} /></> : <PendingResearchView item={item} retry={() => retry.mutate(item.kind)} retrying={retry.isPending && retry.variables === item.kind} retryError={retry.isError && retry.variables === item.kind} />}
+        {item.state === 'captured' ? <><span className="muted">{t('출처', 'Source')}: {t('Jungle Scout 웹 화면', 'Jungle Scout web page')}</span><span className="muted">{t('관측 시각', 'Observed')}: {formatDateTime(item.observedAt, language)}</span><a className="text-btn" href={item.sourcePageUrl} target="_blank" rel="noopener noreferrer">{t('Jungle Scout 원본 보기', 'View Jungle Scout source')}</a><Result item={item} /></> : <PendingResearchView item={item} retry={() => retry.mutate(item.kind)} retrying={retry.isPending && retry.variables === item.kind} retryError={retry.isError && retry.variables === item.kind} />}
       </div></article>;
     })}</div>}
   </section>;

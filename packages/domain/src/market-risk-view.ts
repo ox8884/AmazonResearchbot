@@ -26,9 +26,10 @@ const pageSchema=z.object({
  .refine(page=>[page.concentration.top1Pct,page.concentration.top3Pct,page.concentration.firstPageSalesUsd,page.concentration.families]
   .every(value=>value.kind==='unknown'||value.sourceId==='browser-task-result:'+page.marketReceiptId))
  .refine(page=>page.observations.every(row=>row.asin.kind==='unknown'||row.asin.sourceId==='browser-task-result:'+page.marketReceiptId));
+const envelopeSchema=z.object({firstPageSales:z.unknown()});
 export type MarketRiskView=Pick<z.infer<typeof pageSchema>,'period'|'criteria'|'concentration'>&{readonly asinCount:number};
 export function readMarketRiskView(payload:unknown):MarketRiskView|null{
- const envelope=z.object({firstPageSales:z.unknown()}).safeParse(payload);
+ const envelope=envelopeSchema.safeParse(payload);
  const parsed=pageSchema.safeParse(envelope.success?envelope.data.firstPageSales:null);
  if(!parsed.success)return null;
  const {period,criteria,concentration,marketAsins,observations}=parsed.data;

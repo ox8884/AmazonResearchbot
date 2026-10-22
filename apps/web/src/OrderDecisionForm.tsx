@@ -105,14 +105,6 @@ export function OrderDecisionForm({
   useEffect(()=>{if(decision==='go'&&!canGo)setDecision('hold');},[decision,canGo]);
   useEffect(()=>{if(decision!=='go')setRisk(emptyRiskDraft());},[decision]);
 
-  useEffect(() => {
-    if (!selectedQuote) {
-      setQuoteId("");
-      return;
-    }
-    setQuoteId(selectedQuote.id);
-  }, [selectedQuote]);
-
   const create = useMutation({
     mutationFn: (input: {
       readonly quoteId: string;

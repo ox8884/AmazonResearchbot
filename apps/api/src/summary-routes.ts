@@ -30,8 +30,8 @@ export function registerSummaryRoutes(app: FastifyInstance, pool: Pool) {
   app.get("/api/summaries/:id", async (request, reply) => {
     const parsed = z.object({ id: z.uuid() }).safeParse(request.params);
     if (!parsed.success) return reply.status(400).send({ code: "INVALID" });
-    const row = (
-      await pool.query<{
+    const [summaries, deliveries] = await Promise.all([
+      pool.query<{
         id: string;
         local_date: string;
         timezone: string;
@@ -41,11 +41,8 @@ export function registerSummaryRoutes(app: FastifyInstance, pool: Pool) {
       }>(
         "SELECT id,local_date::text,timezone,settings_version,generated_at,payload FROM daily_summaries WHERE id=$1",
         [parsed.data.id],
-      )
-    ).rows[0];
-    if (!row) return reply.status(404).send({ code: "NOT_FOUND" });
-    const deliveryRow = (
-      await pool.query<{
+      ),
+      pool.query<{
         state: SummaryDeliveryView["state"];
         recipient: string;
         attempt_count: number;
@@ -54,9 +51,12 @@ export function registerSummaryRoutes(app: FastifyInstance, pool: Pool) {
         receipt: string | null;
       }>(
         "SELECT state,recipient,attempt_count,reason,finished_at,receipt FROM summary_deliveries WHERE summary_id=$1",
-        [row.id],
-      )
-    ).rows[0];
+        [parsed.data.id],
+      ),
+    ]);
+    const row = summaries.rows[0];
+    if (!row) return reply.status(404).send({ code: "NOT_FOUND" });
+    const deliveryRow = deliveries.rows[0];
     let localCapture = false;
     if (deliveryRow?.receipt) {
       try {

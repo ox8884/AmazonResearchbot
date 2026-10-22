@@ -80,14 +80,16 @@ export async function loadCandidateDetails(db:Db,locale:'ko'|'en',id:string|null
   for(const row of evidence.rows){const rows=evidenceByCandidate.get(row.candidate_id)??[];rows.push(row);evidenceByCandidate.set(row.candidate_id,rows);}
   const evaluationByCandidate=new Map(evaluations.rows.map(row=>[row.candidate_id,row]));
   const website=await db.query<{candidate_id:string;status:string;reason:string|null}>("SELECT candidate_id,status,reason FROM alibaba_conversations c WHERE ($1::uuid IS NULL OR candidate_id=$1) AND NOT alibaba_conversation_retired(c)",[id]);
+  const conversationsByCandidate=new Map<string,typeof website.rows>();
+  for(const row of website.rows){const rows=conversationsByCandidate.get(row.candidate_id)??[];rows.push(row);conversationsByCandidate.set(row.candidate_id,rows);}
   const browserReady=(await db.query<{ready:boolean}>(`SELECT EXISTS(SELECT 1 FROM bridge_devices d JOIN "user" u ON u.id=d.owner_user_id JOIN browser_signing_identity k ON k.fingerprint=d.reported_key_fingerprint
    WHERE d.revoked_at IS NULL AND u.two_factor_enabled AND d.reported_connected AND d.reported_at>clock_timestamp()-interval '90 seconds'
    AND ARRAY['supplier_search','supplier_thread','supplier_send']::text[] <@ d.reported_tasks) AS ready`)).rows[0]?.ready===true;
+  const activeSettings=settings.rows[0];
   return candidates.rows.map(row=>{
     const rows=evidenceByCandidate.get(row.id)??[];
     const input=readNicheEvidence(rows);
-    let validation=validationView(evaluationByCandidate.get(row.id),row.input_version,settings.rows[0]?.version??null);
-    const activeSettings=settings.rows[0];
+    let validation=validationView(evaluationByCandidate.get(row.id),row.input_version,activeSettings?.version??null);
     if(validation.status!=='stale'&&validation.marketRisk&&activeSettings&&!marketRiskMatchesSettings(validation.marketRisk,activeSettings.snapshot))validation={...validation,marketRisk:null};
     const current=validation.status!=='stale'&&validation.status!=='unconfirmed';
     const unknowns=current
@@ -105,7 +107,7 @@ export async function loadCandidateDetails(db:Db,locale:'ko'|'en',id:string|null
     const decisionBasis:CandidateDecisionBasis=provisionalNoGo?'insufficient_evidence':projectedDecision==='go'?'confirmed_go':projectedDecision==='caution'?'market_caution':projectedDecision==='no_go'?'confirmed_rejection':'waiting';
     let action=nextAction({stage:row.stage,blockedReason:row.blocked_reason,locale});
     if(activeSettings?.snapshot.supplierContactMode==='website'&&['sourcing','rfq_draft','awaiting_contact_approval','sending_rfq','awaiting_quote','economics_review'].includes(row.stage)){
-      const conversations=website.rows.filter(conversation=>conversation.candidate_id===row.id),ko=locale==='ko';
+      const conversations=conversationsByCandidate.get(row.id)??[],ko=locale==='ko';
       const attention=conversations.some(conversation=>conversation.status==='attention');
       const paused=conversations.some(conversation=>conversation.status==='paused');
       const uncertain=conversations.some(conversation=>conversation.reason==='SEND_OUTCOME_UNKNOWN');

@@ -12,6 +12,40 @@ import {
 } from "./saved-search-api.ts";
 import { SavedSearchForm } from "./SavedSearchForm.tsx";
 import { LoadError, Loading, Stage, useLocale } from "./ui.tsx";
+export function SearchFilterTerms({
+  filters,
+}: {
+  filters: SavedSearchInput["filters"];
+}) {
+  const { t } = useLocale();
+  return (
+    <>
+      <dl className="quote-terms">
+        <div>
+          <dt>{t("월평균 가격 (USD)", "Monthly average price (USD)")}</dt>
+          <dd>
+            {filters.priceMinUsd ?? t("하한 없음", "No minimum")} –{" "}
+            {filters.priceMaxUsd ?? t("상한 없음", "No maximum")}
+          </dd>
+        </div>
+        <div>
+          <dt>{t("월 검색량 최소", "Minimum monthly searches")}</dt>
+          <dd>{filters.monthlySearchMin ?? t("지정 안 함", "Unspecified")}</dd>
+        </div>
+        <div>
+          <dt>{t("경쟁도 상한", "Maximum competition")}</dt>
+          <dd>{filters.competitionMax ?? t("지정 안 함", "Unspecified")}</dd>
+        </div>
+        <div>
+          <dt>{t("계절성 상한", "Maximum seasonality")}</dt>
+          <dd>{filters.seasonalityMax ?? t("지정 안 함", "Unspecified")}</dd>
+        </div>
+      </dl>
+      {filters.competition && <p>{t('이전 경쟁 메모','Previous competition note')}: {filters.competition}</p>}
+      {filters.seasonality && <p>{t('이전 계절성 메모','Previous seasonality note')}: {filters.seasonality}</p>}
+    </>
+  );
+}
 export function SavedSearches({
   onStarted,
   disabled = false,
@@ -155,39 +189,7 @@ export function SavedSearches({
                     · r{search.revision}
                   </p>
                   {filters ? (
-                    <dl className="quote-terms">
-                      <div>
-                        <dt>{t("월평균 가격 (USD)", "Monthly average price (USD)")}</dt>
-                        <dd>
-                          {filters.priceMinUsd ?? t("하한 없음", "No minimum")}{" "}
-                          –{" "}
-                          {filters.priceMaxUsd ?? t("상한 없음", "No maximum")}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>
-                          {t("월 검색량 최소", "Minimum monthly searches")}
-                        </dt>
-                        <dd>
-                          {filters.monthlySearchMin ??
-                            t("지정 안 함", "Unspecified")}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>{t("경쟁도 상한", "Maximum competition")}</dt>
-                        <dd>
-                          {filters.competitionMax ??
-                            t("지정 안 함", "Unspecified")}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>{t("계절성 상한", "Maximum seasonality")}</dt>
-                        <dd>
-                          {filters.seasonalityMax ??
-                            t("지정 안 함", "Unspecified")}
-                        </dd>
-                      </div>
-                    </dl>
+                    <SearchFilterTerms filters={filters} />
                   ) : (
                     <p className="muted">
                       {t(
@@ -196,8 +198,6 @@ export function SavedSearches({
                       )}
                     </p>
                   )}
-                  {filters?.competition && <p>{t('이전 경쟁 메모','Previous competition note')}: {filters.competition}</p>}
-                  {filters?.seasonality && <p>{t('이전 계절성 메모','Previous seasonality note')}: {filters.seasonality}</p>}
                   <div className="btn-row">
                     <button
                       className="btn btn-secondary"

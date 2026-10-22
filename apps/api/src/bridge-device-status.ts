@@ -1,5 +1,5 @@
 import type { Pool } from "@forge-ops/db";
-import type { BridgeDevice } from "@forge-ops/domain";
+import { bridgeCapabilitySchema, type BridgeDevice } from "@forge-ops/domain";
 
 type DeviceRow = {
   readonly id: string; readonly name: string; readonly created_at: Date; readonly revoked_at: Date | null;
@@ -12,7 +12,7 @@ const statusQuery = `SELECT d.id,d.name,d.created_at,d.revoked_at,d.reported_at,
   FROM bridge_devices d JOIN "user" u ON u.id=d.owner_user_id
   LEFT JOIN browser_signing_identity k ON k.singleton=1`;
 function status(row: DeviceRow): BridgeDevice {
-  const capabilities = [...new Set(row.reported_tasks)].filter((kind): kind is BridgeDevice["capabilities"][number] => kind === "supplier_send" || kind === "supplier_thread" || kind === "supplier_search" || kind === "supplier_detail" || kind === "amazon_package" || kind === "saved_search_export" || kind === "amazon_search" || kind === "product_database" || kind === "keyword_scout" || kind === "historical_data" || kind === "category_trends" || kind === "competitive_intelligence");
+  const capabilities = [...new Set(row.reported_tasks)].filter((kind): kind is BridgeDevice["capabilities"][number] => (bridgeCapabilitySchema.options as readonly string[]).includes(kind));
   const connectionState = row.revoked_at || !row.two_factor_enabled ? "revoked"
     : !row.reported_at ? "unreported"
     : !row.key_matches ? "key_mismatch"
