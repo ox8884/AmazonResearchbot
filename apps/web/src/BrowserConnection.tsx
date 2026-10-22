@@ -7,7 +7,7 @@ import { Icon, LoadError, Loading, useLocale } from "./ui.tsx";
 
 const labels: Record<BridgeConnectionState, readonly [string, string]> = {
   unreported: ["연결 확인 전", "Not checked yet"], ready: ["연결됨", "Connected"], offline: ["ASIDE 연결 끊김", "ASIDE disconnected"],
-  stale: ["최근 연결 미확인", "Connection not recently verified"], unsupported: ["읽기 작업 준비 필요", "Read tasks not ready"],
+  stale: ["최근 연결 미확인", "Connection not recently verified"], unsupported: ["브라우저 작업 준비 필요", "Browser tasks not ready"],
   key_mismatch: ["다시 연결 필요", "Reconnect required"], revoked: ["연결 해제됨", "Disconnected by owner"],
 };
 export function BrowserConnection() {
@@ -42,7 +42,7 @@ export function BrowserConnection() {
     <div className="section-label"><h2 id="aside-connection-heading">{t("ASIDE 브라우저 연결", "ASIDE browser connection")}</h2>
       <button type="button" className="btn btn-secondary" disabled={Boolean(busy) || devices.isFetching || signing.isFetching} onClick={refresh}>{t("연결 상태 새로 확인", "Refresh connection status")}</button>
     </div>
-    <p className="muted">{t("이 PC의 ASIDE를 연결하면 기기가 지원하는 검색·상품·공급처 자료를 읽을 수 있어요. 사이트 로그인은 ASIDE에서 유지됩니다.", "Connect ASIDE on this PC to read supported search, product and supplier information. Site sign-ins stay in ASIDE.")}</p>
+    <p className="muted">{t("이 PC의 ASIDE로 검색·상품·공급처 자료를 확인합니다. 자동 연락을 지원하는 기기는 설정에 따라 Alibaba 문의와 회신 확인도 진행합니다. 사이트 로그인은 ASIDE에서 유지됩니다.", "ASIDE on this PC checks search, product and supplier information. Devices supporting automatic contact also handle Alibaba inquiries and replies when configured. Site sign-ins stay in ASIDE.")}</p>
     {devices.isPending || signing.isPending ? <Loading /> : <>
       {(devices.isError || signing.isError) && <LoadError retry={refresh} />}
       {!signing.isError && !ready && <p className="banner">{t("브라우저 연결을 준비하고 있어요. 준비가 끝나면 연결 코드를 만들 수 있습니다.", "Browser connection setup is pending. You can create a connection code when it is ready.")}</p>}
@@ -56,6 +56,8 @@ export function BrowserConnection() {
               <span className={"chip " + (state === "ready" ? "chip-ok" : "chip-unknown")}><Icon name={state === "ready" ? "check" : "unknown"} />{t(label[0], label[1])}</span>
               <p className="muted">{t("마지막 확인", "Last checked")}: {device.checkedAt ? new Intl.DateTimeFormat(language === "ko" ? "ko-KR" : "en-US", { dateStyle: "medium", timeStyle: "short" }).format(new Date(device.checkedAt)) : t("미확인", "Unknown")}</p>
               {state === "ready" && device.capabilities.includes("supplier_search") && <p>{t("공급처 검색 결과 읽기 가능", "Supplier search results can be read")}</p>}
+              {state === "ready" && device.capabilities.includes("supplier_thread") && <p>{t("Alibaba 대화·회신 확인 가능", "Alibaba conversations and replies can be read")}</p>}
+              {state === "ready" && device.capabilities.includes("supplier_send") && <p>{t("Alibaba 자동 문의·조건 협의 지원", "Alibaba automatic inquiries and discussions of terms supported")}</p>}
               {state === "ready" && device.capabilities.includes("supplier_detail") && <p>{t("공급처 상세 정보 읽기 가능", "Supplier product details can be read")}</p>}
               {state === "ready" && device.capabilities.includes("amazon_package") && <p>{t("대표 상품 포장 정보 읽기 가능", "Representative product packaging can be read")}</p>}
               {state === "ready" && device.capabilities.includes("saved_search_export") && <p>{t("저장검색 CSV 자동 수집 가능", "Saved-search CSV collection available")}</p>}
@@ -78,9 +80,9 @@ export function BrowserConnection() {
     </>}
     {notice && <p role="status">{notice}</p>}
     <p className="muted">
-      {t("기기가 지원하는 리서치 읽기 작업만 실행합니다.", "Only research read tasks supported by the device are run.")}<br />
+      {t("기기가 지원하고 현재 설정에서 허용한 작업만 실행합니다.", "Only tasks supported by the device and allowed by current settings are run.")}<br />
       {t("저장검색 수집은 지원 기기와 Jungle Scout 로그인이 필요합니다.", "Saved-search collection requires a supported device and Jungle Scout sign-in.")}<br />
-      {t("업체 연락은 보내지 않습니다.", "Supplier messages are not sent.")}
+      {t("자동 연락에는 주문·결제·샘플 구매·계약·구매 수량 확약이 포함되지 않습니다.", "Automatic contact excludes orders, payments, sample purchases, contracts and quantity commitments.")}
     </p>
   </section>;
 }

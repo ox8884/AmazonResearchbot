@@ -37,10 +37,11 @@ try{
  assert.deepEqual(scope,{candidate_id:null,spec_id:null,input_version:null,settings_version:null,search_run_id:run.id});
  const repeated=await Promise.all([queueSearchExport(test.pool,{deviceId,runId:run.id},signing),queueSearchExport(test.pool,{deviceId,runId:run.id},signing)]);
  assert.ok(repeated.every(result=>result.kind==='existing'&&result.taskId===claim.taskId));
- const keyword='synthetic export '+test.runId;
+ const keyword='synthetic export '+test.runId,existingKeyword='in progress export '+test.runId;
+ const existing=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'sourcing') RETURNING id",[existingKeyword])).rows[0].id;
  const header='Keyword,Niche Score,Units Sold - Monthly Avg,Price - Monthly Avg,Search Volume - 30 Day Exact,Search Trend - 30 Day,Search Trend - 90 Day,Competition,Seasonality,Last Updated';
- const bytes=Buffer.from('JUNGLESCOUT WEBAPP CSV EXPORT\nReport Generated at: synthetic fixture\n'+header+'\n"'+keyword+'","8","1,000","$25.00","< 450","-","-","Low","Low","Sep 08, 2026"\n');
- const observation={protocol:1,kind:'captured',scope:'opportunity_finder_export',sourcePageUrl:'https://members.junglescout.com/#/opportunity-finder',observedAt:new Date().toISOString(),searchRunId:run.id,searchId:search.id,revision:1,marketplace:'us',discoveryCategory:'Home & Kitchen',filters:{},applied:{lower:['','','','','',''],upper:['','','','','',''],competition:['Very Low','Very High'],seasonality:['Very Low','Very High']},records:[{keyword,dominantCategory:'Home & Kitchen'}],totalResults:10,page:1,filename:'Jungle Scout Opportunity Finder CSV Export - synthetic.csv',csvBase64:bytes.toString('base64'),snapshot:keyword+' Home & Kitchen'};
+ const bytes=Buffer.from('JUNGLESCOUT WEBAPP CSV EXPORT\nReport Generated at: synthetic fixture\n'+header+'\n"'+keyword+'","8","1,000","$25.00","< 450","-","-","Low","Low","Sep 08, 2026"\n"'+existingKeyword+'","8","1,000","$25.00","< 450","-","-","Low","Low","Sep 08, 2026"\n');
+ const observation={protocol:1,kind:'captured',scope:'opportunity_finder_export',sourcePageUrl:'https://members.junglescout.com/#/opportunity-finder',observedAt:new Date().toISOString(),searchRunId:run.id,searchId:search.id,revision:1,marketplace:'us',discoveryCategory:'Home & Kitchen',filters:{},applied:{lower:['','','','','',''],upper:['','','','','',''],competition:['Very Low','Very High'],seasonality:['Very Low','Very High']},records:[{keyword,dominantCategory:'Home & Kitchen'},{keyword:existingKeyword,dominantCategory:'Home & Kitchen'}],totalResults:10,page:1,filename:'Jungle Scout Opportunity Finder CSV Export - synthetic.csv',csvBase64:bytes.toString('base64'),snapshot:keyword+' '+existingKeyword+' Home & Kitchen'};
  const submit=obs=>call('/api/bridge/tasks/'+claim.taskId+'/results',{taskHash:claim.taskHash,observation:obs});
  assert.equal((await submit({...observation,searchRunId:randomUUID()})).status,400);
  assert.equal((await submit({...observation,observedAt:'2020-01-01T00:00:00.000Z'})).status,409);
@@ -51,6 +52,7 @@ try{
  assert.deepEqual(await counts(),before,'Import, provenance and queue must roll back together');
  assert.equal((await call('/api/bridge/tasks/'+claim.taskId)).body.state,'delivered');
  const accepted=await submit(observation);assert.equal(accepted.status,201);
+ assert.deepEqual((await test.pool.query('SELECT stage,input_version FROM candidates WHERE id=$1',[existing])).rows[0],{stage:'sourcing',input_version:1},'An automatic export never resets a candidate in progress');
  const imported=(await test.pool.query('SELECT * FROM imports WHERE id=$1',[accepted.body.importId])).rows[0];
  assert.equal(imported.source_type,'junglescout_web');assert.deepEqual(imported.column_mapping,{keyword:'Keyword'});
  assert.deepEqual(decryptSecret(imported.blob_ciphertext,Buffer.from(test.encryptionKeyHex,'hex'),'import:'+observation.filename+':bytes'),bytes);

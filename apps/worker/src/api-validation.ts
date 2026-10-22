@@ -56,7 +56,7 @@ async function collectProductDatabase(
   while (true) {
     const result=await readOfficialSource({pool,transport,context},request);
     if(result.kind!=="source"){
-      if(result.kind==='wait'&&result.blockedReason==='budget'&&context.callBudget?.remaining===0)
+      if(result.kind==='wait'&&result.blockedReason==='budget'&&context.callBudget?.remaining===0&&pagesFetched>0)
         return { kind: "collected", observations, complete: false, block: "CANDIDATE_CALL_LIMIT", sourceIds: [...sourceIds] };
       return result;
     }

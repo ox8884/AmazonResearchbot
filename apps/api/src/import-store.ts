@@ -51,6 +51,8 @@ export async function importCsvWithinTransaction(client:QueryConnection,input:{f
           [importId, row.rowNumber, JSON.stringify(row.raw), row.keywordRaw, row.normalizedKeyword],
         );
         const rowId = rowIns.rows[0]?.id;
+        // Automatic exports only add new keywords; re-importing must not reset a candidate already in progress.
+        if (provenance.kind === 'browser' && (await client.query("SELECT 1 FROM candidates WHERE marketplace=$1 AND normalized_keyword=$2", [marketplace, row.normalizedKeyword])).rowCount) continue;
         const found = await client.query<{ id: string; input_version: number; stage: Stage }>(
           `INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage,input_version)
            VALUES($1,$2,$3,'imported',1)

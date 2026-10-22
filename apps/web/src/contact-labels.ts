@@ -2,9 +2,34 @@ import type {
   RfqState,
   SupplierRecord,
 } from "../../../packages/domain/src/rfq.ts";
+import type { AlibabaActionView, AlibabaStatus } from "../../../packages/domain/src/alibaba.ts";
 import { ContactRequestError } from "./contact-api.ts";
 
 type Labels = readonly [string, string];
+
+const alibabaStatusLabels: Record<AlibabaStatus, Labels> = {
+  searching: ["공급처 검색 중", "Searching suppliers"],
+  queued: ["문의 대기", "Inquiry queued"],
+  awaiting_reply: ["업체 회신 대기", "Awaiting supplier reply"],
+  negotiating: ["조건 협의 중", "Discussing terms"],
+  attention: ["확인 필요", "Needs attention"],
+  paused: ["자동 연락 중지", "Automatic contact paused"],
+};
+const alibabaActionLabels: Record<AlibabaActionView["state"], Labels> = {
+  pending: ["발송 대기", "Waiting to send"],
+  dispatching: ["발송 결과 확인 중", "Confirming send result"],
+  sent: ["발송 확인됨", "Send confirmed"],
+  outcome_unknown: ["결과 미확인 · 재전송 안 함", "Outcome unknown · no resend"],
+  blocked: ["발송 보류", "Send blocked"],
+  cancelled: ["발송 취소됨", "Send cancelled"],
+};
+export function alibabaStatusLabel(status: AlibabaStatus, language: string, reason?: string | null): string {
+  if (reason === "SEND_OUTCOME_UNKNOWN") return contactLabel(["발송 결과 미확인", "Send outcome unknown"], language);
+  return contactLabel(alibabaStatusLabels[status], language);
+}
+export function alibabaActionLabel(state: AlibabaActionView["state"], language: string): string {
+  return contactLabel(alibabaActionLabels[state], language);
+}
 
 const stateLabels: Readonly<Record<RfqState, Labels>> = {
   draft: ["초안", "Draft"],
@@ -56,6 +81,24 @@ export function contactDate(value: string, language: string): string {
 }
 
 const reasonLabels: Readonly<Record<string, Labels>> = {
+  WEBSITE_MODE_REQUIRED: ["Alibaba 자동 연락 설정이 꺼져 있어요.", "Alibaba automatic contact is turned off."],
+  GO_REQUIRED: ["현재 GO 조건을 충족하지 않아 새 문의 발송을 멈췄어요.", "New inquiries are paused because the candidate does not currently meet the GO criteria."],
+  CANDIDATE_BLOCKED: ["후보 진행 조건을 먼저 확인해 주세요. 자동 연락을 보류했어요.", "Review the candidate’s blocked progress. Automatic contact is on hold."],
+  SOURCE_CHANGED: ["후보·사양·설정이 바뀌어 새 발송을 멈췄어요. 현재 조건을 확인해 주세요.", "New sends are paused after the candidate, specification or settings changed. Review the current conditions."],
+  BROWSER_OFFLINE: ["ASIDE 연결을 기다리고 있어요. 연결된 PC에서 ASIDE와 연결 프로그램을 확인해 주세요.", "Waiting for ASIDE. Check ASIDE and the connection program on the linked PC."],
+  SEND_OUTCOME_UNKNOWN: ["보냈는지 아직 확인하지 못했어요. 같은 메시지를 다시 보내지 않습니다.", "The send result is still unknown. This message will not be resent."],
+  THREAD_OWNERSHIP_CONFLICT: ["다른 후보와 같은 업체 대화가 연결되어 자동 답장을 멈췄어요. Alibaba에서 대화를 확인해 주세요.", "This supplier conversation overlaps another candidate, so automatic replies are paused. Review it in Alibaba."],
+  EXISTING_THREAD_REQUIRES_REVIEW: ["기존 업체 대화가 있어 자동 문의를 멈췄어요. Alibaba 메시지함에서 내용을 확인해 주세요.", "An existing supplier conversation needs review before automatic inquiries can continue. Check the Alibaba inbox."],
+  BINDING_REQUEST_REQUIRES_REVIEW: ["주문·결제 등 확약이 필요한 요청이 있어 자동 협의를 멈췄어요. 회신 내용을 확인해 주세요.", "A request needs a purchase, payment or other commitment, so automatic discussions are paused. Review the reply."],
+  AI_UNAVAILABLE: ["AI 답장 초안을 만들지 못했어요. 15분 뒤 자동으로 다시 시도합니다.", "The AI reply draft could not be created. It will retry automatically in 15 minutes."],
+  AI_RESPONSE_INVALID: ["AI 답장 초안 형식이 올바르지 않아 보내지 않았어요. 15분 뒤 자동으로 다시 시도합니다.", "The AI reply draft was malformed and was not sent. It will retry automatically in 15 minutes."],
+  NEGOTIATION_CONTEXT_CHANGED: ["보내기 직전에 업체 대화가 바뀌어 발송을 멈췄어요. 최신 회신을 다시 읽고 이어갑니다.", "The supplier conversation changed just before sending, so the send was stopped. The latest reply will be read again."],
+  NEGOTIATION_CONTEXT_TOO_LARGE: ["사양이나 대화 내용이 너무 길어 자동 협의를 멈췄어요. 사양 내용을 검토해 주세요.", "The specification or conversation is too long for automatic discussion. Review the specification."],
+  NEGOTIATION_REQUIRES_REVIEW: ["자동으로 답하기 어려운 회신이 있어 협의를 멈췄어요. 회신 내용을 확인해 주세요.", "A reply needs your review before automatic discussion can continue. Check the reply."],
+  NEGOTIATION_LIMIT_REACHED: ["자동 후속 문의 횟수에 도달했어요. 지금까지 받은 조건을 검토해 주세요.", "The automatic follow-up limit has been reached. Review the terms received so far."],
+  SEND_NOT_CONFIRMED: ["메시지 발송을 확인하지 못했어요. Alibaba 메시지함에서 원문을 확인해 주세요.", "The message send could not be confirmed. Check the original conversation in the Alibaba inbox."],
+  MESSAGE_IDENTITY_CONFLICT: ["같은 메시지의 내용이나 시각이 달라 자동 문의를 멈췄어요. Alibaba 원문을 확인해 주세요.", "A message’s content or timestamp changed, so automatic inquiries are paused. Check the original in Alibaba."],
+  INQUIRY_TOO_LONG: ["현재 사양으로 작성한 문의가 너무 길어 발송을 멈췄어요. 사양 내용을 검토해 주세요.", "The inquiry generated from the current specification is too long to send. Review the specification."],
   RFQ_SOURCE_STALE: [
     "확인한 사양이 바뀌었습니다. 현재 사양과 공급처 일치 근거를 다시 확인해 주세요.",
     "The reviewed specification changed. Recheck the supplier against the current specification.",

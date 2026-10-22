@@ -60,7 +60,7 @@ export async function applyApiValidationDecision(input: {
       await client.query('COMMIT');return 'stale';
     }
     if(input.context.firstPageSource){
-      const source=(await client.query<{result_id:string|null}>("SELECT result_id FROM browser_tasks WHERE candidate_id=$1 AND task_kind='amazon_search' ORDER BY created_at DESC,id DESC LIMIT 1",[input.context.candidateId])).rows[0];
+      const source=(await client.query<{result_id:string|null}>("SELECT result_id FROM browser_tasks WHERE candidate_id=$1 AND task_kind='amazon_search' AND state='completed' ORDER BY created_at DESC,id DESC LIMIT 1",[input.context.candidateId])).rows[0];
       if(source?.result_id!==input.context.firstPageSource.receiptId){await client.query('COMMIT');return 'stale';}
     }
     let decision = input.decision;

@@ -13,10 +13,17 @@ try{
  const body=Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="synthetic-planner.csv"\r\nContent-Type: text/csv\r\n\r\n${csv}\r\n--${boundary}--\r\n`);
  const imported=await test.call('/api/imports',body,{'content-type':`multipart/form-data; boundary=${boundary}`});assert.equal(imported.status,200);assert.equal(imported.body.created,20);
  await test.pool.query("UPDATE pgboss.job SET state='failed',completed_on=now() WHERE name='candidate.advance' AND state='created'");
+ await test.pool.query("UPDATE candidates SET blocked_reason='evidence'");
+ await test.pool.query('UPDATE candidates SET blocked_reason=NULL WHERE id IN (SELECT id FROM candidates ORDER BY id LIMIT 10)');
  await test.pool.query("INSERT INTO settings_versions(version,effective_at,approved_by,snapshot) SELECT version+1,now(),'live-planner-fixture',snapshot || $1::jsonb FROM settings_versions ORDER BY version DESC LIMIT 1",[JSON.stringify({timezone:'America/Chicago',researchStartLocalTime:'00:00',summaryLocalTime:'00:00',jsDailyWireCap:0})]);
  child=start();await until(()=>output.includes('worker listening for candidate.advance'),'worker readiness');
- await until(async()=>Number((await test.pool.query("SELECT count(*)::int AS n FROM candidates WHERE stage='api_validation' AND blocked_reason='budget'")).rows[0].n)===20,'automatic stage advancement');
+ await until(async()=>Number((await test.pool.query("SELECT count(*)::int AS n FROM candidates WHERE stage='api_validation' AND blocked_reason IN ('budget','evidence')")).rows[0].n)===20,'automatic stage advancement');
  await until(async()=>Number((await test.pool.query("SELECT count(*)::int AS n FROM pgboss.job WHERE name='candidate.advance' AND state='completed'")).rows[0].n)===20,'daily jobs complete');
+ const jobOutputs=(await test.pool.query("SELECT output FROM pgboss.job WHERE name='candidate.advance' AND state='completed'")).rows;
+ assert.ok(jobOutputs.every(row=>row.output?.outcome==='deferred'&&['budget','evidence'].includes(row.output.reason)),'Actual worker must persist deferrals, not empty completed outputs');
+ assert.equal(jobOutputs.filter(row=>row.output.reason==='budget').length,10);
+ assert.equal(jobOutputs.filter(row=>row.output.reason==='evidence').length,10);
+ assert.equal((await test.pool.query("SELECT count(*)::int AS n FROM evaluations WHERE kind='api_validation'")).rows[0].n,0,'Zero calls and no new sources cannot create empty API evaluations');
  assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM daily_planner_items')).rows[0].n,20);
  await until(async()=>Number((await test.pool.query('SELECT count(*)::int AS n FROM daily_summaries')).rows[0].n)===1,'summary after research jobs complete',70000);
  const summary=(await test.call('/api/summaries')).body.summaries[0];const saved=(await test.call('/api/summaries/'+summary.id)).body;
@@ -28,5 +35,5 @@ try{
  assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM daily_summaries')).rows[0].n,1);
  assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM api_attempts')).rows[0].n,0);
  assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM external_actions')).rows[0].n,0);
- console.log(JSON.stringify({scenario:'planner-live',result:'PASS',database:test.database,csvCandidates:20,recoveredJobs:20,advancedToBudgetWait:20,workerProcesses:2,summaries:1,noDuplicateDailyRun:true,externalCalls:0}));
+ console.log(JSON.stringify({scenario:'planner-live',result:'PASS',database:test.database,csvCandidates:20,recoveredJobs:20,advancedToBudgetWait:10,advancedToEvidenceWait:10,persistedDeferrals:20,workerProcesses:2,summaries:1,noDuplicateDailyRun:true,externalCalls:0}));
 }finally{await stop();await test.close();}

@@ -86,8 +86,8 @@ export function SiteShortcuts() {
           <strong>Alibaba</strong>
           <p className="muted">
             {t(
-              "로그인한 사이트에서 공급처를 확인하고 직접 연락",
-              "Review suppliers and contact them directly on the signed-in site",
+              "공급처 상품과 Alibaba 대화 확인",
+              "Review supplier products and Alibaba conversations",
             )}
           </p>
         </div>

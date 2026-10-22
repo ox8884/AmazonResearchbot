@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import {createServer} from 'node:http';
 import {once} from 'node:events';
+import {setTimeout as delay} from 'node:timers/promises';
 import {openAcceptance} from './support/acceptance.mjs';
 import {auxiliaryFixture} from './support/auxiliary-fixture.mjs';
 import {collectFirstPageSales} from '../apps/worker/src/first-page-sales.ts';
@@ -8,6 +9,8 @@ import {createSimulatorTransport} from '../packages/integrations/src/jungle-scou
 import {browserSigningFixture} from './support/browser-signing-fixture.mjs';
 import {publishBrowserSigningIdentity} from '../apps/worker/src/browser-signing-key.ts';
 import {queueAmazonSearch} from '../apps/worker/src/browser-task-producer.ts';
+import {dispatchBrowserWork} from '../apps/worker/src/browser-dispatch.ts';
+import {buildDailySummary} from '../packages/db/src/daily-summary.ts';
 import {advanceCandidate} from '../apps/worker/src/advance-candidate.ts';
 import {readMarketSource} from '../packages/integrations/src/amazon/market-source.ts';
 import {consumeOfficialValidation} from '../apps/worker/src/api-validation.ts';
@@ -114,7 +117,7 @@ try{
  }
  const receiptId=await acceptSource(enrolled.body.id);
  const key=Buffer.from(test.encryptionKeyHex,'hex');
- const stored=await readMarketSource(test.pool,id,key);assert.equal(stored.state,'captured');assert.equal(stored.receiptId,receiptId);
+ let stored=await readMarketSource(test.pool,id,key);assert.equal(stored.state,'captured');assert.equal(stored.receiptId,receiptId);
  await assert.rejects(readMarketSource(test.pool,id,Buffer.alloc(32)),'Wrong key cannot fall back to plaintext');
  const start=calls.length;
  await advanceCandidate(test.pool,transport,{candidateId:id,stage:'api_validation',inputVersion:1},{transport:{kind:'disabled'},encryptionKey:key});
@@ -139,16 +142,52 @@ try{
  assert.deepEqual(assessment.firstPageSales.marketAsins,[a,b,c]);
  assert.equal(calls.length,start,'First-page validation uses one Product Database lookup and no per-ASIN sales calls');
  const evaluations=async()=>(await test.pool.query('SELECT count(*)::int n FROM evaluations WHERE candidate_id=$1',[id])).rows[0].n;
- const priorEvaluations=await evaluations();
+ let priorEvaluations=await evaluations();
  assert.equal((await queueAmazonSearch(test.pool,{deviceId:enrolled.body.id,candidateId:id},signing)).kind,'existing','Completed source is immutable within the same candidate version');
  const wrongReceipt=await consumeOfficialValidation(test.pool,transport,{...context,firstPageSource:{...stored,receiptId:'00000000-0000-0000-0000-000000000000'}});
  assert.equal(wrongReceipt,'stale','A receipt outside the current candidate task cannot be recorded');
  assert.equal(await evaluations(),priorEvaluations);
+ const oldReceipt=(await test.pool.query('SELECT * FROM browser_task_results WHERE id=$1',[receiptId])).rows[0];
+ const boundaryKeyword='Synthetic crossing daily run '+test.runId;
+ const boundaryId=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage,blocked_reason) VALUES('us',$1,$1,'api_validation','evidence') RETURNING id",[boundaryKeyword])).rows[0].id;
+ const boundaryTask=await queueAmazonSearch(test.pool,{deviceId:enrolled.body.id,candidateId:boundaryId},signing);assert.equal(boundaryTask.kind,'queued');
+ const boundaryClaim=(await deviceCall('/api/bridge/tasks/claim',{})).body;assert.equal(boundaryClaim.taskId,boundaryTask.taskId);
+ const plannerLock=await test.pool.connect();
+ try{
+  await plannerLock.query('BEGIN');await plannerLock.query("SELECT pg_advisory_xact_lock(hashtext('forge.settings'))");
+  const accepting=deviceCall('/api/bridge/tasks/'+boundaryClaim.taskId+'/results',{taskHash:boundaryClaim.taskHash,observation:{...observation,query:boundaryKeyword,rangeText:'1-4 of 20 results for "'+boundaryKeyword+'"',sourcePageUrl:'https://www.amazon.com/s?k='+encodeURIComponent(boundaryKeyword),observedAt:new Date().toISOString()}});
+  const until=Date.now()+5000;let waiting=false;
+  while(Date.now()<until){waiting=(await test.pool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND wait_event='advisory' AND query LIKE '%pg_advisory_xact_lock%') AS waiting")).rows[0].waiting;if(waiting)break;await delay(10);}
+  assert.equal(waiting,true,'Receipt transaction must begin before the daily run while waiting for its settings lock');
+  const run=(await plannerLock.query("INSERT INTO daily_runs(schedule,local_date,timezone,settings_version,generated_at,result) VALUES('research',(clock_timestamp() AT TIME ZONE 'America/Chicago')::date,'America/Chicago',$1,clock_timestamp(),'{}') RETURNING id,generated_at",[version])).rows[0];
+  await plannerLock.query("INSERT INTO daily_planner_items(run_id,candidate_id,input_version,stage,ordinal,job_id) VALUES($1,$2,1,'api_validation',0,gen_random_uuid()),($1,$3,1,'api_validation',1,gen_random_uuid())",[run.id,id,boundaryId]);
+  await plannerLock.query('COMMIT');const accepted=await accepting;assert.equal(accepted.status,201);
+  const receipt=(await test.pool.query('SELECT created_at FROM browser_task_results WHERE id=$1',[accepted.body.receiptId])).rows[0];
+  assert.ok(receipt.created_at>=run.generated_at,'Receipt freshness must use acceptance time after the settings lock, not transaction BEGIN time');
+ }finally{await plannerLock.query('ROLLBACK');plannerLock.release();}
+ assert.equal((await dispatchBrowserWork(test.pool,{...signing,fingerprint:identity.fingerprint})).queued,1,'A daily research run must refresh an evidence-held candidate even with an older completed first page');
+ const simultaneous=await Promise.all(Array.from({length:3},()=>queueAmazonSearch(test.pool,{deviceId:enrolled.body.id,candidateId:id},signing)));
+ assert.ok(simultaneous.every(row=>row.kind==='existing'),'Repeated and concurrent producers reuse the one pending refresh');
+ assert.equal(new Set(simultaneous.map(row=>row.taskId)).size,1);
+ assert.equal((await queueAmazonSearch(test.pool,{deviceId:enrolled.body.id,candidateId:boundaryId},signing)).kind,'existing','A task issued before the run but accepted after it is already fresh');
+ const refreshClaim=(await deviceCall('/api/bridge/tasks/claim',{})).body;assert.equal(refreshClaim.taskId,simultaneous[0].taskId);
+ const refreshed=await deviceCall('/api/bridge/tasks/'+refreshClaim.taskId+'/results',{taskHash:refreshClaim.taskHash,observation:{...observation,observedAt:new Date().toISOString()}});assert.equal(refreshed.status,201);
+ stored=await readMarketSource(test.pool,id,key);assert.equal(stored.receiptId,refreshed.body.receiptId);assert.notEqual(stored.receiptId,receiptId);
+ const advanced=await advanceCandidate(test.pool,transport,{candidateId:id,stage:'api_validation',inputVersion:1},{transport:{kind:'disabled'},encryptionKey:key});
+ assert.deepEqual(advanced,{outcome:'evaluated',result:'hold'});
+ assert.equal((await test.pool.query("SELECT payload->'firstPageSales'->>'marketReceiptId' AS receipt FROM evaluations WHERE candidate_id=$1 AND kind='api_validation' ORDER BY created_at DESC,id DESC LIMIT 1",[id])).rows[0].receipt,refreshed.body.receiptId,'New evaluation consumes the refreshed receipt');
+ assert.deepEqual((await test.pool.query('SELECT * FROM browser_task_results WHERE id=$1',[receiptId])).rows[0],oldReceipt,'Prior immutable receipt is preserved');
+ assert.equal((await dispatchBrowserWork(test.pool,{...signing,fingerprint:identity.fingerprint})).queued,0,'Accepted current-run sources are not refreshed again');
+ assert.deepEqual(await advanceCandidate(test.pool,transport,{candidateId:id,stage:'api_validation',inputVersion:1},{transport:{kind:'disabled'},encryptionKey:key}),{outcome:'deferred',reason:'evidence'},'A no-op evidence hold is explicitly deferred');
+ assert.equal(await evaluations(),priorEvaluations+1,'Repeated no-op work must not create an evaluation');
+ const summaryDb=await test.pool.connect();
+ try{const summary=await buildDailySummary(summaryDb,new Date(),snapshot);assert.match(summary.candidates.find(row=>row.id===id).evidenceSummary,/집계 기간 새 수집 있음/);}finally{summaryDb.release();}
+ priorEvaluations=await evaluations();
  replaceReceipt=async()=>{assert.equal((await test.call('/api/candidates/'+id+'/representative',{asin:a,inputVersion:1})).status,200);};
  const racing=await consumeOfficialValidation(test.pool,transport,{...context,accountScope:context.accountScope+':receipt-race',firstPageSource:stored});
  assert.equal(racing,'stale','Changing the representative invalidates the in-flight first-page context');
  assert.equal(await evaluations(),priorEvaluations,'Receipt race cannot store a new assessment');
  assert.equal((await readMarketSource(test.pool,id,key)).state,'stale');
  assert.equal((await collectFirstPageSales(reader,source)).kind,'stale');
- console.log(JSON.stringify({scenario:'first-page-sales',result:'PASS',allObservedAsins:true,adsExcluded:true,parentOnce:true,sharedPeriod:true,cacheReuse:true,missingDaysUnknown:true,staleProtected:true,signedReceiptWorker:true,receiptRace:true,familyConcentration:true,strictShareBoundaries:true,separateNicheOutcome:true,externalCalls:0}));
+ console.log(JSON.stringify({scenario:'first-page-sales',result:'PASS',allObservedAsins:true,adsExcluded:true,parentOnce:true,sharedPeriod:true,cacheReuse:true,missingDaysUnknown:true,staleProtected:true,signedReceiptWorker:true,receiptRace:true,familyConcentration:true,strictShareBoundaries:true,separateNicheOutcome:true,dailyRefresh:true,concurrentRefreshOnce:true,receiptTimeBoundary:true,honestDeferral:true,externalCalls:0}));
 }finally{server.closeAllConnections();await new Promise(resolve=>server.close(resolve));await test.close();}

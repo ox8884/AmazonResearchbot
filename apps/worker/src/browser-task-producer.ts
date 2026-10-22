@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, randomUUID, type KeyObject } from "node:crypto";
-import { lockActiveBridgeDevice, lockSourcingContext, lockPackageContext, lockMarketContext, readSupplierSearchSource, type Pool } from "@forge-ops/db";
+import { lockActiveBridgeDevice, lockSourcingContext, lockAlibabaContext, websiteContactEnabled, lockPackageContext, lockMarketContext, readSupplierSearchSource, type Pool } from "@forge-ops/db";
 import type { BrowserReadTask } from "@forge-ops/domain";
 import { alibabaCompanyKey, alibabaProductKey } from "@forge-ops/integrations/sourcing/capture";
 import { signBrowserTask } from "./browser-task-signer.ts";
@@ -16,6 +16,15 @@ const researchPrerequisite = {
   category_trends: "historical_data",
   competitive_intelligence: "category_trends",
 } as const;
+export const completedAmazonSearchNeedsRefresh = `t.task_kind='amazon_search' AND EXISTS(
+  SELECT 1 FROM candidates c
+  JOIN daily_planner_items i ON i.candidate_id=c.id AND i.input_version=c.input_version
+  JOIN daily_runs r ON r.id=i.run_id
+  JOIN browser_task_results receipt ON receipt.id=t.result_id AND receipt.task_id=t.id
+  WHERE c.id=t.candidate_id AND c.stage='api_validation' AND c.blocked_reason='evidence'
+    AND c.input_version=t.input_version AND r.settings_version=t.settings_version
+    AND r.schedule='research' AND r.local_date=(clock_timestamp() AT TIME ZONE r.timezone)::date
+    AND receipt.created_at<r.generated_at AND r.generated_at<=clock_timestamp())`;
 async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
   const fingerprint = createHash("sha256").update(createPublicKey(signing.privateKey).export({ format: "der", type: "spki" })).digest("hex");
   const db = await pool.connect();
@@ -23,7 +32,9 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
     await db.query("BEGIN");
     await db.query("SELECT pg_advisory_xact_lock(hashtext('forge.settings'))");
     const device = await lockActiveBridgeDevice(db, target.deviceId);
-    const source = device ? (target.kind==='amazon_search'||target.kind==='product_database'||target.kind==='keyword_scout'||target.kind==='historical_data'||target.kind==='category_trends'||target.kind==='competitive_intelligence')?await lockMarketContext(db,target.candidateId):target.kind === 'amazon_package' ? await lockPackageContext(db,target.candidateId) : await lockSourcingContext(db, target.candidateId) : null;
+    const websiteSearch=target.kind==='supplier_search'&&await websiteContactEnabled(db);
+    const alibaba=websiteSearch?await lockAlibabaContext(db,target.candidateId):null;
+    const source = device ? websiteSearch?(alibaba?.ready?alibaba.source:null): (target.kind==='amazon_search'||target.kind==='product_database'||target.kind==='keyword_scout'||target.kind==='historical_data'||target.kind==='category_trends'||target.kind==='competitive_intelligence')?await lockMarketContext(db,target.candidateId):target.kind === 'amazon_package' ? await lockPackageContext(db,target.candidateId) : await lockSourcingContext(db, target.candidateId) : null;
     if (!device || !source) { await db.query("COMMIT"); return { kind: "not_ready" as const }; }
     if (target.kind==='product_database'||target.kind==='keyword_scout'||target.kind==='historical_data'||target.kind==='category_trends'||target.kind==='competitive_intelligence') {
       const official=(await db.query<{reserved:boolean}>(`SELECT EXISTS(SELECT 1 FROM candidate_events
@@ -45,7 +56,8 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
       firstPageAsins = [...new Set(market.observation.slots.filter(slot => slot.adStatus !== "sponsored" && slot.asin !== null).map(slot => slot.asin as string))].slice(0, 100);
       if (!firstPageAsins.length) { await db.query("COMMIT"); return { kind: "not_ready" as const }; }
     }
-    const captured = target.kind === "supplier_detail" && source.spec_id !== null ? await readSupplierSearchSource(db, target.sourceCaptureId, source) : null;
+    const detailSource=target.kind==="supplier_detail"?await lockSourcingContext(db,target.candidateId):null;
+    const captured = target.kind === "supplier_detail" && detailSource ? await readSupplierSearchSource(db, target.sourceCaptureId, detailSource) : null;
     if (target.kind === "supplier_detail" && (!captured || !alibabaCompanyKey(captured.company_url) || !alibabaProductKey(captured.product_url))) {
       await db.query("COMMIT"); return { kind: "not_ready" as const };
     }
@@ -72,8 +84,8 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
     }
     const ready = await db.query("SELECT d.id FROM bridge_devices d JOIN browser_signing_identity k ON k.fingerprint=d.reported_key_fingerprint WHERE d.id=$1 AND d.reported_connected=true AND d.reported_at>clock_timestamp()-interval '90 seconds' AND d.reported_key_fingerprint=$2 AND $3=ANY(d.reported_tasks)", [device.id, fingerprint, target.kind]);
     if (!ready.rowCount) { await db.query("COMMIT"); return { kind: "not_ready" as const }; }
-    await db.query("UPDATE browser_tasks SET state='cancelled' WHERE device_id=$1 AND state IN ('queued','delivered') AND expires_at<=clock_timestamp()", [device.id]);
-    const prior = (await db.query<{ id: string }>("SELECT id FROM browser_tasks WHERE candidate_id=$1 AND spec_id IS NOT DISTINCT FROM $2::uuid AND input_version=$3 AND settings_version=$4 AND source_capture_id IS NOT DISTINCT FROM $5::uuid AND task_kind=$6 AND (state='completed' OR (state IN ('queued','delivered') AND expires_at>clock_timestamp()))",
+    await db.query("UPDATE browser_tasks t SET state='cancelled' WHERE device_id=$1 AND state IN ('queued','delivered') AND expires_at<=clock_timestamp() AND NOT EXISTS(SELECT 1 FROM alibaba_actions a WHERE a.dispatch_task_id=t.id AND a.started_at IS NOT NULL)", [device.id]);
+    const prior = (await db.query<{ id: string }>(`SELECT t.id FROM browser_tasks t WHERE candidate_id=$1 AND spec_id IS NOT DISTINCT FROM $2::uuid AND input_version=$3 AND settings_version=$4 AND source_capture_id IS NOT DISTINCT FROM $5::uuid AND task_kind=$6 AND ((state='completed' AND NOT (${completedAmazonSearchNeedsRefresh})) OR (state IN ('queued','delivered') AND expires_at>clock_timestamp()))`,
       [source.id, source.spec_id, source.input_version, source.settings_version, captured?.id ?? null,target.kind])).rows[0];
     if (prior) { await db.query("COMMIT"); return { kind: "existing" as const, taskId: prior.id }; }
     const now = new Date(), id = randomUUID(), expiresAt = new Date(now.getTime() + 300000).toISOString();
@@ -92,9 +104,9 @@ async function queueBrowserRead(pool: Pool, target: Target, signing: Signing) {
       ? {kind:'product_database',...scope,query:source.market_query,marketplace:'us',category:'Kitchen & Dining',discoveryCategory:'Home & Kitchen',productTier:'Standard',resultLimit:100}
       : 'market_query' in source
       ? {kind:'amazon_search',...scope,query:source.market_query}
-      : source.spec_id === null
+      : 'asin' in source
       ? { kind: 'amazon_package', ...scope, asin: source.asin }
-      : captured
+      : captured && source.spec_id!==null
         ? { kind: "supplier_detail", ...scope, specId: source.spec_id, sourceCaptureId: captured.id, companyName: captured.company_name, companyUrl: captured.company_url, productUrl: captured.product_url }
         : { kind: "supplier_search", ...scope, specId: source.spec_id, query: source.keyword_display };
     const envelope = signBrowserTask({ version: 1, id, issuerOrigin: signing.origin, deviceId: device.id, issuedAt: now.toISOString(), expiresAt, request }, signing.privateKey);

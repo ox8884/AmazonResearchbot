@@ -1,3 +1,4 @@
+import { alibabaObservationSchema } from "./alibaba.ts";
 import { z } from "zod";
 import { supplierDetailObservationSchema } from "./supplier-detail.ts";
 import { supplierCaptureSchema } from "./supplier-capture.ts";
@@ -22,4 +23,5 @@ export const supplierSearchObservationSchema=z.object({
  }).strict().refine(row=>row.pageText.includes(row.companyName)&&row.pageText.includes(row.productName),{message:"Source text must contain the observed names"})).min(1).max(200),
 }).strict().refine(value=>value.visibleCards>=value.records.length,{message:"Invalid visible record count"});
 
-export const browserObservationSchema=z.union([supplierSearchObservationSchema,supplierDetailObservationSchema,amazonPackageObservationSchema,searchExportObservationSchema,amazonMarketObservationSchema,productDatabaseObservationSchema,keywordScoutObservationSchema,historicalDataObservationSchema,categoryTrendsObservationSchema,competitiveIntelligenceObservationSchema]);
+export const browserObservationSchema=z.union([alibabaObservationSchema,supplierSearchObservationSchema,supplierDetailObservationSchema,amazonPackageObservationSchema,searchExportObservationSchema,amazonMarketObservationSchema,productDatabaseObservationSchema,keywordScoutObservationSchema,historicalDataObservationSchema,categoryTrendsObservationSchema,competitiveIntelligenceObservationSchema]);
+export type BrowserObservation = z.infer<typeof browserObservationSchema>;

@@ -101,6 +101,28 @@ export async function runDailyPlanner(
             }),
           ],
         );
+        // One Opportunity Finder export a day, rotating through saved searches; ASIDE collects it.
+        // ponytail: a run whose export never succeeds stays pending and that search drops out of rotation until it is run by hand.
+        const owner = (
+          await db.query<{ id: string }>(
+            "SELECT owner_user_id AS id FROM bridge_devices WHERE revoked_at IS NULL AND hidden_at IS NULL ORDER BY reported_at DESC NULLS LAST,id LIMIT 1",
+          )
+        ).rows[0];
+        const search = owner
+          ? (
+              await db.query<{ id: string; revision: number; name: string; category: string; filters: unknown; marketplace: string }>(
+                `SELECT s.id,s.revision,s.name,s.category,s.filters,s.marketplace FROM saved_searches s
+                 WHERE NOT EXISTS(SELECT 1 FROM saved_search_runs r WHERE r.saved_search_id=s.id AND r.created_by=$1 AND r.state='awaiting_csv')
+                 ORDER BY (SELECT max(r.created_at) FROM saved_search_runs r WHERE r.saved_search_id=s.id) NULLS FIRST,s.created_at,s.id LIMIT 1`,
+                [owner.id],
+              )
+            ).rows[0]
+          : undefined;
+        if (owner && search)
+          await db.query(
+            "INSERT INTO saved_search_runs(saved_search_id,created_by,search_revision,snapshot) VALUES($1,$2,$3,$4::jsonb)",
+            [search.id, owner.id, search.revision, JSON.stringify(search)],
+          );
         for (const [index, candidate] of candidates.entries()) {
           const jobId = await boss.send(
             "candidate.advance",

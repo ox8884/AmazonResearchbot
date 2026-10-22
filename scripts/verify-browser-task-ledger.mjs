@@ -21,6 +21,34 @@ try {
  assert.equal(ledger.inspect(task.id),null);
  const claimed=ledger.claim(envelope);assert.equal(claimed.kind,'claimed');
  assert.equal(ledger.claim(envelope).kind,'pending_reconciliation');
+ const writeTask={...task,id:randomUUID(),request:{kind:'supplier_send',candidateId:randomUUID(),specId:null,inputVersion:1,settingsVersion:1,conversationId:randomUUID(),companyName:'Synthetic Supplier',companyUrl:'https://synthetic.en.alibaba.com/',productUrl:'https://www.alibaba.com/product-detail/Synthetic_123.html',threadId:'123-456#11011@icbu',accountId:'456',actionId:randomUUID(),body:'Nonbinding quote request'}};
+ const writeEnvelope=signBrowserTask(writeTask,privateKey),writeClaim=ledger.claim(writeEnvelope);
+ assert.throws(()=>ledger.defer(writeClaim),/TASK_NOT_RETRYABLE/,'A signed supplier send must never enter read-only backoff');
+ assert.throws(()=>ledger.retry(writeClaim),/TASK_NOT_RETRYABLE/,'A claimed supplier send cannot lose its durable receipt');
+ assert.equal(ledger.beginWrite(writeClaim).kind,'write_started');
+ assert.throws(()=>ledger.beginWrite(writeClaim),/WRITE_ALREADY_STARTED/);
+ assert.equal(ledger.retryable().some(item=>item.taskId===writeTask.id),false);
+ const sendClock={value:now};
+ const sendConfig={...config,directory:path.join(directory,'send-recovery'),now:()=>sendClock.value};
+ let sends=openBrowserTaskLedger(sendConfig);
+ const durable=sends.claim(writeEnvelope);sends.beginWrite(durable);sends.close();
+ sendClock.value=now+300000;sends=openBrowserTaskLedger(sendConfig);
+ try{
+  assert.equal(sends.existing(writeEnvelope).kind,'pending_reconciliation');
+  assert.throws(()=>sends.claim(writeEnvelope),/BROWSER_TASK_REJECTED/,'Execution verification remains strict after expiry');
+  assert.throws(()=>sends.existing({...writeEnvelope,signature:'a'.repeat(86)}),/BROWSER_TASK_REJECTED/);
+  assert.throws(()=>sends.beginWrite(durable),/WRITE_ALREADY_STARTED/,'Write-start must survive a process restart');
+  let followupClaims=0;
+  const noRepeat={collect:async()=>{throw Error('Send must never be executed again');}};
+  const pendingCycle=createRecoveryCycle({client:{claimTask:async()=>{followupClaims++;return {kind:'idle'};}},adapter:noRepeat,ledger:sends,deviceId:config.deviceId,readCredential:async()=>{throw Error('No observation yet');},now:()=>sendClock.value});
+  assert.equal((await pendingCycle()).kind,'idle');assert.equal(followupClaims,1,'An uncertain write cannot starve other task claims');
+  const sendCredential='fbd_'+randomBytes(32).toString('hex');
+  const sendObservation={protocol:1,kind:'captured',scope:'alibaba_thread',conversationId:writeTask.request.conversationId,actionId:writeTask.request.actionId,companyName:writeTask.request.companyName,companyUrl:writeTask.request.companyUrl,productUrl:writeTask.request.productUrl,threadId:writeTask.request.threadId,accountId:writeTask.request.accountId,sourcePageUrl:'https://message.alibaba.com/message/messenger.htm',observedAt:new Date(now).toISOString(),snapshot:'Synthetic exact-body send receipt',messages:[{id:'1002',direction:'outbound',body:writeTask.request.body,sentAt:new Date(now).toISOString()}],sendStatus:'sent',reason:null};
+  const stagedSend=sends.stage({...durable,observation:sendObservation},sendCredential);let submissions=0;
+  const lateClient={claimTask:async()=>({kind:'idle'}),readTask:async()=>({taskHash:durable.taskHash,state:'delivered',expiresAt:writeTask.expiresAt}),submitObservation:async input=>{submissions++;assert.deepEqual(input.observation,sendObservation);return {resultHash:stagedSend.bodyHash,receiptId:randomUUID()};}};
+  const lateResult=await createRecoveryCycle({client:lateClient,adapter:noRepeat,ledger:sends,deviceId:config.deviceId,readCredential:async()=>sendCredential,now:()=>sendClock.value})();
+  assert.equal(lateResult.reconciled[0].kind,'completed');assert.equal(submissions,1,'An expired staged send receipt must still reach the server');
+ }finally{sends.close();}
  const startChild=(childEnvelope,exitBeforeCompletion=false)=>{
   const child=fork(fileURLToPath(new URL('./support/browser-task-ledger-child.mjs',import.meta.url)),[],{execArgv:[],silent:true,windowsHide:true});
   let result;
@@ -200,4 +228,4 @@ try {
  if(path.dirname(path.resolve(directory))!==path.resolve(tmpdir())||!path.basename(directory).startsWith('forge-task-ledger-'))throw new Error('UNSAFE_FIXTURE_CLEANUP');
  await rm(directory,{recursive:true,force:true});
 }
-console.log(JSON.stringify({scenario:'browser-task-ledger',result:'PASS',restartDeduplicated:true,concurrentClaimSingleWinner:true,pendingReconciliationPreserved:true,exitBeforeCompletionPreserved:true,completionIdempotent:true,legacyMigrationPreserved:true,stagingEncrypted:true,conflictsRejected:true,browserExecution:false,externalCalls:0}));
+console.log(JSON.stringify({scenario:'browser-task-ledger',result:'PASS',restartDeduplicated:true,concurrentClaimSingleWinner:true,pendingReconciliationPreserved:true,exitBeforeCompletionPreserved:true,completionIdempotent:true,legacyMigrationPreserved:true,stagingEncrypted:true,conflictsRejected:true,sendNeverRetried:true,lateSendReceiptSubmitted:true,uncertainSendAllowsNextClaim:true,browserExecution:false,externalCalls:0}));

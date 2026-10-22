@@ -17,17 +17,20 @@ const test=await openAcceptance({databaseKey:'unattended-flow-'+Date.now(), auth
 const calls=[];
 const catalog=new Map();
 const leaders=new Set();
+const byAsin=new Map();
 function productsFor(keyword){
  let seed=0;for(const ch of keyword)seed=(seed*33+ch.charCodeAt(0))>>>0;
  return Array.from({length:6},(_,i)=>{
   const asin='B0U'+String((seed+i*17)%10000000).padStart(7,'0');
   const leader=i===5;
   if(leader)leaders.add(asin);
-  return {id:'us/'+asin,type:'product_database_result',attributes:{
+  const row={id:'us/'+asin,type:'product_database_result',attributes:{
    price:leader?29:25,reviews:120,category:'Kitchen & Dining',parent_asin:null,is_variant:false,is_parent:false,variants:[],
    approximate_30_day_units_sold:leader?500:300,approximate_30_day_revenue:leader?15000:9000,
    updated_at:new Date().toISOString(),
   }};
+  byAsin.set(asin,row);
+  return row;
  });
 }
 const server=createServer(async(req,res)=>{
@@ -35,8 +38,11 @@ const server=createServer(async(req,res)=>{
  const text=Buffer.concat(chunks).toString(),body=text?JSON.parse(text):null;
  const url=new URL(req.url,'http://127.0.0.1');
  if(url.pathname==='/api/product_database_query'){
-  const keyword=body.data.attributes.include_keywords[0];
-  const data=productsFor(keyword);
+  // Validation looks up the observed first-page ASINs; keyword queries still get a synthetic catalog.
+  const requested=body.data.attributes.include_keywords;
+  const lookup=requested.length>0&&requested.every(value=>byAsin.has(value));
+  if(lookup)calls.push({asins:requested.join(',')});
+  const data=lookup?requested.map(value=>byAsin.get(value)):productsFor(requested[0]);
   data.forEach(row=>catalog.set(row.id.split('/')[1],{parent_asin:null,is_variant:false,is_parent:false,is_standalone:true,variants:[]}));
   res.writeHead(200,{'content-type':'application/json'}).end(JSON.stringify({data,links:{next:null}}));return;
  }

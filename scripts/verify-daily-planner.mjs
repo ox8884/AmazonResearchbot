@@ -51,11 +51,13 @@ try{
   assert.match(summary.payload.candidates.find(row=>row.id===old).evidenceSummary,/1위 가격: 12\.99/);
    assert.match(summary.payload.candidates.find(row=>row.id===old).evidenceSummary,/공식 카탈로그/);
    assert.equal(summary.payload.candidates.find(row=>row.id===old).hasNumericEvidence,true,'New summaries persist structured numeric-evidence classification');
+   assert.match(summary.payload.candidates.find(row=>row.id===old).evidenceSummary,/집계 기간 새 수집 없음/,'Completed jobs and existing numbers do not prove fresh research');
    assert.equal(summary.payload.candidates.find(row=>row.id===next).hasNumericEvidence,false,'Waiting candidates do not infer evidence from prose');
    const mail=summaryMailContent({id:summary.id,localDate:'2026-09-07',timezone:'America/Chicago',settingsVersion:latest.version+1,generatedAt:'2026-09-07T12:31:00.000Z',payload:summary.payload});
    assert.match(mail.body,/1위 가격: 12\.99/);
    assert.match(mail.body,/공식 카탈로그/);
    assert.match(mail.body,/근거 확인 후보/);
+   assert.match(mail.body,/누적 저장 자료/,'The numeric candidate count must not imply today’s new research');
    assert.match(mail.body,/대기 후보 \(숫자 근거 없음\)/);
    assert.match(mail.body,/숫자 근거가 없는 후보 7개/);
    const waitingSection=mail.body.slice(mail.body.indexOf('대기 후보'));
@@ -97,6 +99,23 @@ try{
  assert.equal(summaries.length,2,'Downtime creates one current summary, not a backlog of daily deliveries');
   assert.equal(summaries[1].payload.since,'2026-09-07T12:31:00.000Z');
  assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM external_actions')).rows[0].n,0);
+ // Daily Opportunity Finder runs: none without a browser device, then one a day rotating past searches still pending.
+ assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM saved_search_runs')).rows[0].n,0);
+ const pairing=(await test.call('/api/bridge/pairings',{})).body;
+ assert.equal((await test.call('/api/bridge/pair',{pairingCode:pairing.pairingCode,name:'Planner search reader'})).status,201);
+ const firstSearch=(await test.call('/api/saved-searches',{name:'Planner search A',filters:{}})).body.id;
+ const secondSearch=(await test.call('/api/saved-searches',{name:'Planner search B',filters:{}})).body.id;
+ const runsFor=async()=>(await test.pool.query('SELECT saved_search_id FROM saved_search_runs ORDER BY created_at,id')).rows.map(row=>row.saved_search_id);
+ await runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-21T08:00:00Z')});
+ assert.deepEqual(await runsFor(),[firstSearch]);
+ await runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-21T09:00:00Z')});
+ assert.deepEqual(await runsFor(),[firstSearch],'One search run per day');
+ await runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-22T08:00:00Z')});
+ assert.deepEqual(await runsFor(),[firstSearch,secondSearch],'A pending search is skipped for the next one');
+ await runDailyPlanner(test.pool,boss,{apiAvailable:false,now:new Date('2026-09-23T08:00:00Z')});
+ assert.deepEqual(await runsFor(),[firstSearch,secondSearch],'Pending runs are never duplicated');
+ const snapshotRow=(await test.pool.query('SELECT snapshot FROM saved_search_runs WHERE saved_search_id=$1',[firstSearch])).rows[0].snapshot;
+ assert.equal(snapshotRow.id,firstSearch);assert.equal(snapshotRow.revision,1);
  await test.call('/api/auth/sign-out',{});assert.equal((await test.call('/api/summaries')).status,401);
 
  console.log(JSON.stringify({scenario:'daily-planner',result:'PASS',database:test.database,concurrentOnce:true,restartOnce:true,fairOrder:true,unknownAndHumanWaitPreserved:true,internalSummaryWithoutMail:true,immutableSnapshot:true,confirmedRejectionOnly:true,atomicQueueRollback:true,externalCalls:0}));

@@ -1,11 +1,12 @@
+import { dispatchAlibabaWork } from './alibaba-scheduler.ts';
 import type { KeyObject } from "node:crypto";
 import type { Pool } from "@forge-ops/db";
 import { supplierCompanyUrlPattern, supplierProductUrlPattern } from "@forge-ops/domain";
-import { queueSupplierSearch, queueSupplierDetail, queueAmazonPackage,queueAmazonSearch,queueProductDatabase,queueKeywordScout,queueHistoricalData,queueCategoryTrends,queueCompetitiveIntelligence } from "./browser-task-producer.ts";
+import { completedAmazonSearchNeedsRefresh, queueSupplierSearch, queueSupplierDetail, queueAmazonPackage,queueAmazonSearch,queueProductDatabase,queueKeywordScout,queueHistoricalData,queueCategoryTrends,queueCompetitiveIntelligence } from "./browser-task-producer.ts";
 import {dispatchSearchExports} from './search-export-producer.ts';
 
+// Opportunity Finder exports are planner-paced (one run a day), so they stay outside this cap.
 const jungleScoutBrowserTaskKinds = [
-  'saved_search_export',
   'product_database',
   'keyword_scout',
   'historical_data',
@@ -45,10 +46,9 @@ async function queueRoom(pool: Pool, kind: string): Promise<number> {
 }
 
 export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin: string; readonly privateKey: KeyObject; readonly fingerprint: string }, browserCap?: number, encryptionKey?: Buffer) {
+  const alibabaQueued=encryptionKey?await dispatchAlibabaWork(pool,signing,encryptionKey):0;
   let researchRemaining = await readJungleScoutBrowserBudget(pool, browserCap);
-  const searches=researchRemaining > 0
-    ? await dispatchSearchExports(pool,signing,researchRemaining)
-    : {queued:0,deviceReady:false};
+  const searches=await dispatchSearchExports(pool,signing);
   const devices = (await pool.query<{ id: string; capability: "supplier_search" | "supplier_detail" | "amazon_package" | "amazon_search" | "product_database" | "keyword_scout" | "historical_data" | "category_trends" | "competitive_intelligence" }>(`
     SELECT DISTINCT ON (caps.capability) d.id,caps.capability FROM bridge_devices d JOIN "user" u ON u.id=d.owner_user_id
     CROSS JOIN LATERAL unnest(d.reported_tasks) caps(capability)
@@ -56,9 +56,8 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
       AND d.reported_at>clock_timestamp()-interval '90 seconds' AND d.reported_key_fingerprint=$1
       AND caps.capability IN ('supplier_search','supplier_detail','amazon_package','amazon_search','product_database','keyword_scout','historical_data','category_trends','competitive_intelligence')
     ORDER BY caps.capability,d.reported_at DESC,d.id`, [signing.fingerprint])).rows;
-  if (!devices.length) return searches;
-  let queued = searches.queued;
-  researchRemaining -= searches.queued;
+  if (!devices.length) return {...searches,queued:searches.queued+alibabaQueued};
+  let queued = searches.queued+alibabaQueued;
   const marketDevice=devices.find(device=>device.capability==='amazon_search');
   if(marketDevice){
     const candidates=(await pool.query<{id:string}>(`
@@ -66,7 +65,7 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
       WHERE c.marketplace='us' AND c.stage='api_validation' AND length(c.normalized_keyword) BETWEEN 1 AND 500
        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='amazon_search'
         AND t.input_version=c.input_version AND t.settings_version=v.version
-        AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
+        AND ((t.state='completed' AND NOT (${completedAmazonSearchNeedsRefresh})) OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
       ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[await queueRoom(pool,'amazon_search')])).rows;
     for(const candidate of candidates)if((await queueAmazonSearch(pool,{deviceId:marketDevice.id,candidateId:candidate.id},signing)).kind==='queued')queued++;
   }
@@ -153,21 +152,24 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
   }
   const searchDevice = devices.find(device => device.capability === "supplier_search");
   if (searchDevice) {
+    let searchRoom=await queueRoom(pool,'supplier_search');
     const candidates = (await pool.query<{ id: string }>(`
       SELECT c.id FROM candidates c
       JOIN LATERAL (SELECT version FROM settings_versions ORDER BY version DESC LIMIT 1) v ON true
-      JOIN LATERAL (SELECT id FROM spec_revisions WHERE candidate_id=c.id ORDER BY revision DESC LIMIT 1) s ON true
+      LEFT JOIN LATERAL (SELECT id FROM spec_revisions WHERE candidate_id=c.id ORDER BY revision DESC LIMIT 1) s ON true
       JOIN LATERAL (SELECT outcome,stale FROM evaluations WHERE candidate_id=c.id AND kind='api_validation'
         AND settings_version=v.version AND payload->>'inputVersion'=c.input_version::text
         ORDER BY created_at DESC,id DESC LIMIT 1) e ON e.outcome='pass' AND NOT e.stale
       WHERE c.stage IN ('sourcing','rfq_draft','awaiting_contact_approval')
         AND (c.blocked_reason IS NULL OR c.blocked_reason='web_session')
-        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.spec_id=s.id
+        AND NOT EXISTS(SELECT 1 FROM alibaba_conversations ac WHERE ac.candidate_id=c.id)
+        AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.candidate_id=c.id AND t.task_kind='supplier_search' AND t.spec_id IS NOT DISTINCT FROM s.id
           AND t.input_version=c.input_version AND t.settings_version=v.version AND t.source_capture_id IS NULL
           AND (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
-      ORDER BY c.last_progress_at NULLS FIRST,c.id LIMIT $1`,[await queueRoom(pool,'supplier_search')])).rows;
+      ORDER BY c.last_progress_at NULLS FIRST,c.id`)).rows;
     for (const candidate of candidates) {
-      if ((await queueSupplierSearch(pool, { deviceId: searchDevice.id, candidateId: candidate.id }, signing)).kind === "queued") queued++;
+      if(searchRoom<=0)break;
+      if ((await queueSupplierSearch(pool, { deviceId: searchDevice.id, candidateId: candidate.id }, signing)).kind === "queued") {queued++;searchRoom--;}
     }
   }
   const detailDevice = devices.find(device => device.capability === "supplier_detail");
@@ -179,7 +181,8 @@ export async function dispatchBrowserWork(pool: Pool, signing: { readonly origin
       JOIN LATERAL (SELECT outcome,stale FROM evaluations WHERE candidate_id=c.id AND kind='api_validation'
         AND settings_version=v.version AND payload->>'inputVersion'=c.input_version::text
         ORDER BY created_at DESC,id DESC LIMIT 1) e ON e.outcome='pass' AND NOT e.stale
-      WHERE cap.capture_method='aside_search_result' AND cap.input_version=c.input_version AND cap.settings_version=v.version
+      WHERE COALESCE((SELECT snapshot->>'supplierContactMode' FROM settings_versions ORDER BY version DESC LIMIT 1),'')<>'website'
+        AND cap.capture_method='aside_search_result' AND cap.input_version=c.input_version AND cap.settings_version=v.version
         AND c.stage IN ('sourcing','rfq_draft','awaiting_contact_approval')
         AND (c.blocked_reason IS NULL OR c.blocked_reason='web_session')
         AND cap.company_url ~ $1 AND cap.product_url ~ $2

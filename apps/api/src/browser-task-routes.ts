@@ -1,3 +1,4 @@
+import { beginAlibabaDispatch } from './alibaba-dispatch.ts';
 import type { PgBoss } from "pg-boss";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import type { Pool } from "@forge-ops/db";
@@ -20,6 +21,14 @@ export function registerBrowserTaskRoutes(app:FastifyInstance,pool:Pool,options:
   if(!device)return reply.status(401).send({code:"DEVICE_REJECTED"});
   const result=await claimBrowserTask(pool,device.id,options.browserCap);
   return result.kind==="rejected"?reply.status(401).send({code:"DEVICE_REJECTED"}):result;
+ });
+ app.post("/api/bridge/tasks/:id/dispatch",async(request,reply)=>{
+  if(!originAllowed(request))return reply.status(403).send({code:"ORIGIN_REJECTED"});
+  const device=await identity(request);
+  if(!device)return reply.status(401).send({code:"DEVICE_REJECTED"});
+  const params=idParams.safeParse(request.params),body=z.object({taskHash:z.string().regex(/^[a-f0-9]{64}$/)}).strict().safeParse(request.body);
+  if(!params.success||!body.success)return reply.status(400).send({code:"INVALID_DISPATCH"});
+  return beginAlibabaDispatch(pool,{deviceId:device.id,taskId:params.data.id,taskHash:body.data.taskHash});
  });
  app.get("/api/bridge/tasks/:id",async(request,reply)=>{
   const device=await identity(request),params=idParams.safeParse(request.params);

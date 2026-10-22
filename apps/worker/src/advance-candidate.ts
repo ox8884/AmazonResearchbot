@@ -1,7 +1,7 @@
 import { recordDifferentiationEvidence, runCandidateAiWork } from "./ai-business.ts";
 import type { AiTransport } from "@forge-ops/integrations/ai/transport";
 import type { AiBusinessInput } from "@forge-ops/domain";
-import { consumeOfficialValidation } from "./api-validation.ts";
+import { consumeOfficialValidation, type ApiValidationResult } from "./api-validation.ts";
 import {readMarketSource} from '@forge-ops/integrations/amazon/market-source';
 import type { Pool } from "@forge-ops/db";
 import { evaluateNiche, readNicheEvidence, type StoredEvidence, type SettingsSnapshot, type Stage } from "@forge-ops/domain";
@@ -10,6 +10,11 @@ import { PgBoss } from "pg-boss";
 import {consumeBrowserValidation,reserveOfficialValidation} from './browser-validation.ts';
 
 export type AdvanceJob = { candidateId: string; stage: string; inputVersion: number; candidateCallLimit?: number };
+export type AdvanceResult =
+  | { readonly outcome: "skipped"; readonly reason: "missing" | "stale" | "web_session" }
+  | { readonly outcome: "deferred"; readonly reason: string }
+  | { readonly outcome: "evaluated"; readonly result: "pass" | "reject" | "hold" }
+  | { readonly outcome: "advanced" };
 
 async function scheduleDeferredAdvance(pool: Pool, job: AdvanceJob, retryAt: Date): Promise<void> {
   const boss = new PgBoss({
@@ -38,7 +43,7 @@ async function currentSettings(pool: Pick<Pool, "query">): Promise<{ version: nu
   return settings;
 }
 
-export async function advanceCandidate(pool: Pool, transport: JsTransport, data: AdvanceJob, ai?: {transport:AiTransport;encryptionKey:Buffer}): Promise<void> {
+export async function advanceCandidate(pool: Pool, transport: JsTransport, data: AdvanceJob, ai?: {transport:AiTransport;encryptionKey:Buffer}): Promise<AdvanceResult> {
   const client = await pool.connect();
   let stageAfter: Stage | null = null;
   let settings: SettingsSnapshot | undefined;
@@ -60,12 +65,12 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
     const candidate = found.rows[0];
     if (!candidate) {
       await client.query("COMMIT");
-      return;
+      return { outcome: "skipped", reason: "missing" };
     }
     const resumesCommittedSourcing = data.stage === "api_validation" && candidate.stage === "sourcing";
     if (candidate.input_version !== data.inputVersion || (!resumesCommittedSourcing && candidate.stage !== data.stage) || candidate.blocked_reason === "web_session") {
       await client.query("COMMIT");
-      return;
+      return { outcome: "skipped", reason: candidate.blocked_reason === "web_session" ? "web_session" : "stale" };
     }
     keyword = candidate.keyword_display;
     blockedReason = candidate.blocked_reason;
@@ -121,6 +126,7 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
 
   // Re-judges from the cached first-page lookup (no new call) after the AI records differentiation evidence.
   let revalidate:(()=>Promise<unknown>)|null=null;
+  let validationResult: ApiValidationResult | "pending" | "not_ready" | null = null;
   if (stageAfter === "api_validation" && settings && settingsVersion !== undefined && keyword !== undefined) {
     const market=ai?await readMarketSource(pool,data.candidateId,ai.encryptionKey):null;
     const firstPageSource=market?.state==='captured'&&market.inputVersion===data.inputVersion&&market.settingsVersion===settingsVersion?market:null;
@@ -146,6 +152,7 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
       "SELECT detail->>'validationFirstPageReceipt' AS receipt FROM candidate_events WHERE candidate_id=$1 AND stage='api_validation' AND input_version=$2",
       [data.candidateId,data.inputVersion])).rows[0]?.receipt??null:null;
     const browserResult=ai&&!firstPageSource?await consumeBrowserValidation(pool,context,ai.encryptionKey):'not_ready';
+    validationResult=browserResult;
     // A package read or recorded differentiation lands after the verdict; re-judging reuses the cached lookup.
     const newerEvidence=blockedReason==='evidence'&&((await pool.query(`SELECT 1 FROM evidence e WHERE e.candidate_id=$1 AND e.input_version=$2
       AND e.field IN ('standard_size','differentiation') AND e.kind<>'unknown'
@@ -155,14 +162,15 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
     const officialReserved=canRetryOfficial&&officialReady
       ?await reserveOfficialValidation(pool,context)
       :canRetryOfficial;
-    if(officialReserved)await consumeOfficialValidation(
+    if(canRetryOfficial&&officialReady&&!officialReserved)validationResult='stale';
+    if(officialReserved)validationResult=await consumeOfficialValidation(
         pool,
         transport,
         context,
         (retryAt) => scheduleDeferredAdvance(pool, { ...data, stage: "api_validation" }, retryAt),
       );
     if(firstPageSource&&officialReady)revalidate=async()=>{
-      if(await reserveOfficialValidation(pool,context))await consumeOfficialValidation(pool,transport,{...context,callBudget:{remaining:1}});
+      if(await reserveOfficialValidation(pool,context))validationResult=await consumeOfficialValidation(pool,transport,{...context,callBudget:{remaining:1}});
     };
   }
   if(ai?.transport.kind==='ready'){
@@ -177,5 +185,11 @@ export async function advanceCandidate(pool: Pool, transport: JsTransport, data:
       if(role==="niche_analysis"&&await recordDifferentiationEvidence(pool,data.candidateId)&&revalidate)await revalidate();
     }
   }
-
+  if(validationResult==='pass'||validationResult==='reject'||validationResult==='hold')return {outcome:'evaluated',result:validationResult};
+  if(validationResult==='stale')return {outcome:'skipped',reason:'stale'};
+  if(validationResult!==null){
+    const current=(await pool.query<{blocked_reason:string|null}>('SELECT blocked_reason FROM candidates WHERE id=$1',[data.candidateId])).rows[0];
+    return {outcome:'deferred',reason:current?.blocked_reason??(validationResult==='pending'?'browser_pending':'validation_not_ready')};
+  }
+  return {outcome:'advanced'};
 }

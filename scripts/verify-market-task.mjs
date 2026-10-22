@@ -86,8 +86,11 @@ try{
   await test.pool.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1",[blocked.taskId]);
   await queueAmazonSearch(test.pool,{deviceId,candidateId:fairnessIds[0]},signing);
   for(const candidateId of fairnessIds.slice(2))await queueAmazonSearch(test.pool,{deviceId,candidateId},signing);
-  for(let index=2;index<20;index++)assert.equal((await cycle()).kind,'completed','Never-attempted candidates must precede a replacement for a failed read');
-  assert.equal(new Set(reads).size,20);assert.equal(reads.filter(value=>value===fairnessIds[0]).length,1);
+  const followupTurns=[];
+  for(let index=0;index<19;index++)followupTurns.push((await cycle()).kind);
+  assert.equal(followupTurns.filter(kind=>kind==='completed').length,18,'All other candidates must complete within one turn per waiting scope');
+  assert.equal(followupTurns.filter(kind=>kind==='unavailable').length,1,'An unavailable replacement must not monopolize the remaining turns');
+  assert.equal(new Set(reads).size,20);assert.equal(reads.filter(value=>value===fairnessIds[0]).length,2);
   assert.equal((await test.pool.query("SELECT count(*)::int n FROM browser_tasks WHERE candidate_id=ANY($1::uuid[]) AND state='completed'",[fairnessIds])).rows[0].n,19);
  }finally{
   ledger.close();assert.equal(path.dirname(path.resolve(fairnessDirectory)),path.resolve(tmpdir()));assert.ok(path.basename(fairnessDirectory).startsWith('forge-fairness-'));await rm(fairnessDirectory,{recursive:true,force:true});

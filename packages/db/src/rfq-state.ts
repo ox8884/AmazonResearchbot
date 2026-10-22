@@ -1,3 +1,4 @@
+import { websiteContactEnabled, refreshAlibabaStage } from './alibaba-state.ts';
 import type { Pool } from "./client.ts";
 import type { RfqRecord, RfqState } from "@forge-ops/domain";
 export type QueryConnection = Pick<Pool, "query">;
@@ -8,6 +9,7 @@ export async function contactEligibility(
   candidateId: string,
   allowMailWait = false,
 ): Promise<ContactGate> {
+  if(await websiteContactEnabled(db))return {ready:false,reason:'WEBSITE_CONTACT_ACTIVE'};
   const result = await db.query<{
     stage: string;
     blocked_reason: string | null;
@@ -90,6 +92,7 @@ export async function refreshContactStage(
   db: QueryConnection,
   candidateId: string,
 ): Promise<void> {
+  if(await websiteContactEnabled(db)){await refreshAlibabaStage(db,candidateId);return;}
   await db.query(
     `WITH counts AS (SELECT
     count(*) FILTER(WHERE state='pending_approval') AS pending,

@@ -29,3 +29,4 @@ export * from "./market-context.ts";
 export * from "./bridge-device-access.ts";
 
 export * from "./supplier-search-source.ts";
+export * from "./alibaba-state.ts";

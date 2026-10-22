@@ -62,7 +62,7 @@ export function summaryMailContent(summary: DailySummaryRecord) {
       ...(p.approvals.length ? [] : ["생성 당시 승인 대기가 없습니다."]),
       "",
       "근거 확인 후보",
-      `숫자 근거가 있는 후보 ${candidatesWithEvidence.length}개`,
+      `숫자 근거가 있는 후보 ${candidatesWithEvidence.length}개 (누적 저장 자료)`,
       ...(candidatesWithEvidence.length ? [] : ["표시할 숫자 근거가 아직 없습니다."]),
       ...candidates.flatMap((c) => [
         `${mailLine(c.keyword)} · ${mailLine(c.stageLabel)}`,

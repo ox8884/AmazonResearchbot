@@ -3,6 +3,7 @@ import {approvedRfq} from './support/approved-rfq.mjs';
 import { openAcceptance } from './support/acceptance.mjs';
 import { rfqTemplate } from '../packages/domain/src/rfq.ts';
 import { dispatchContact,recoverContactOutcomes } from '../apps/worker/src/contact-runner.ts';
+import {preflightContact} from '../apps/worker/src/contact-preflight.ts';
 import { createMailpitTransport } from '../packages/integrations/src/mail/mailpit.ts';
 const test=await openAcceptance();
 try {
@@ -134,5 +135,21 @@ try {
     assert.equal(result.status,200);
   }finally{clearTimeout(timeout);release.resolve();await dispatching;await criteriaChange;}
   assert.equal(criteriaSends,0,'Changed criteria invalidate admission before message submission');
-  console.log(JSON.stringify({scenario:'contact',result:'PASS',database:test.database,runId:test.runId,candidateId,localCaptureCount:2,unapproved:'zero actions',duplicateClick:'single dispatch',revoked:'no dispatch',tampered:'no dispatch',unknown:'no retry',confirmedNotSent:'blocked and cancellable',newInputPreventsSend:true,latestValidationRequired:true,unversionedValidationRejected:true,freshValidationResumes:true,validationChangedDuringPreflightBlocked:true,preflightDoesNotBlockSettings:true,changedCriteriaPreventsSend:true,recovery:'persisted state recovered; real kill covered by verify-contact-recovery.mjs',reply:'original stored once',externalDeliveries:0}));
+  const websitePending=await approvedRfq(test,'legacy-website-preflight');
+  const websiteRace=await approvedRfq(test,'legacy-website-claim');
+  const approvedSnapshot=(await test.pool.query('SELECT version,snapshot FROM settings_versions ORDER BY version DESC LIMIT 1')).rows[0];
+  // Reproduce legacy approvals issued under the already-approved website settings, before the email guard existed.
+  const setWebsite=()=>test.pool.query("UPDATE settings_versions SET snapshot=snapshot || '{\"supplierContactMode\":\"website\"}'::jsonb WHERE version=$1",[approvedSnapshot.version]);
+  let websiteAuthorizations=0,websiteSends=0;
+  const forbiddenEmail={name:'synthetic-website-guard',authorize:async()=>{websiteAuthorizations++;return {allowed:true};},send:async()=>{websiteSends++;return {kind:'unknown',reason:'UNEXPECTED_SEND'};}};
+  await setWebsite();
+  assert.equal(await preflightContact(test.pool,websitePending.action,forbiddenEmail),null,'Website mode must stop email before network authorization');
+  assert.equal(await dispatchContact(test.pool,websitePending.action,forbiddenEmail),'skipped');
+  assert.equal(websiteAuthorizations,0);assert.equal(websiteSends,0);
+  assert.equal((await test.pool.query('SELECT state FROM external_actions WHERE id=$1',[websitePending.action])).rows[0].state,'cancelled');
+  await test.pool.query('UPDATE settings_versions SET snapshot=$2::jsonb WHERE version=$1',[approvedSnapshot.version,JSON.stringify(approvedSnapshot.snapshot)]);
+  assert.equal(await dispatchContact(test.pool,websiteRace.action,{...forbiddenEmail,authorize:async()=>{websiteAuthorizations++;await setWebsite();return {allowed:true};}}),'skipped','The actual claim must recheck website delegation after preflight');
+  assert.equal(websiteAuthorizations,1);assert.equal(websiteSends,0);
+  assert.deepEqual((await test.pool.query('SELECT state,started_at FROM external_actions WHERE id=$1',[websiteRace.action])).rows[0],{state:'cancelled',started_at:null});
+  console.log(JSON.stringify({scenario:'contact',result:'PASS',database:test.database,runId:test.runId,candidateId,localCaptureCount:2,unapproved:'zero actions',duplicateClick:'single dispatch',revoked:'no dispatch',tampered:'no dispatch',unknown:'no retry',confirmedNotSent:'blocked and cancellable',newInputPreventsSend:true,latestValidationRequired:true,unversionedValidationRejected:true,freshValidationResumes:true,validationChangedDuringPreflightBlocked:true,preflightDoesNotBlockSettings:true,changedCriteriaPreventsSend:true,websitePreflightBlocksEmail:true,websiteClaimRechecksDelegation:true,recovery:'persisted state recovered; real kill covered by verify-contact-recovery.mjs',reply:'original stored once',externalDeliveries:0}));
 } finally {await test.close();}

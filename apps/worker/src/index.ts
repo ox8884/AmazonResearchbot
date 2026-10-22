@@ -68,7 +68,7 @@ if(appEnv === "development")await boss.createQueue(JOB_ADVANCE);
 await boss.work<AdvanceJob>(JOB_ADVANCE, { localConcurrency: 4, batchSize: 1 }, async (jobs: Job<AdvanceJob>[]) => {
   const job = jobs[0];
   if (!job) return;
-  await advanceCandidate(pool, resolveTransport(source), job.data, {transport:createAiTransport(source.AI_TRANSPORT === "official"),encryptionKey});
+  return advanceCandidate(pool, resolveTransport(source), job.data, {transport:createAiTransport(source.AI_TRANSPORT === "official"),encryptionKey});
 });
 
 let rfqTask: Promise<void> | null = null;

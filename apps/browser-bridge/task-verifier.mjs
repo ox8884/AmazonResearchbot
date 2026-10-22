@@ -15,7 +15,7 @@ export function createBrowserTaskVerifier(configuration) {
     typeof configuration.deviceId!=='string'||!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(configuration.deviceId))throw new Error('INVALID_BROWSER_VERIFIER_CONFIG');
  const origin=url.origin,deviceId=configuration.deviceId,now=configuration.now??Date.now;
  if(typeof now!=='function')throw new Error('INVALID_BROWSER_VERIFIER_CONFIG');
- return envelope=>{
+ return (envelope,{allowExpired=false}={})=>{
   if(!envelope||typeof envelope!=='object'||Array.isArray(envelope)||Object.keys(envelope).length!==3||Object.keys(envelope).some(key=>!['version','payload','signature'].includes(key))||
      envelope.version!==1||typeof envelope.payload!=='string'||typeof envelope.signature!=='string'||
      !/^[A-Za-z0-9_-]+$/.test(envelope.payload)||envelope.payload.length>Math.ceil(MAX_BROWSER_TASK_BYTES*4/3)||
@@ -29,7 +29,7 @@ export function createBrowserTaskVerifier(configuration) {
   try{raw=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(bytes));}catch{throw new Error('BROWSER_TASK_REJECTED');}
   const parsed=browserTaskSchema.safeParse(raw),time=now();
   if(!parsed.success||!Number.isFinite(time)||parsed.data.issuerOrigin!==origin||parsed.data.deviceId!==deviceId||
-     Date.parse(parsed.data.issuedAt)>time||Date.parse(parsed.data.expiresAt)<=time)throw new Error('BROWSER_TASK_REJECTED');
+     Date.parse(parsed.data.issuedAt)>time||(!allowExpired&&Date.parse(parsed.data.expiresAt)<=time))throw new Error('BROWSER_TASK_REJECTED');
   return parsed.data;
  };
 }

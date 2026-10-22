@@ -30,6 +30,8 @@ for(const change of [
 ]){const changed=structuredClone(observation);change(changed);assert.equal(await parseVerifiedSearchExport(changed,request),null);}
 assert.throws(()=>savedSearchExportScript({...request,filters:{competition:"x');globalThis.injected=true;//"}},'M:'),/SEARCH_FILTER_REQUIRES_MAPPING/);
 assert.throws(()=>savedSearchExportScript({...request,filters:{competition:'Low'}},'M:'),/SEARCH_FILTER_REQUIRES_MAPPING/,'Old notes are not structured filter limits');
+// The script is serialized into the ASIDE REPL, where module imports do not exist; only its globals (fs) are available.
+assert.doesNotMatch(savedSearchExportScript(request,'M:'),/(?<![.\w])readFile\(/);
 const outputs=[],events=[],page={evaluate:async()=> 'https://unexpected.invalid/'};
 const context={console:{log:value=>outputs.push(value)},openTab:async()=>{events.push('open');return page;},closeTab:async value=>{assert.equal(value,page);await new Promise(resolve=>setTimeout(resolve,5));events.push('closed');}};
 await vm.runInNewContext('(async()=>{'+savedSearchExportScript(request,"x');globalThis.injected=true;//")+'})()',context);

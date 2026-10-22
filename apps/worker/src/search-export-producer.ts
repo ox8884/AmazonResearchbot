@@ -36,6 +36,8 @@ export async function dispatchSearchExports(pool:Pool,signing:Signing,limit=10){
   WHERE r.state='awaiting_csv' AND d.revoked_at IS NULL AND u.two_factor_enabled=true AND d.reported_connected=true
     AND d.reported_at>clock_timestamp()-interval '90 seconds' AND d.reported_key_fingerprint=$1
     AND 'saved_search_export'=ANY(d.reported_tasks)
+    -- Three delivered attempts per run; a broken export must not reopen Jungle Scout all day.
+    AND (SELECT count(*) FROM browser_tasks t WHERE t.search_run_id=r.id AND t.first_delivered_at IS NOT NULL)<3
     AND NOT EXISTS(SELECT 1 FROM browser_tasks t WHERE t.search_run_id=r.id AND
       (t.state='completed' OR (t.state IN ('queued','delivered') AND t.expires_at>clock_timestamp())))
   ORDER BY r.id,d.reported_at DESC,d.id LIMIT $2`,[signing.fingerprint,Math.max(0,Math.min(10,limit))])).rows;

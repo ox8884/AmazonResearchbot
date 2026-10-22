@@ -211,7 +211,7 @@ try{
    assert.equal(JSON.parse(result.stdout.trim()).kind,'idle');
    const report=(await test.pool.query('SELECT reported_connected,reported_tasks,reported_at FROM bridge_devices WHERE id=$1',[a.id])).rows[0];
    assert.ok(report.reported_at,'The real client must report its ASIDE capability before polling');
-   assert.equal(report.reported_connected,true);assert.deepEqual(report.reported_tasks,['supplier_search','supplier_detail','amazon_package','saved_search_export','amazon_search']);
+   assert.equal(report.reported_connected,true);assert.deepEqual(report.reported_tasks,['supplier_search','supplier_detail','supplier_thread','supplier_send','amazon_package','saved_search_export','amazon_search','product_database','keyword_scout','historical_data','category_trends','competitive_intelligence']);
   }finally{
    if(path.dirname(path.resolve(directory))!==path.resolve(tmpdir())||!path.basename(directory).startsWith('forge-client-smoke-'))throw new Error('UNSAFE_FIXTURE_CLEANUP');
    await rm(directory,{recursive:true,force:true});

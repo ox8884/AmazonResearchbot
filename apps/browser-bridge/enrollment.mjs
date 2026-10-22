@@ -89,6 +89,14 @@ export function createBridgeClient(configuration) {
   if(!result||result.taskId!==input.taskId||!/^[a-f0-9]{64}$/.test(result.taskHash)||!['queued','delivered','completed','cancelled'].includes(result.state)||typeof result.expiresAt!=='string'||!Number.isFinite(Date.parse(result.expiresAt))||(result.state==='completed'?(!uuid.test(result.receiptId)||typeof result.resultHash!=='string'||!/^[a-f0-9]{64}$/.test(result.resultHash)):(result.receiptId!==null||result.resultHash!==null)))throw new Error('BRIDGE_RESPONSE_INVALID');
   return {taskId:result.taskId,taskHash:result.taskHash,state:result.state,receiptId:result.receiptId,resultHash:result.resultHash,expiresAt:result.expiresAt};
  }
+ async function beginDispatch(input){
+  taskInput(input,['deviceId','taskId','taskHash']);
+  if(typeof input.taskHash!=='string'||!/^[a-f0-9]{64}$/.test(input.taskHash))throw new Error('INVALID_TASK_HASH');
+  const result=await deviceRequest(input.deviceId,{path:'/api/bridge/tasks/'+input.taskId+'/dispatch',status:[200],body:{taskHash:input.taskHash}});
+  if(result?.allowed===true&&Object.keys(result).length===1)return {allowed:true};
+  if(result?.allowed===false&&Object.keys(result).length===2&&typeof result.reason==='string'&&/^[A-Z0-9_]+$/.test(result.reason))return {allowed:false,reason:result.reason};
+  throw new Error('BRIDGE_RESPONSE_INVALID');
+ }
  async function submitObservation(input){
   taskInput(input,['deviceId','taskId','taskHash','observation']);
   if(typeof input.taskHash!=='string'||!/^[a-f0-9]{64}$/.test(input.taskHash))throw new Error('INVALID_TASK_HASH');
@@ -96,5 +104,5 @@ export function createBridgeClient(configuration) {
   if(!result||!['accepted','duplicate'].includes(result.kind)||!uuid.test(result.receiptId)||typeof result.resultHash!=='string'||!/^[a-f0-9]{64}$/.test(result.resultHash)||!Array.isArray(result.captureIds)||result.captureIds.length>200||!result.captureIds.every(id=>typeof id==='string'&&uuid.test(id)))throw new Error('BRIDGE_RESPONSE_INVALID');
   return {kind:result.kind,receiptId:result.receiptId,resultHash:result.resultHash,captureIds:result.captureIds};
  }
- return Object.freeze({enrollBrowserDevice,checkDeviceRegistration,claimTask,readTask,submitObservation,reportCapabilities});
+ return Object.freeze({enrollBrowserDevice,checkDeviceRegistration,claimTask,readTask,beginDispatch,submitObservation,reportCapabilities});
 }

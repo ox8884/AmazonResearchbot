@@ -25,7 +25,7 @@ export function openBrowserTaskLedger(configuration) {
    db.exec("CREATE TABLE task_receipts(task_id TEXT PRIMARY KEY,task_hash TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('started','completed')),receipt_id TEXT,created_at TEXT NOT NULL,completed_at TEXT,CHECK((state='started' AND receipt_id IS NULL AND completed_at IS NULL) OR (state='completed' AND receipt_id IS NOT NULL AND completed_at IS NOT NULL))) STRICT");
    db.exec('PRAGMA application_id='+applicationId+'; PRAGMA user_version=1');
    version=1;
-  }else if(marker!==applicationId||![1,2,3,4].includes(version))throw new Error('UNRECOGNIZED_TASK_LEDGER');
+  }else if(marker!==applicationId||![1,2,3,4,5].includes(version))throw new Error('UNRECOGNIZED_TASK_LEDGER');
   if(version===1){
    db.exec("ALTER TABLE task_receipts RENAME TO task_receipts_v1");
    db.exec("CREATE TABLE task_receipts(task_id TEXT PRIMARY KEY,task_hash TEXT NOT NULL,state TEXT NOT NULL CHECK(state IN ('started','completed','cancelled','conflict')),receipt_id TEXT,created_at TEXT NOT NULL,completed_at TEXT,body_hash TEXT,ciphertext TEXT,CHECK((state='completed')=(receipt_id IS NOT NULL)),CHECK((state!='started')=(completed_at IS NOT NULL)),CHECK(ciphertext IS NULL OR body_hash IS NOT NULL)) STRICT");
@@ -42,11 +42,12 @@ export function openBrowserTaskLedger(configuration) {
   if(version<=3){
    db.exec("CREATE TABLE task_retry_history(task_id TEXT PRIMARY KEY,task_hash TEXT NOT NULL,retry_count INTEGER NOT NULL CHECK(retry_count>=0)) STRICT; PRAGMA user_version=4");
   }
+  if(version<=4)db.exec("ALTER TABLE task_receipts ADD COLUMN task_kind TEXT; ALTER TABLE task_receipts ADD COLUMN write_started_at TEXT; PRAGMA user_version=5");
   db.exec('COMMIT');initializing=false;
   db.exec('PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL');
  }catch(error){try{if(initializing)db.exec('ROLLBACK');}finally{db.close();}throw error;}
  let closed=false;
- const rowFor=id=>db.prepare('SELECT task_id,task_hash,state,receipt_id,body_hash,ciphertext,next_attempt_at,retry_count FROM task_receipts WHERE task_id=?').get(id);
+ const rowFor=id=>db.prepare('SELECT task_id,task_hash,state,receipt_id,body_hash,ciphertext,next_attempt_at,retry_count,task_kind,write_started_at FROM task_receipts WHERE task_id=?').get(id);
  const summary=row=>({kind:row.state!=='started'?row.state:row.ciphertext?'pending_submission':'pending_reconciliation',taskId:row.task_id,taskHash:row.task_hash,...(row.receipt_id?{receiptId:row.receipt_id}:{})});
  const transaction=run=>{
   db.exec('BEGIN IMMEDIATE');
@@ -54,13 +55,19 @@ export function openBrowserTaskLedger(configuration) {
   catch(error){db.exec('ROLLBACK');throw error;}
  };
  return Object.freeze({
+  existing(envelope){
+   const task=verifyTask(envelope,{allowExpired:true}),row=rowFor(task.id.toLowerCase());
+   if(!row)return null;
+   if(row.task_hash!==createHash('sha256').update(envelope.payload).digest('hex'))throw new Error('TASK_PAYLOAD_CONFLICT');
+   return summary(row);
+  },
   claim(envelope){
    const task=verifyTask(envelope),taskId=task.id.toLowerCase(),taskHash=createHash('sha256').update(envelope.payload).digest('hex');
    return transaction(()=>{
     const row=rowFor(taskId);
     if(row){
      if(row.task_hash!==taskHash)throw new Error('TASK_PAYLOAD_CONFLICT');
-     if(['cancelled','conflict'].includes(row.state)&&row.receipt_id===null&&row.body_hash===null){
+     if(row.task_kind!=='supplier_send'&&['cancelled','conflict'].includes(row.state)&&row.receipt_id===null&&row.body_hash===null){
       db.prepare("UPDATE task_receipts SET state='started',completed_at=NULL WHERE task_id=?").run(taskId);
       return {kind:'claimed',taskId,taskHash,task};
      }
@@ -68,9 +75,19 @@ export function openBrowserTaskLedger(configuration) {
     }
     const retryHistory=db.prepare('SELECT task_hash,retry_count FROM task_retry_history WHERE task_id=?').get(taskId);
     if(retryHistory&&retryHistory.task_hash!==taskHash)throw new Error('TASK_PAYLOAD_CONFLICT');
-    db.prepare("INSERT INTO task_receipts(task_id,task_hash,state,created_at,retry_count) VALUES(?,?,'started',?,?)").run(taskId,taskHash,new Date().toISOString(),retryHistory?.retry_count??0);
+    db.prepare("INSERT INTO task_receipts(task_id,task_hash,state,created_at,retry_count,task_kind) VALUES(?,?,'started',?,?,?)").run(taskId,taskHash,new Date().toISOString(),retryHistory?.retry_count??0,task.request.kind);
     if(retryHistory)db.prepare('DELETE FROM task_retry_history WHERE task_id=?').run(taskId);
     return {kind:'claimed',taskId,taskHash,task};
+   });
+  },
+  beginWrite(input){
+   if(!input||!uuid.test(input.taskId)||!/^[a-f0-9]{64}$/.test(input.taskHash))throw new Error('INVALID_TASK_RECEIPT');
+   return transaction(()=>{
+    const row=rowFor(input.taskId.toLowerCase());
+    if(!row||row.task_hash!==input.taskHash||row.task_kind!=='supplier_send'||row.state!=='started')throw new Error('TASK_NOT_PENDING');
+    if(row.write_started_at)throw new Error('WRITE_ALREADY_STARTED');
+    db.prepare('UPDATE task_receipts SET write_started_at=? WHERE task_id=?').run(new Date().toISOString(),row.task_id);
+    return {kind:'write_started',taskId:row.task_id,taskHash:row.task_hash};
    });
   },
   complete(input){
@@ -96,7 +113,7 @@ export function openBrowserTaskLedger(configuration) {
     if(!row||row.task_hash!==input.taskHash||row.state!=='started')throw new Error('TASK_NOT_PENDING');
     if(row.body_hash&&row.body_hash!==sealed.bodyHash)throw new Error('STAGED_OBSERVATION_CONFLICT');
     if(!row.ciphertext)db.prepare('UPDATE task_receipts SET body_hash=?,ciphertext=?,next_attempt_at=NULL,retry_count=0 WHERE task_id=?').run(sealed.bodyHash,sealed.ciphertext,taskId);
-    return {taskId,taskHash:input.taskHash,bodyHash:sealed.bodyHash};
+    return {taskId,taskHash:input.taskHash,bodyHash:sealed.bodyHash,taskKind:row.task_kind};
    });
   },
   staged(taskId,credential){
@@ -105,19 +122,19 @@ export function openBrowserTaskLedger(configuration) {
    return row?.ciphertext?openObservation(row,credential,'browser-stage:'+scope+':'+row.task_id+':'+row.task_hash):null;
   },
   pending(){
-   return db.prepare("SELECT task_id AS taskId,task_hash AS taskHash,body_hash AS bodyHash FROM task_receipts WHERE state='started' AND body_hash IS NOT NULL ORDER BY created_at,task_id").all();
+   return db.prepare("SELECT task_id AS taskId,task_hash AS taskHash,body_hash AS bodyHash,task_kind AS taskKind FROM task_receipts WHERE state='started' AND body_hash IS NOT NULL ORDER BY created_at,task_id").all();
   },
   retryable(now=new Date()){
-   return db.prepare("SELECT task_id AS taskId,task_hash AS taskHash FROM task_receipts WHERE state='started' AND body_hash IS NULL AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at,task_id").all(now.toISOString());
+   return db.prepare("SELECT task_id AS taskId,task_hash AS taskHash FROM task_receipts WHERE state='started' AND body_hash IS NULL AND coalesce(task_kind,'')!='supplier_send' AND (next_attempt_at IS NULL OR next_attempt_at<=?) ORDER BY created_at,task_id").all(now.toISOString());
   },
   retryWaiting(now=new Date()){
-   return db.prepare("SELECT task_id AS taskId,task_hash AS taskHash,next_attempt_at AS nextAttemptAt,retry_count AS retryCount FROM task_receipts WHERE state='started' AND body_hash IS NULL AND next_attempt_at>? ORDER BY next_attempt_at,task_id LIMIT 1").get(now.toISOString()) ?? null;
+   return db.prepare("SELECT task_id AS taskId,task_hash AS taskHash,next_attempt_at AS nextAttemptAt,retry_count AS retryCount FROM task_receipts WHERE state='started' AND body_hash IS NULL AND coalesce(task_kind,'')!='supplier_send' AND next_attempt_at>? ORDER BY next_attempt_at,task_id LIMIT 1").get(now.toISOString()) ?? null;
   },
   retry(input,now=new Date()){
    if(!input||!uuid.test(input.taskId)||!/^[a-f0-9]{64}$/.test(input.taskHash))throw new Error('INVALID_TASK_RETRY');
    return transaction(()=>{
     const taskId=input.taskId.toLowerCase(),row=rowFor(taskId);
-    if(!row||row.task_hash!==input.taskHash||row.state!=='started'||row.body_hash!==null)throw new Error('TASK_NOT_RETRYABLE');
+    if(!row||row.task_hash!==input.taskHash||row.state!=='started'||row.body_hash!==null||row.task_kind==='supplier_send')throw new Error('TASK_NOT_RETRYABLE');
     if(row.next_attempt_at!==null&&Date.parse(row.next_attempt_at)>now.getTime())throw new Error('TASK_RETRY_BACKOFF');
     const history=db.prepare('SELECT task_hash FROM task_retry_history WHERE task_id=?').get(taskId);
     if(history&&history.task_hash!==input.taskHash)throw new Error('TASK_PAYLOAD_CONFLICT');
@@ -130,7 +147,7 @@ export function openBrowserTaskLedger(configuration) {
    if(!input||!uuid.test(input.taskId)||!/^[a-f0-9]{64}$/.test(input.taskHash))throw new Error('INVALID_TASK_RETRY');
    return transaction(()=>{
     const taskId=input.taskId.toLowerCase(),row=rowFor(taskId);
-    if(!row||row.task_hash!==input.taskHash||row.state!=='started'||row.body_hash!==null)throw new Error('TASK_NOT_RETRYABLE');
+    if(!row||row.task_hash!==input.taskHash||row.state!=='started'||row.body_hash!==null||row.task_kind==='supplier_send')throw new Error('TASK_NOT_RETRYABLE');
     const retryCount=row.retry_count+1;
     const delays=[30000,120000,300000];
     const delay=delays[Math.min(retryCount-1,delays.length-1)];

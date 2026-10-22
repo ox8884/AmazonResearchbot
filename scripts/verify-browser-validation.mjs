@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {setTimeout as delay} from 'node:timers/promises';
 import {createHash,randomUUID} from 'node:crypto';
 import {openAcceptance} from './support/acceptance.mjs';
 import {advanceCandidate} from '../apps/worker/src/advance-candidate.ts';
@@ -120,6 +121,22 @@ try{
  assert.equal((await queuing).kind,'not_ready','Browser dispatch cannot join an input reserved for official validation');
   releaseWire();
   await advancing;
+ const staleQuery='browser validation reservation stale '+test.runId;
+ const staleId=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage) VALUES('us',$1,$1,'api_validation') RETURNING id",[staleQuery])).rows[0].id;
+ const rowLock=await test.pool.connect(),versionChange=await test.pool.connect();let staleAdvance,changing,staleCalls=0;
+ async function waitForLock(probe,label){const end=Date.now()+5000;while(Date.now()<end){if(await probe())return;await delay(10);}throw Error('Timed out: '+label);}
+ try{
+  await rowLock.query('BEGIN');await rowLock.query('SELECT id FROM candidates WHERE id=$1 FOR UPDATE',[staleId]);
+  const rowPid=(await rowLock.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+  staleAdvance=advanceCandidate(test.pool,{kind:'ready',send:async()=>{staleCalls++;return {status:503,body:{},retryAfter:null};}},{candidateId:staleId,stage:'api_validation',inputVersion:1});
+  await waitForLock(async()=>(await test.pool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE datname=current_database() AND $1=ANY(pg_blocking_pids(pid))) AS waiting",[rowPid])).rows[0].waiting,'initial candidate read holds settings lock');
+  await versionChange.query('BEGIN');const changePid=(await versionChange.query('SELECT pg_backend_pid() AS pid')).rows[0].pid;
+  changing=(async()=>{await versionChange.query("SELECT pg_advisory_xact_lock(hashtext('forge.settings'))");await versionChange.query('UPDATE candidates SET input_version=input_version+1 WHERE id=$1',[staleId]);await versionChange.query('COMMIT');})();
+  await waitForLock(async()=>(await test.pool.query("SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE pid=$1 AND wait_event='advisory') AS waiting",[changePid])).rows[0].waiting,'input change queues before official reservation');
+  await rowLock.query('COMMIT');await changing;
+  assert.deepEqual(await staleAdvance,{outcome:'skipped',reason:'stale'},'Input changed after initial read must be skipped, not deferred');
+  assert.equal(staleCalls,0);assert.equal((await test.pool.query('SELECT count(*)::int AS n FROM evaluations WHERE candidate_id=$1',[staleId])).rows[0].n,0);
+ }finally{await rowLock.query('ROLLBACK');rowLock.release();await Promise.allSettled([staleAdvance,changing]);await versionChange.query('ROLLBACK');versionChange.release();}
  const fallbackQuery='browser validation fallback '+test.runId;
  const fallbackId=(await test.pool.query("INSERT INTO candidates(marketplace,normalized_keyword,keyword_display,stage,blocked_reason) VALUES('us',$1,$1,'api_validation','evidence') RETURNING id",[fallbackQuery])).rows[0].id;
  await test.pool.query("INSERT INTO candidate_events(candidate_id,stage,input_version,detail) VALUES($1,'api_validation',1,$2::jsonb)",[fallbackId,JSON.stringify({validationTransport:'official',validationSettingsVersion:settings.version})]);

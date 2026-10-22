@@ -3,6 +3,8 @@ import { NavLink, useParams } from "react-router";
 import { getCandidate } from "./api.ts";
 import { getContactWorkspace } from "./contact-api.ts";
 import {
+  alibabaActionLabel,
+  alibabaStatusLabel,
   contactDate,
   contactReason,
   supplierMatchLabel,
@@ -10,7 +12,7 @@ import {
 import { ContactRfqForm, ContactSupplierForm } from "./ContactForms.tsx";
 import { ContactRfqCard } from "./ContactRfqCard.tsx";
 import { getSourcing } from "./quote-api.ts";
-import { Empty, LoadError, Loading, PageHeader, useLocale } from "./ui.tsx";
+import { Empty, Icon, LoadError, Loading, PageHeader, useLocale } from "./ui.tsx";
 
 export function Contact() {
   const { id } = useParams();
@@ -31,7 +33,7 @@ export function Contact() {
   const sourcing = useQuery({
     queryKey: ["sourcing", candidateId],
     queryFn: () => getSourcing(candidateId),
-    enabled: Boolean(id),
+    enabled: Boolean(id) && Boolean(workspace.data) && !workspace.data?.website?.enabled,
   });
 
   async function refresh() {
@@ -55,12 +57,10 @@ export function Contact() {
         action={t("후보 보기", "View candidates")}
       />
     );
-  if (candidate.isPending || workspace.isPending || sourcing.isPending)
-    return <Loading />;
   if (
     (candidate.isError && !candidate.data) ||
     (workspace.isError && !workspace.data) ||
-    (sourcing.isError && !sourcing.data)
+    (!workspace.data?.website?.enabled && sourcing.isError && !sourcing.data)
   )
     return (
       <LoadError
@@ -73,6 +73,75 @@ export function Contact() {
         }}
       />
     );
+  if (candidate.isPending || workspace.isPending || (workspace.data && !workspace.data.website?.enabled && sourcing.isPending))
+    return <Loading />;
+  if (candidate.data && workspace.data?.website?.enabled) {
+    const website = workspace.data.website;
+    const timestamp = (value: string | null, empty: string) => value
+      ? <time dateTime={value}>{contactDate(value, language)}</time> : empty;
+    return <div className="contact-page stack">
+      <NavLink className="back-link" to={`/candidates/${encodeURIComponent(candidateId)}`}>{t("후보 상세로", "Back to candidate")}</NavLink>
+      <PageHeader eyebrow={t("Alibaba 공급처 연락", "Alibaba supplier contact")} title={candidate.data.candidate.keyword}
+        description={t("공급처 검색부터 문의·회신 확인·조건 협의까지 진행 기록을 확인하세요.", "Follow supplier search, inquiries, replies and discussions of terms.")} />
+      {(candidate.isError || workspace.isError) && <p className="banner" role="status">{t("최신 상태를 불러오지 못했어요. 마지막으로 확인한 기록입니다.", "Couldn’t refresh the status. Showing the last confirmed records.")}</p>}
+      <section className="contact-section stack" aria-labelledby="alibaba-progress-heading">
+        <header className="section-label">
+          <h2 id="alibaba-progress-heading">{t("자동 연락 진행", "Automatic contact progress")}</h2>
+          <button type="button" className="btn btn-secondary" disabled={workspace.isFetching} onClick={() => void refresh()}>{t("기록 새로고침", "Refresh records")}</button>
+        </header>
+        <div><span className={`chip chip-${website.status === "attention" ? "warn" : "stage"}`}><Icon name={website.status === "attention" ? "warning" : "clock"} />{alibabaStatusLabel(website.status, language, website.reason)}</span></div>
+        {website.reason && <p className="banner">{contactReason(website.reason, language)}</p>}
+        <dl className="supplier-details">
+          <div><dt>{t("최근 활동", "Last activity")}</dt><dd>{timestamp(website.lastActivityAt, t("아직 기록 없음", "No activity recorded"))}</dd></div>
+          <div><dt>{t("다음 확인 예정", "Next scheduled check")}</dt><dd>{timestamp(website.nextCheckAt, t("아직 미정", "Not scheduled"))}</dd></div>
+        </dl>
+        <p className="muted">{t("자동 연락 범위는 Alibaba 문의·회신 확인·조건 협의입니다. 주문·결제·샘플 구매·계약·구매 수량 확약은 포함되지 않습니다.", "Automatic contact covers Alibaba inquiries, reply checks and discussions of terms. Orders, payments, sample purchases, contracts and quantity commitments are excluded.")}</p>
+      </section>
+      <section className="contact-section stack" aria-labelledby="alibaba-conversations-heading">
+        <header className="section-label">
+          <h2 id="alibaba-conversations-heading">{t("업체별 대화", "Supplier conversations")}</h2>
+          <a className="btn btn-secondary" href="https://message.alibaba.com/message/messenger.htm" target="_blank" rel="noopener noreferrer">{t("Alibaba 전체 메시지함", "Alibaba inbox")}</a>
+        </header>
+        {website.conversations.length === 0
+          ? <p className="muted">{t("아직 저장된 공급처 대화가 없어요. 위의 진행 상태와 다음 확인 시각을 확인해 주세요.", "No supplier conversations have been recorded yet. Check the progress and next scheduled check above.")}</p>
+          : <div className="supplier-list">{website.conversations.map(conversation => <article className="card supplier-card" key={conversation.id}>
+            <header className="section-label">
+              <h3 className="source-text">{conversation.companyName}</h3>
+              <span className={`chip chip-${conversation.status === "attention" ? "warn" : "stage"}`}><Icon name={conversation.status === "attention" ? "warning" : "clock"} />{conversation.retired ? t("중복 정리됨", "Duplicate retired") : alibabaStatusLabel(conversation.status, language, conversation.reason)}</span>
+            </header>
+            {conversation.retired ? <p className="muted">{t("다른 후보가 이미 대화 중인 업체라 이 기록은 자동으로 정리했어요. 따로 확인할 필요는 없어요.", "Another candidate already owns this supplier conversation, so this duplicate was retired. No action is needed.")}</p>
+              : conversation.reason && <p className="banner">{contactReason(conversation.reason, language)}</p>}
+            <div className="contact-actions">
+              <a className="btn btn-secondary" href={conversation.companyUrl} target="_blank" rel="noopener noreferrer">{t("업체 페이지", "Supplier page")}</a>
+              <a className="btn btn-secondary" href={conversation.productUrl} target="_blank" rel="noopener noreferrer">{t("상품 페이지", "Product page")}</a>
+              {conversation.threadUrl && <a className="btn btn-secondary" href={conversation.threadUrl} target="_blank" rel="noopener noreferrer">{t("Alibaba 메시지함에서 확인", "Check in Alibaba inbox")}</a>}
+            </div>
+            <dl className="supplier-details">
+              <div><dt>{t("최근 활동", "Last activity")}</dt><dd>{timestamp(conversation.lastActivityAt, t("아직 기록 없음", "No activity recorded"))}</dd></div>
+              <div><dt>{t("다음 확인 예정", "Next scheduled check")}</dt><dd>{timestamp(conversation.nextCheckAt, t("아직 미정", "Not scheduled"))}</dd></div>
+            </dl>
+            <section className="stack" aria-label={t("저장된 대화 원문", "Recorded conversation") }>
+              <h4>{t("대화 원문", "Conversation transcript")}</h4>
+              {conversation.messages.length === 0 ? <p className="muted">{t("아직 확인된 메시지가 없어요.", "No messages have been confirmed yet.")}</p>
+                : conversation.messages.map(message => <article className="reply-entry" key={message.id}>
+                  <p className="muted"><strong>{message.direction === "inbound" ? t("업체 회신", "Supplier reply") : t("보낸 메시지", "Sent message")}</strong> · <time dateTime={message.sentAt}>{contactDate(message.sentAt, language)}</time></p>
+                  <p className="source-text">{message.body}</p>
+                </article>)}
+            </section>
+            {conversation.actions.length > 0 && <details className="reply-details" open={conversation.actions.some(action => action.state === "outcome_unknown" || action.state === "blocked")}>
+              <summary>{t("문의 발송 기록", "Inquiry send records")}</summary>
+              {conversation.actions.map(action => <article className="reply-entry" key={action.id}>
+                <p><strong>{alibabaActionLabel(action.state, language)}</strong></p>
+                <p className="muted">{t("문안 작성", "Prepared")}: <time dateTime={action.createdAt}>{contactDate(action.createdAt, language)}</time></p>
+                {action.state === "outcome_unknown" && <p className="banner">{t("보냈는지 아직 확인하지 못했어요. 같은 메시지를 다시 보내지 않습니다.", "The send result is still unknown. This message will not be resent.")}</p>}
+                {action.reason && !(action.state === "outcome_unknown" && action.reason === "SEND_OUTCOME_UNKNOWN") && <p className="muted">{contactReason(action.reason, language)}</p>}
+                <p className="source-text">{action.body}</p>
+              </article>)}
+            </details>}
+          </article>)}</div>}
+      </section>
+    </div>;
+  }
   if (!candidate.data || !workspace.data || !sourcing.data)
     return (
       <Empty

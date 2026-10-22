@@ -21,7 +21,7 @@ try{
  if(!await readCredential())throw new Error('DEVICE_CREDENTIAL_MISSING');
  releaseProcessLock=await acquireBridgeProcessLock(configuration.directory,configuration.deviceId);
  ledger=openBrowserTaskLedger(configuration);
- adapter=createAsideAdapter(configuration);
+ adapter=createAsideAdapter({...configuration,beginDispatch:input=>client.beginDispatch({deviceId:configuration.deviceId,...input})});
  const keyFingerprint=createHash('sha256').update(createPublicKey(configuration.publicKey).export({format:'der',type:'spki'})).digest('hex');
  const canClaim=async()=>{
   const report=await adapter.probe();

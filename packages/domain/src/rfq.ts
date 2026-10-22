@@ -1,3 +1,4 @@
+import type { AlibabaWorkspace } from "./alibaba.ts";
 export type SupplierInput = {
   specId?: string | null;
   name: string;
@@ -56,6 +57,7 @@ export type ContactApprovalPayload = {
   channel: "email";
 };
 export type RfqWorkspace = {
+  website?: AlibabaWorkspace;
   suppliers: SupplierRecord[];
   drafts: RfqRecord[];
   contactReady: boolean;

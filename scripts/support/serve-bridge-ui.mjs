@@ -1,4 +1,5 @@
 import {automaticSpecUiFixture} from './automatic-spec-ui-fixture.mjs';
+import {alibabaUiFixture} from './alibaba-ui-fixture.mjs';
 import {groundedProposalFixture} from './grounded-proposal-fixture.mjs';
 import {searchExportUiFixture} from './search-export-ui-fixture.mjs';
 import {consumeOfficialValidation} from '../../apps/worker/src/api-validation.ts';
@@ -28,6 +29,8 @@ const test=await openAcceptance({databaseKey:'bridge-ui-'+Date.now(),webOrigin})
 const directory=await mkdtemp(path.join(tmpdir(),'forge-bridge-ui-'));
 const configFile=path.join(directory,'config.json');
 const subject=process.argv.includes('--automatic-spec')?await automaticSpecUiFixture(test):{};
+const alibabaRuntime=process.argv.includes('--alibaba')?await alibabaUiFixture(test,webOrigin):null;
+if(alibabaRuntime)Object.assign(subject,{entryPath:alibabaRuntime.entryPath,candidateId:alibabaRuntime.candidateId,conversationId:alibabaRuntime.conversationId,website:alibabaRuntime.initial,syntheticAlibabaPipeline:true});
 if(process.argv.includes('--grounded-proposal'))Object.assign(subject,await groundedProposalFixture(test,{webOrigin}));
 if(process.argv.includes('--grounded-source')){
  const saved=await test.call('/api/custom-ai',{version:0,name:'합성 차별화 분석 연결',model:'synthetic-grounded-model',baseUrl:'https://grounded.fixture.invalid/v1',apiKey:'SYNTHETIC_UI_GROUNDED_KEY',dailyBudgetUsd:'2.00',roles:['niche_analysis','sourcing_analysis'],priority:1,inputUsdPerMillion:'1',outputUsdPerMillion:'2',maxInputTokens:4096,maxOutputTokens:2048});
@@ -100,6 +103,7 @@ await auth('/api/auth/two-factor/verify-totp',{code:otp(test.authFixture.totpSec
 let vite,searchRuntime,failing=false,closing=false;
 const close=async()=>{
  if(closing)return;closing=true;
+ alibabaRuntime?.close();
  await searchRuntime?.close();
  try{
   for(const device of (await test.pool.query('SELECT id FROM bridge_devices')).rows){const credential=await deviceVault('read',{origin:webOrigin,deviceId:device.id});if(credential)await deviceVault('remove',{origin:webOrigin,deviceId:device.id,credential});}
@@ -144,7 +148,7 @@ vite=await createServer({root:path.join(root,'apps/web'),configFile:path.join(ro
     case 'error':failing=true;break;
     case 'recover':failing=false;break;
     case 'stop':break;
-    default:throw new Error('Unknown fixture state');
+    default:if(!await alibabaRuntime?.setState(state))throw new Error('Unknown fixture state');
    }
    response.setHeader('content-type','application/json');response.end(JSON.stringify({ok:true,state}));
    if(state==='stop'){await close();process.exit(0);}

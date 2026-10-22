@@ -16,7 +16,7 @@ export function createRecoveryCycle({client,adapter,ledger,deviceId,readCredenti
    if(item.bodyHash&&server.resultHash!==item.bodyHash){ledger.settle({...item,state:'conflict'});return {kind:'conflict',taskId:item.taskId};}
    ledger.complete({...item,receiptId:server.receiptId});return {kind:'completed',taskId:item.taskId};
   }
-  if(Date.parse(server.expiresAt)<=now()){
+  if(item.taskKind!=='supplier_send'&&Date.parse(server.expiresAt)<=now()){
    if(!item.bodyHash){ledger.settle({...item,state:'cancelled'});return {kind:'cancelled',taskId:item.taskId};}
    return {kind:'pending_expiry',taskId:item.taskId};
   }
@@ -69,7 +69,7 @@ export function createRecoveryCycle({client,adapter,ledger,deviceId,readCredenti
    if(outcome.taskId!==delivery.taskId||(outcome.taskHash&&outcome.taskHash!==delivery.taskHash))throw new Error('SERVER_TASK_HASH_CONFLICT');
    if(outcome.kind!=='captured'){
     const local=ledger.inspect?.(delivery.taskId);
-    if(outcome.kind==='pending_reconciliation'&&local?.state==='started'&&local.taskHash===delivery.taskHash){
+    if(task.request.kind!=='supplier_send'&&outcome.kind==='pending_reconciliation'&&local?.state==='started'&&local.taskHash===delivery.taskHash){
      const retry=ledger.defer({taskId:delivery.taskId,taskHash:delivery.taskHash},new Date(now()));
      return {kind:'retry_wait',taskId:delivery.taskId,retryAt:retry.nextAttemptAt,reconciled,...(typeof outcome.reason==='string'&&/^[A-Z0-9_]+$/.test(outcome.reason)?{reason:outcome.reason}:{})};
     }

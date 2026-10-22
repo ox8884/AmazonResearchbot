@@ -25,9 +25,20 @@ export async function buildDailySummary(
     )
   ).rows.map((row) => row.candidate_id);
   const changed = new Set(progress);
+  const collected = new Set((await db.query<{candidate_id:string}>(`
+    SELECT c.id AS candidate_id FROM candidates c WHERE
+      EXISTS(SELECT 1 FROM api_validation_sources s WHERE s.candidate_id=c.id AND s.input_version=c.input_version
+        AND s.settings_version=(SELECT max(version) FROM settings_versions)
+        AND s.observed_at>$1 AND s.observed_at<=$2 AND s.created_at<=$2)
+      OR EXISTS(SELECT 1 FROM browser_tasks t JOIN browser_task_results r ON r.id=t.result_id AND r.task_id=t.id
+        WHERE t.candidate_id=c.id AND t.input_version=c.input_version
+          AND t.settings_version=(SELECT max(version) FROM settings_versions) AND t.state='completed'
+          AND t.task_kind IN ('amazon_search','amazon_package','product_database','keyword_scout','historical_data','category_trends','competitive_intelligence')
+          AND r.created_at>$1 AND r.created_at<=$2)`,[since,now])).rows.map(row=>row.candidate_id));
   const candidates = details
     .map(({ candidate, evidence }) => ({
       ...candidate,
+      evidenceSummary: `${collected.has(candidate.id) ? "집계 기간 새 수집 있음" : "집계 기간 새 수집 없음 · 기존 저장 자료"} · ${candidate.evidenceSummary}`,
       hasNumericEvidence: evidence.some(
         (item) =>
           (item.kind === "measured" ||

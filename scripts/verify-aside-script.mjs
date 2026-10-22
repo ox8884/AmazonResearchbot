@@ -244,6 +244,7 @@ console.log(JSON.stringify({scenario:'aside-package-script',result:'PASS',exactA
    if(role==='textbox')return {first:()=>input};
    if(role==='option'){assert.equal(options.name,'100');return limitOption;}
    if(role==='button'&&options.name==='Search')return {click:async()=>{searched=true;}};
+   if(role==='columnheader')return {first:()=>({count:async()=>0,click:async()=>{throw new Error('Absent revenue header must not be clicked');}})};
    if(role==='table')return {waitFor:async()=>{},evaluate:async()=>[{asin:'B0QA000001',title:'Synthetic ice cream scoop kitchen tool',sourceText:'B0QA000001 Synthetic ice cream scoop kitchen tool'}]};
    throw new Error('Unexpected role '+role);
   },

@@ -36,11 +36,14 @@ export function amazonMarketScript(query,marker){
     return {position:index+1,asin,title,productUrl:asin?'https://www.amazon.com/dp/'+asin:null,imageUrl,
      adStatus:sponsored?'sponsored':alt&&title?'not_marked':'unknown',priceTexts,sourceText:card.innerText+'\n'+alt};
    }));
-   let slots=await capture();
-   const view=await snapshot(page,{selector:'.s-main-slot'});
-   const finalSlots=await capture();
-   if(JSON.stringify(slots)!==JSON.stringify(finalSlots))throw Error('RESULTS_CHANGED_DURING_CAPTURE');
-   slots=finalSlots;
+   let slots=await capture(),view;
+   for(let remaining=5;remaining>0;remaining--){
+    view=await snapshot(page,{selector:'.s-main-slot'});
+    const finalSlots=await capture(),stable=JSON.stringify(slots)===JSON.stringify(finalSlots);
+    slots=finalSlots;
+    if(stable)break;
+    if(remaining===1)throw Error('RESULTS_CHANGED_DURING_CAPTURE');
+   }
    if(!slots.length||slots.length>200)throw Error('RESULTS_UNAVAILABLE');
    if(await searchInput.evaluate(el=>el.value)!==query)throw Error('QUERY_CHANGED');
    const sourcePageUrl=await page.evaluate(()=>location.href);

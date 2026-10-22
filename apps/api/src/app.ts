@@ -148,7 +148,7 @@ export async function buildApp(env: ApiEnv, pool: Pool, options: { aiTransport?:
     }
     if ((request.method === "POST" && request.routeOptions.url === "/api/bridge/pair") ||
         (request.method === "GET" && request.routeOptions.url === "/api/bridge/device") ||
-        (request.method === "POST" && ["/api/bridge/tasks/claim","/api/bridge/tasks/:id/results","/api/bridge/capabilities"].includes(request.routeOptions.url ?? "")) ||
+        (request.method === "POST" && ["/api/bridge/tasks/claim","/api/bridge/tasks/:id/results","/api/bridge/tasks/:id/dispatch","/api/bridge/capabilities"].includes(request.routeOptions.url ?? "")) ||
         (request.method === "GET" && request.routeOptions.url === "/api/bridge/tasks/:id")) return;
     const session = await auth.api.getSession({ headers: fromNodeHeaders(request.headers) });
     if (!session) {
@@ -188,7 +188,7 @@ export async function buildApp(env: ApiEnv, pool: Pool, options: { aiTransport?:
   registerInboxRoutes(app,pool,{key:encKey,collectionEnabled:env.mailTransport === "profile"});
   registerSubscriptionRoutes(app);
   registerApprovalRoutes(app,pool);
-  registerRfqRoutes(app,pool,env.mailTransport);
+  registerRfqRoutes(app,pool,env.mailTransport,encKey);
   registerSupplierCaptureRoutes(app,pool,encKey);
   registerRfqApprovalRoutes(app,pool);
 

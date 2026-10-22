@@ -1,16 +1,17 @@
-import { lockActiveBridgeDevice, lockSourcingContext, lockPackageContext, lockMarketContext, readSupplierSearchSource, type Pool, type QueryConnection } from "@forge-ops/db";
+import { lockAlibabaTaskSource } from './alibaba-dispatch.ts';
+import { lockActiveBridgeDevice, lockSourcingContext, lockAlibabaContext, websiteContactEnabled, lockPackageContext, lockMarketContext, readSupplierSearchSource, type Pool, type QueryConnection } from "@forge-ops/db";
 import { browserTaskSchema,type BrowserReadTask } from '@forge-ops/domain';
 import {lockSearchTaskSource} from './search-task-source.ts';
 type TaskBase = {
  id:string;device_id:string;task_kind:BrowserReadTask['request']['kind'];
  envelope:{version:1;payload:string;signature:string};task_hash:string;
- state:"queued"|"delivered"|"completed"|"cancelled";expires_at:Date;result_id:string|null;
+ state:"queued"|"delivered"|"completed"|"cancelled";expires_at:Date;result_id:string|null;conversation_id:string|null;action_id:string|null;
 };
 export type CandidateBrowserTaskRow=TaskBase&{search_run_id:null;candidate_id:string;source_capture_id:string|null;spec_id:string|null;input_version:number;settings_version:number};
 export type SearchBrowserTaskRow=TaskBase&{search_run_id:string;candidate_id:null;source_capture_id:null;spec_id:null;input_version:null;settings_version:null};
 export type BrowserTaskRow=CandidateBrowserTaskRow|SearchBrowserTaskRow;
+// Opportunity Finder exports are planner-paced (one run a day), so they stay outside this cap.
 const jungleScoutBrowserTaskKinds = [
- 'saved_search_export',
  'product_database',
  'keyword_scout',
  'historical_data',
@@ -32,6 +33,12 @@ async function readJungleScoutBrowserBudget(db:QueryConnection,browserCap?:numbe
 export async function lockTaskSource(db:QueryConnection,task:CandidateBrowserTaskRow) {
  const request=browserTaskSchema.parse(JSON.parse(Buffer.from(task.envelope.payload,'base64url').toString('utf8'))).request;
  if(request.kind!==task.task_kind)return null;
+ if(request.kind==='supplier_thread'||request.kind==='supplier_send')return lockAlibabaTaskSource(db,task);
+ if(request.kind==='supplier_search'&&await websiteContactEnabled(db)){
+  const gate=await lockAlibabaContext(db,task.candidate_id);
+  if(!gate.ready||gate.source.spec_id!==task.spec_id||gate.source.input_version!==task.input_version||gate.source.settings_version!==task.settings_version||request.query!==gate.source.keyword_display||request.candidateId!==task.candidate_id||request.specId!==task.spec_id||request.inputVersion!==task.input_version||request.settingsVersion!==task.settings_version)return null;
+  return {...gate.source,sourceCapture:null,readKind:'supplier' as const};
+ }
  if(request.kind==='amazon_search'||request.kind==='product_database'||request.kind==='keyword_scout'||request.kind==='historical_data'||request.kind==='category_trends'||request.kind==='competitive_intelligence'){
   const source=await lockMarketContext(db,task.candidate_id);
   if(!source||source.input_version!==task.input_version||source.settings_version!==task.settings_version||request.query!==source.market_query||request.candidateId!==source.id||request.inputVersion!==source.input_version||request.settingsVersion!==source.settings_version)return null;
@@ -54,28 +61,32 @@ export async function claimBrowserTask(pool:Pool,deviceId:string,browserCap?:num
   await db.query("BEGIN");
   await db.query("SELECT pg_advisory_xact_lock(hashtext('forge.settings'))");
   if(!await lockActiveBridgeDevice(db,deviceId)){await db.query("COMMIT");return {kind:"rejected" as const};}
-  await db.query("UPDATE browser_tasks SET state='cancelled' WHERE device_id=$1 AND state IN ('queued','delivered') AND expires_at<=clock_timestamp()",[deviceId]);
+  await db.query("UPDATE browser_tasks t SET state='cancelled' WHERE device_id=$1 AND state IN ('queued','delivered') AND expires_at<=clock_timestamp() AND NOT EXISTS(SELECT 1 FROM alibaba_actions a WHERE a.dispatch_task_id=t.id AND a.started_at IS NOT NULL)",[deviceId]);
   const researchRemaining=await readJungleScoutBrowserBudget(db,browserCap);
   for(let checked=0;checked<20;checked++){
    const row=(await db.query<BrowserTaskRow>(`SELECT t.* FROM browser_tasks t
     WHERE t.device_id=$1 AND (t.state='queued' OR (t.state='delivered' AND t.delivered_at<=clock_timestamp()-interval '150 seconds'))
+     AND NOT EXISTS(SELECT 1 FROM alibaba_actions a WHERE a.dispatch_task_id=t.id AND a.started_at IS NOT NULL)
      AND (t.task_kind <> ALL($2::text[]) OR t.state='delivered' OR $3::boolean)
    ORDER BY
-     -- Amazon reads finish a verdict; Alibaba supplier reads only serve candidates that already passed.
-     (left(t.task_kind,9)='supplier_') ASC,
-     (SELECT max(prior.delivered_at) FROM browser_tasks prior
+     -- Priority with aging: each scope waits from its last delivery (or first creation), shifted by kind.
+     -- Alibaba sends/thread reads are time-bound (+2 min head start); Amazon reads finish verdicts;
+     -- supplier searches/details only serve already-passed candidates (yield 10 min). Waiting long enough always wins, so nothing starves.
+     (SELECT COALESCE(max(prior.delivered_at),min(prior.created_at)) FROM browser_tasks prior
       WHERE prior.task_kind=t.task_kind
        AND prior.candidate_id IS NOT DISTINCT FROM t.candidate_id
        AND prior.search_run_id IS NOT DISTINCT FROM t.search_run_id
        AND prior.spec_id IS NOT DISTINCT FROM t.spec_id
        AND prior.source_capture_id IS NOT DISTINCT FROM t.source_capture_id
        AND prior.input_version IS NOT DISTINCT FROM t.input_version
-       AND prior.settings_version IS NOT DISTINCT FROM t.settings_version) ASC NULLS FIRST,
+       AND prior.settings_version IS NOT DISTINCT FROM t.settings_version)
+      +CASE WHEN t.task_kind IN ('supplier_send','supplier_thread') THEN interval '-2 minutes'
+        WHEN left(t.task_kind,9)='supplier_' THEN interval '10 minutes' ELSE interval '0' END ASC,
      t.created_at,t.id LIMIT 1 FOR UPDATE OF t`,[deviceId,jungleScoutBrowserTaskKinds,researchRemaining>0])).rows[0];
    if(!row){await db.query("COMMIT");return {kind:"idle" as const};}
    const source=row.search_run_id!==null?await lockSearchTaskSource(db,row):await lockTaskSource(db,row);
    if(!source){await db.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1",[row.id]);continue;}
-   const delivered=await db.query("UPDATE browser_tasks SET state='delivered',delivered_at=clock_timestamp(),first_delivered_at=COALESCE(first_delivered_at,clock_timestamp()) WHERE id=$1 AND (state='queued' OR (state='delivered' AND delivered_at<=clock_timestamp()-interval '150 seconds')) AND expires_at>clock_timestamp() RETURNING id",[row.id]);
+   const delivered=await db.query("UPDATE browser_tasks SET state='delivered',delivered_at=clock_timestamp(),first_delivered_at=COALESCE(first_delivered_at,clock_timestamp()) WHERE id=$1 AND (state='queued' OR (state='delivered' AND delivered_at<=clock_timestamp()-interval '150 seconds')) AND expires_at>clock_timestamp() AND (state<>'queued' OR task_kind<>'supplier_thread' OR expires_at>clock_timestamp()+interval '150 seconds') RETURNING id",[row.id]);
    if(!delivered.rowCount){await db.query("UPDATE browser_tasks SET state='cancelled' WHERE id=$1 AND state IN ('queued','delivered')",[row.id]);continue;}
    await db.query("COMMIT");
    return {kind:"task" as const,taskId:row.id,taskHash:row.task_hash,envelope:row.envelope};
@@ -85,7 +96,7 @@ export async function claimBrowserTask(pool:Pool,deviceId:string,browserCap?:num
  finally{db.release();}
 }
 export async function readBrowserTask(pool:Pool,deviceId:string,taskId:string) {
- const row=(await pool.query<{id:string;state:string;task_hash:string;result_id:string|null;expires_at:Date;body_sha256:string|null}>(
+ const row=(await pool.query<{id:string;state:string;task_hash:string;result_id:string|null;conversation_id:string|null;action_id:string|null;expires_at:Date;body_sha256:string|null}>(
   'SELECT t.id,t.state,t.task_hash,t.result_id,t.expires_at,r.body_sha256 FROM browser_tasks t LEFT JOIN browser_task_results r ON r.id=t.result_id JOIN bridge_devices d ON d.id=t.device_id JOIN "user" u ON u.id=d.owner_user_id WHERE t.id=$1 AND t.device_id=$2 AND d.revoked_at IS NULL AND u.two_factor_enabled=true',
   [taskId,deviceId])).rows[0];
  return row?{taskId:row.id,state:row.state,taskHash:row.task_hash,receiptId:row.result_id,resultHash:row.body_sha256,expiresAt:row.expires_at.toISOString()}:null;

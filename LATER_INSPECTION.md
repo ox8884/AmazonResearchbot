@@ -30,5 +30,10 @@
 - Main DB intentionally has 20 evidence-held candidates, 4 budget-held candidates, and 1 web-session hold. Do not auto-convert unknowns or spend remaining calls without Jay approval.
 - Two browser tasks may be delivered while ASIDE is reading; result submission depends on a valid searchable candidate surface.
 
+## 2026-09-13 ASIDE 재연결 준비
+
+- `/settings/connections`에서 기존 ASIDE 기기가 `연결 해제됨`으로 표시되어 일회용 새 pairing code를 생성했다.
+- 코드는 보안상 로그·문서에 기록하지 않았고, Jay가 로컬 ASIDE 연결 프로그램에 직접 붙여넣어야 한다. UI가 `연결됨`으로 바뀐 뒤 signed capability 확인을 남긴다.
+
 ## Provenance
 - 운영/fixture 후보 provenance 분리: 현재 메인 후보 25개가 모두 synthetic.kitchen.v1 import로 생성되어 문자열 필터는 안전하지 않음. 별도 append-only provenance schema 검토 필요.

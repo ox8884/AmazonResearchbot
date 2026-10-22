@@ -1,3 +1,4 @@
+import {readAlibabaWorkspace} from './alibaba-workspace.ts';
 import { currentAiRfq } from "@forge-ops/db";
 import type { FastifyInstance } from "fastify";
 import {
@@ -41,7 +42,8 @@ const supplierView = (r: SupplierRow): SupplierRecord => ({
 export function registerRfqRoutes(
   app: FastifyInstance,
   pool: Pool,
-  deliveryMode: "disabled" | "mailpit" | "profile" = "disabled",
+  deliveryMode: "disabled" | "mailpit" | "profile",
+  encryptionKey: Buffer,
 ) {
   app.get("/api/candidates/:id/contact", async (request, reply) => {
     const parsed = uuidParams.safeParse(request.params);
@@ -79,6 +81,7 @@ export function registerRfqRoutes(
           : "disabled"
         : deliveryMode;
     return {
+      website: await readAlibabaWorkspace(pool,id,encryptionKey),
       suppliers: suppliers.rows.map(supplierView),
       drafts: drafts.rows.map(rfqView),
       contactReady: gate.ready,

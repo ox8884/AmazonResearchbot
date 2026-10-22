@@ -2,6 +2,8 @@ import { z } from "zod";
 import { savedSearchFilters } from "./saved-search.ts";
 import { supplierDetailProductUrlSchema, supplierDetailCompanyUrlSchema } from "./supplier-detail.ts";
 
+import { alibabaThreadRequestSchema, alibabaSendRequestSchema } from "./alibaba.ts";
+
 export const BROWSER_TASK_SIGNATURE_PREFIX = "forge-browser-task:v1:";
 export const MAX_BROWSER_TASK_BYTES = 8192;
 const uuid = z.string().uuid();
@@ -13,6 +15,7 @@ export const browserTaskSchema = z.object({
   issuedAt: z.string().datetime({offset:true}),
   expiresAt: z.string().datetime({offset:true}),
   request: z.discriminatedUnion("kind", [
+    alibabaThreadRequestSchema, alibabaSendRequestSchema,
     z.object({kind:z.literal('amazon_search'),candidateId:uuid,inputVersion:z.number().int().positive(),settingsVersion:z.number().int().positive(),query:z.string().trim().min(1).max(500)}).strict(),
     z.object({
       kind: z.literal('amazon_package'), candidateId: uuid,
@@ -22,7 +25,7 @@ export const browserTaskSchema = z.object({
     z.object({
       kind: z.literal("supplier_search"),
       candidateId: uuid,
-      specId: uuid,
+      specId: uuid.nullable(),
       inputVersion: z.number().int().positive(),
       settingsVersion: z.number().int().positive(),
       query: z.string().min(1).max(500),

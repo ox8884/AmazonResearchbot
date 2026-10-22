@@ -79,6 +79,10 @@ export async function loadCandidateDetails(db:Db,locale:'ko'|'en',id:string|null
   const evidenceByCandidate=new Map<string,StoredEvidence[]>();
   for(const row of evidence.rows){const rows=evidenceByCandidate.get(row.candidate_id)??[];rows.push(row);evidenceByCandidate.set(row.candidate_id,rows);}
   const evaluationByCandidate=new Map(evaluations.rows.map(row=>[row.candidate_id,row]));
+  const website=await db.query<{candidate_id:string;status:string;reason:string|null}>("SELECT candidate_id,status,reason FROM alibaba_conversations c WHERE ($1::uuid IS NULL OR candidate_id=$1) AND NOT alibaba_conversation_retired(c)",[id]);
+  const browserReady=(await db.query<{ready:boolean}>(`SELECT EXISTS(SELECT 1 FROM bridge_devices d JOIN "user" u ON u.id=d.owner_user_id JOIN browser_signing_identity k ON k.fingerprint=d.reported_key_fingerprint
+   WHERE d.revoked_at IS NULL AND u.two_factor_enabled AND d.reported_connected AND d.reported_at>clock_timestamp()-interval '90 seconds'
+   AND ARRAY['supplier_search','supplier_thread','supplier_send']::text[] <@ d.reported_tasks) AS ready`)).rows[0]?.ready===true;
   return candidates.rows.map(row=>{
     const rows=evidenceByCandidate.get(row.id)??[];
     const input=readNicheEvidence(rows);
@@ -99,8 +103,18 @@ export async function loadCandidateDetails(db:Db,locale:'ko'|'en',id:string|null
     const projectedDecision=candidateDecision({phase:validation.phase,status:validation.status,marketRisk:validation.marketRisk,settings:activeSettings?.snapshot});
     const provisionalNoGo=projectedDecision==='waiting'&&(row.blocked_reason==='evidence'||validation.status==='hold');
     const decisionBasis:CandidateDecisionBasis=provisionalNoGo?'insufficient_evidence':projectedDecision==='go'?'confirmed_go':projectedDecision==='caution'?'market_caution':projectedDecision==='no_go'?'confirmed_rejection':'waiting';
+    let action=nextAction({stage:row.stage,blockedReason:row.blocked_reason,locale});
+    if(activeSettings?.snapshot.supplierContactMode==='website'&&['sourcing','rfq_draft','awaiting_contact_approval','sending_rfq','awaiting_quote','economics_review'].includes(row.stage)){
+      const conversations=website.rows.filter(conversation=>conversation.candidate_id===row.id),ko=locale==='ko';
+      const attention=conversations.some(conversation=>conversation.status==='attention');
+      const paused=conversations.some(conversation=>conversation.status==='paused');
+      const uncertain=conversations.some(conversation=>conversation.reason==='SEND_OUTCOME_UNKNOWN');
+      const waiting=conversations.length>0&&conversations.every(conversation=>conversation.status==='awaiting_reply');
+      action={kind:attention?'approval':!browserReady||paused||uncertain||waiting||projectedDecision!=='go'?'waiting':'automatic',target:'supplier_contact',
+       label:attention?(ko?'Alibaba 대화 확인이 필요합니다':'Review the Alibaba conversation'):uncertain?(ko?'발송 결과 확인 중 · 재발송하지 않습니다':'Checking the send result; no resend'):projectedDecision!=='go'?(ko?'현재 GO 판정이 필요합니다':'Current GO decision required'):paused?(ko?'조건이 바뀌어 Alibaba 문의가 중지됐습니다':'Alibaba contact paused after source changes'):!browserReady?(ko?'Alibaba 브라우저 연결을 기다립니다':'Waiting for the Alibaba browser'):waiting?(ko?'Alibaba 공급처 회신을 기다립니다':'Waiting for the Alibaba supplier'):conversations.length?(ko?'Alibaba 문의 작업이 대기 중입니다':'Alibaba inquiry queued'):(ko?'Alibaba 공급처 검색이 대기 중입니다':'Alibaba supplier search queued')};
+    }
     return {candidate:{id:row.id,keyword:row.keyword_display,stage:row.stage,stageLabel:stageLabel(row.stage,locale),blockedReason:row.blocked_reason,
-      evidenceSummary,unknowns:[...new Set(unknowns)],nextAction:nextAction({stage:row.stage,blockedReason:row.blocked_reason,locale}),
+      evidenceSummary,unknowns:[...new Set(unknowns)],nextAction:action,
       decision:provisionalNoGo?'no_go':projectedDecision,decisionBasis,evidencePlan:evidencePlan(input,validation,rows,locale)},evidence:rows,validation};
   });
 }

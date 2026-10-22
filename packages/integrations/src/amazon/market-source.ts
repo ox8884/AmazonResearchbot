@@ -22,7 +22,9 @@ export async function readMarketSource(db:QueryConnection,candidateId:string,key
    r.id AS receipt_id,r.body_ciphertext,t.expires_at
   FROM browser_tasks t JOIN candidates c ON c.id=t.candidate_id
   LEFT JOIN browser_task_results r ON r.id=t.result_id AND r.task_id=t.id
-  WHERE t.candidate_id=$1 AND t.task_kind='amazon_search' ORDER BY t.created_at DESC,t.id DESC LIMIT 1`,[candidateId])).rows[0];
+  WHERE t.candidate_id=$1 AND t.task_kind='amazon_search'
+  -- A queued daily refresh must not hide the current captured receipt.
+  ORDER BY (t.state='completed' AND t.input_version=c.input_version AND t.settings_version=(SELECT max(version) FROM settings_versions)) DESC,t.created_at DESC,t.id DESC LIMIT 1`,[candidateId])).rows[0];
  if(!row)return {state:'not_collected' as const};
  if(row.input_version!==row.current_input||row.settings_version!==row.current_settings)return {state:'stale' as const};
  if(row.state!=='completed')return {state:row.state==='cancelled'||row.expires_at.getTime()<=Date.now()?'waiting' as const:'collecting' as const};

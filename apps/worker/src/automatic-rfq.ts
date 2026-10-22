@@ -1,5 +1,6 @@
 import {
   contactEligibility,
+  websiteContactEnabled,
   currentAiRfq,
   insertContactProposal,
   refreshContactStage,
@@ -119,6 +120,7 @@ export async function prepareAutomaticRfqs(
 }
 
 export async function prepareReadyRfqs(pool: Pool): Promise<void> {
+  if(await websiteContactEnabled(pool))return;
   const candidates = (
     await pool.query<{ id: string }>(`
     SELECT c.id FROM candidates c
